@@ -15,7 +15,7 @@ function stagesFor(job: JobState, settings: Settings): StageId[] {
   if (job.kind !== "translate") stages.push("prepare", "ocr");
   if (job.kind !== "ocr") {
     stages.push("infer_schema");
-    if (settings.annotateWithOcr) stages.push("annotate");
+    if (settings.bboxAnnotations) stages.push("bbox_annotate");
     stages.push("translate");
   }
   return stages;

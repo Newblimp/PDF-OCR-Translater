@@ -1,7 +1,17 @@
 import { MistralClient } from "../mistral/client";
 import { chatModelOptions } from "../mistral/models";
-import type { ChatCompletionRequest } from "../mistral/types";
+import type { ChatCompletionRequest, ContentChunk } from "../mistral/types";
 import type { ChatProvider, JsonChatRequest, JsonChatResult } from "./provider";
+
+function userContent(request: JsonChatRequest): string | ContentChunk[] {
+  if (!request.images?.length) return request.user;
+  const chunks: ContentChunk[] = [{ type: "text", text: request.user }];
+  for (const image of request.images) {
+    chunks.push({ type: "text", text: `Image "${image.id}":` });
+    chunks.push({ type: "image_url", image_url: image.dataUrl });
+  }
+  return chunks;
+}
 
 /** Mistral chat provider (kept as an alternative to OpenAI for translation). */
 export class MistralProvider implements ChatProvider {
@@ -23,7 +33,7 @@ export class MistralProvider implements ChatProvider {
       model: request.model,
       messages: [
         { role: "system", content: request.system },
-        { role: "user", content: request.user },
+        { role: "user", content: userContent(request) },
       ],
       response_format:
         request.format.type === "json_schema"

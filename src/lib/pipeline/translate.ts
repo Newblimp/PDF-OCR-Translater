@@ -1,14 +1,16 @@
 /**
- * Step 3: translate the document into a JSON object that follows a schema.
+ * Document annotation step (Mistral's workflow, performed by the vision
+ * model): the OCR Markdown, the first bounding-box images and the JSON
+ * format go to the vision LLM, which returns the JSON. In this app the JSON
+ * is the translation of the document.
  *
  * Uses the provider's structured output mode (`json_schema`, strict) so the
  * API only returns well-formed JSON matching the schema. If the API rejects
- * the request (unsupported schema keyword, streaming/format combination), we
- * fall back step by step and finally to `json_object` mode with the schema
- * in the prompt.
+ * the request, we fall back step by step: without images (models without
+ * vision), non-streaming, and finally `json_object` mode.
  */
 import { ApiError } from "../http/apiError";
-import type { ChatProvider, JsonChatResult, ReasoningEffort, TokenUsage } from "../llm/provider";
+import type { AttachedImage, ChatProvider, JsonChatResult, ReasoningEffort, TokenUsage } from "../llm/provider";
 import type { JsonSchemaObject } from "../mistral/types";
 import { parseModelJson } from "../util/json";
 import { emit, type ProgressListener } from "./events";
@@ -20,13 +22,13 @@ export type StructuredMode = "json_schema" | "json_object";
 export interface TranslateOptions extends PromptContext {
   model: string;
   schema: JsonSchemaObject;
+  /** Bounding-box images handed to the vision model with the text (already capped by the caller). */
+  images?: AttachedImage[] | undefined;
   temperature?: number | undefined;
   reasoningEffort?: ReasoningEffort | undefined;
   maxOutputTokens?: number | undefined;
   /** Stream tokens to report progress (default true). */
   streaming?: boolean | undefined;
-  /** Source-language extraction by Mistral OCR for the same schema, if available. */
-  annotationJson?: string | undefined;
   signal?: AbortSignal | undefined;
   onProgress?: ProgressListener | undefined;
 }
@@ -37,44 +39,60 @@ export interface TranslationOutcome {
   usage: TokenUsage | null;
   model: string;
   mode: StructuredMode;
+  /** Number of images that were actually sent with the successful attempt. */
+  imagesSent: number;
   /** Gross mismatches between the output and the schema (should be empty). */
   violations: string[];
   finishReason: string | null;
 }
 
+interface Attempt {
+  mode: StructuredMode;
+  stream: boolean;
+  images: boolean;
+}
+
 export async function translateStructured(provider: ChatProvider, documentText: string, options: TranslateOptions): Promise<TranslationOutcome> {
   const { onProgress } = options;
+  const images = options.images ?? [];
   const schemaJson = JSON.stringify(options.schema, null, 2);
   const system = translationSystemPrompt(options);
-  const user = translationUserPrompt(documentText, schemaJson, options.annotationJson);
 
-  emit(onProgress, "translate", "start", `Translating with ${options.model} (${provider.label}) into ${options.targetLanguage}`);
+  emit(
+    onProgress,
+    "translate",
+    "start",
+    `Translating with ${options.model} (${provider.label}) into ${options.targetLanguage}${images.length ? `, with ${images.length} bounding-box image(s)` : ""}`,
+  );
 
-  // Attempts, in order. Each fallback only triggers on a 4xx "bad request";
-  // every other error propagates immediately.
+  // Attempts, in order. A fallback only triggers on a 4xx "bad request" that a
+  // different request shape could fix; every other error propagates.
   const streaming = options.streaming !== false;
-  const attempts: Array<{ mode: StructuredMode; stream: boolean }> = [
-    { mode: "json_schema", stream: streaming },
-    ...(streaming ? [{ mode: "json_schema" as const, stream: false }] : []),
-    { mode: "json_object", stream: false },
-  ];
+  const attempts: Attempt[] = [];
+  const push = (a: Attempt) => {
+    if (!attempts.some((x) => x.mode === a.mode && x.stream === a.stream && x.images === a.images)) attempts.push(a);
+  };
+  push({ mode: "json_schema", stream: streaming, images: images.length > 0 });
+  if (images.length) push({ mode: "json_schema", stream: streaming, images: false });
+  if (streaming) push({ mode: "json_schema", stream: false, images: false });
+  push({ mode: "json_object", stream: false, images: false });
 
   let result: JsonChatResult | null = null;
-  let mode: StructuredMode = "json_schema";
+  let used: Attempt = attempts[0]!;
   for (let i = 0; i < attempts.length; i++) {
     const attempt = attempts[i]!;
     try {
-      result = await complete(provider, system, user, options, attempt.mode, attempt.stream);
-      mode = attempt.mode;
+      result = await complete(provider, system, documentText, schemaJson, attempt.images ? images : [], options, attempt);
+      used = attempt;
       break;
     } catch (err) {
       const next = attempts[i + 1];
-      if (!isFormatRejection(err) || !next) throw err;
+      if (!isRetryableRejection(err) || !next) throw err;
       emit(
         onProgress,
         "translate",
         "warning",
-        `The API rejected the request (${attempt.mode}${attempt.stream ? ", streaming" : ""}); retrying with ${next.mode}${next.stream ? ", streaming" : ""}`,
+        `The API rejected the request (${describe(attempt)}); retrying (${describe(next)})`,
         { detail: err.message },
       );
     }
@@ -104,30 +122,44 @@ export async function translateStructured(provider: ChatProvider, documentText: 
     rawText: result.content,
     usage: result.usage,
     model: result.model,
-    mode,
+    mode: used.mode,
+    imagesSent: used.images ? images.length : 0,
     violations,
     finishReason: result.finishReason,
   };
 }
 
-/**
- * Only 4xx rejections that could be caused by the response format or the
- * streaming flag are worth a retry with a different format. Refusals,
- * unsupported parameters and unknown models fail the same way every time.
- */
-function isFormatRejection(err: unknown): err is ApiError {
-  if (!(err instanceof ApiError) || err.kind !== "request") return false;
-  return !/unsupported parameter|unsupported value|model_not_found|does not exist|do not have access|invalid model|not supported/i.test(err.message);
+function describe(a: Attempt): string {
+  return `${a.mode}${a.stream ? ", streaming" : ""}${a.images ? ", with images" : ", text only"}`;
 }
 
-function complete(provider: ChatProvider, system: string, user: string, options: TranslateOptions, mode: StructuredMode, stream: boolean) {
+/**
+ * Only 4xx rejections that a different request shape could fix are worth a
+ * retry: unsupported images/vision, schema keywords, streaming. Refusals,
+ * unsupported parameters and unknown models fail the same way every time.
+ */
+function isRetryableRejection(err: unknown): err is ApiError {
+  if (!(err instanceof ApiError) || err.kind !== "request") return false;
+  return !/unsupported parameter|unsupported value|model_not_found|does not exist|do not have access|invalid model/i.test(err.message);
+}
+
+function complete(
+  provider: ChatProvider,
+  system: string,
+  documentText: string,
+  schemaJson: string,
+  images: AttachedImage[],
+  options: TranslateOptions,
+  attempt: Attempt,
+) {
   let lastReport = 0;
   return provider.completeJson({
     model: options.model,
     system,
-    user,
+    user: translationUserPrompt(documentText, schemaJson, images.map((i) => i.id)),
+    images: images.length ? images : undefined,
     format:
-      mode === "json_schema"
+      attempt.mode === "json_schema"
         ? {
             type: "json_schema",
             name: "translated_document",
@@ -136,18 +168,21 @@ function complete(provider: ChatProvider, system: string, user: string, options:
             strict: true,
           }
         : { type: "json_object" },
-    stream,
+    stream: attempt.stream,
     temperature: options.temperature ?? 0.2,
     reasoningEffort: options.reasoningEffort,
     maxOutputTokens: options.maxOutputTokens,
     signal: options.signal,
-    onDelta: stream
+    onDelta: attempt.stream
       ? (_delta, accumulated) => {
-          // Throttle UI updates to roughly 10/s.
+          // Throttle UI updates to roughly 10/s; the partial text lets the UI render live.
           const now = Date.now();
           if (now - lastReport > 100) {
             lastReport = now;
-            emit(options.onProgress, "translate", "progress", "Receiving translation…", { receivedChars: accumulated.length });
+            emit(options.onProgress, "translate", "progress", "Receiving translation…", {
+              receivedChars: accumulated.length,
+              streamText: accumulated,
+            });
           }
         }
       : undefined,

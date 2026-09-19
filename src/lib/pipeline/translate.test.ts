@@ -55,6 +55,37 @@ describe("translateStructured", () => {
     expect(events.filter((e) => e.status === "warning")).toHaveLength(2);
   });
 
+  it("attaches bounding-box images, lists their ids in the prompt, and drops them if the model rejects images", async () => {
+    const seen: JsonChatRequest[] = [];
+    const provider = fakeProvider((req) => {
+      seen.push(req);
+      if (req.images?.length) throw new ApiError("HTTP 400: Invalid content type. image_url is only supported by certain models.", "request", "openai", 400);
+      return ok('{"title":"ok"}');
+    });
+    const images = [
+      { id: "img-0.jpeg", dataUrl: "data:image/png;base64,AA" },
+      { id: "img-1.jpeg", dataUrl: "data:image/png;base64,BB" },
+    ];
+    const out = await translateStructured(provider, "text", { ...base, images, streaming: false });
+    expect(seen[0]?.images).toHaveLength(2);
+    expect(seen[0]?.user).toContain('"img-0.jpeg", "img-1.jpeg"');
+    expect(seen[1]?.images).toBeUndefined();
+    expect(out.imagesSent).toBe(0);
+    expect(out.mode).toBe("json_schema");
+  });
+
+  it("reports the number of images sent and streams partial text", async () => {
+    const events: ProgressEvent[] = [];
+    const provider = fakeProvider(() => ok('{"title":"streamed"}'));
+    const out = await translateStructured(provider, "text", {
+      ...base,
+      images: [{ id: "x", dataUrl: "data:image/png;base64,AA" }],
+      onProgress: (e) => events.push(e),
+    });
+    expect(out.imagesSent).toBe(1);
+    expect(events.some((e) => e.status === "progress" && e.streamText === '{"title":"streamed"}')).toBe(true);
+  });
+
   it("does not retry on refusals or on rejections a different format cannot fix", async () => {
     let calls = 0;
     const refusing = fakeProvider(() => {

@@ -1,13 +1,13 @@
 /** Progress reporting shared by all pipeline steps. */
 
-export type StageId = "prepare" | "ocr" | "infer_schema" | "annotate" | "translate";
+export type StageId = "prepare" | "ocr" | "infer_schema" | "bbox_annotate" | "translate";
 
 export const STAGE_LABELS: Record<StageId, string> = {
   prepare: "Preparing document",
   ocr: "OCR (Mistral Document AI)",
   infer_schema: "Inferring JSON format",
-  annotate: "Mistral OCR annotation with the JSON format",
-  translate: "Translating",
+  bbox_annotate: "Describing bounding boxes (vision model)",
+  translate: "Document annotation: translating (vision model)",
 };
 
 export type ProgressStatus = "start" | "progress" | "done" | "warning" | "skipped";
@@ -20,6 +20,8 @@ export interface ProgressEvent {
   detail?: string;
   /** For streaming stages: characters received so far. */
   receivedChars?: number;
+  /** For streaming stages: the text received so far (throttled). */
+  streamText?: string;
   timestamp: number;
 }
 
@@ -30,11 +32,12 @@ export function emit(
   stage: StageId,
   status: ProgressStatus,
   message: string,
-  extra: { detail?: string | undefined; receivedChars?: number | undefined } = {},
+  extra: { detail?: string | undefined; receivedChars?: number | undefined; streamText?: string | undefined } = {},
 ): void {
   if (!listener) return;
   const event: ProgressEvent = { stage, status, message, timestamp: Date.now() };
   if (extra.detail !== undefined) event.detail = extra.detail;
   if (extra.receivedChars !== undefined) event.receivedChars = extra.receivedChars;
+  if (extra.streamText !== undefined) event.streamText = extra.streamText;
   listener(event);
 }

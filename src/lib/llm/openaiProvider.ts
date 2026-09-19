@@ -1,6 +1,6 @@
 import { OpenAIClient } from "../openai/client";
 import { openaiModelOptions } from "../openai/models";
-import type { ChatCompletionRequest } from "../openai/types";
+import type { ChatCompletionRequest, ContentPart } from "../openai/types";
 import type { ChatProvider, JsonChatRequest, JsonChatResult } from "./provider";
 import { ApiError } from "../http/apiError";
 
@@ -11,6 +11,17 @@ import { ApiError } from "../http/apiError";
  *  - `reasoning_effort` is sent when set; "none" keeps outputs fast and cheap.
  *  - Streaming requests ask for usage in the final chunk.
  */
+/** Text first, then each image preceded by a short label carrying its id. */
+function userContent(request: JsonChatRequest): string | ContentPart[] {
+  if (!request.images?.length) return request.user;
+  const parts: ContentPart[] = [{ type: "text", text: request.user }];
+  for (const image of request.images) {
+    parts.push({ type: "text", text: `Image "${image.id}":` });
+    parts.push({ type: "image_url", image_url: { url: image.dataUrl, detail: "auto" } });
+  }
+  return parts;
+}
+
 export class OpenAIProvider implements ChatProvider {
   readonly id = "openai" as const;
   readonly label = "OpenAI (GPT Luna)";
@@ -30,7 +41,7 @@ export class OpenAIProvider implements ChatProvider {
       model: request.model,
       messages: [
         { role: "system", content: request.system },
-        { role: "user", content: request.user },
+        { role: "user", content: userContent(request) },
       ],
       response_format:
         request.format.type === "json_schema"

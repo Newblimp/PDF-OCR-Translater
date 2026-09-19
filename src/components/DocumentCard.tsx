@@ -7,13 +7,15 @@ interface Props {
   doc: DocState;
   ocr: OcrState | null;
   busy: boolean;
+  showPreview: boolean;
+  onTogglePreview: (show: boolean) => void;
   onReplace: (file: File) => void;
   onRemove: () => void;
 }
 
 const KIND_LABEL = { pdf: "PDF", image: "Image", text: "Text" } as const;
 
-export function DocumentCard({ doc, ocr, busy, onReplace, onRemove }: Props) {
+export function DocumentCard({ doc, ocr, busy, showPreview, onTogglePreview, onReplace, onRemove }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
     <div class="card document-card">
@@ -50,15 +52,20 @@ export function DocumentCard({ doc, ocr, busy, onReplace, onRemove }: Props) {
         </div>
       </div>
 
-      {ocr && (
-        <p class="badge-row">
+      <div class="badge-row">
+        {ocr && (
           <span class="badge badge-ok">
             {ocr.source === "cache" ? "OCR result in local cache (use “Translate only” to reuse it)" : "OCR done"} · {ocr.text.pagesProcessed} page(s)
+            {ocr.text.bboxes.length ? ` · ${ocr.text.bboxes.length} bounding box(es)` : ""}
           </span>
-        </p>
-      )}
+        )}
+        <label class="checkbox small preview-toggle">
+          <input type="checkbox" checked={showPreview} onChange={(e) => onTogglePreview((e.target as HTMLInputElement).checked)} />
+          <span>Show document preview</span>
+        </label>
+      </div>
 
-      {doc.kind === "text" ? (
+      {!showPreview ? null : doc.kind === "text" ? (
         <pre class="text-preview">{(doc.textContent ?? "").slice(0, 1500)}{(doc.textContent?.length ?? 0) > 1500 ? "\n…" : ""}</pre>
       ) : (
         <div class="preview-strip" aria-label="Document preview">

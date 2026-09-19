@@ -10,8 +10,12 @@ const DB_NAME = "pdf-ocr-translater";
 const DB_VERSION = 1;
 const STORE = "ocr";
 
+/** Bump when the cached response shape changes; older entries are ignored. */
+export const OCR_CACHE_VERSION = 2;
+
 export interface OcrCacheEntry {
   key: string;
+  version?: number;
   fileName: string;
   fileSize: number;
   model: string;
@@ -52,7 +56,7 @@ export async function getCachedOcr(key: string): Promise<OcrCacheEntry | null> {
     const tx = db.transaction(STORE, "readonly");
     const entry = await requestToPromise(tx.objectStore(STORE).get(key) as IDBRequest<OcrCacheEntry | undefined>);
     db.close();
-    return entry ?? null;
+    return entry && entry.version === OCR_CACHE_VERSION ? entry : null;
   } catch {
     return null;
   }

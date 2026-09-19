@@ -1,7 +1,16 @@
 /**
- * Orchestrates the three user-facing operations:
- *   - "OCR only"           : document → OCR text                 (Mistral OCR)
- *   - "Translate only"     : text → (schema) → JSON translation  (chat provider)
+ * Orchestrates the three user-facing operations, following Mistral's
+ * annotation workflow with the vision LLM swapped for the selected provider:
+ *
+ *   document ──► Mistral OCR ──► Markdown + bounding boxes (images, blocks)
+ *                                  │
+ *                                  ├─► vision LLM per bounding box ──► bbox annotations
+ *                                  │
+ *                                  └─► Markdown + first 8 bbox images + JSON format
+ *                                        ──► vision LLM ──► document annotation = translated JSON
+ *
+ *   - "OCR only"           : document → OCR
+ *   - "Translate only"     : text (+ boxes when the OCR result is at hand) → JSON translation
  *   - "OCR and translate"  : both
  *
  * The functions are plain async operations with progress callbacks; the UI
@@ -10,12 +19,12 @@
 import type { ChatProvider, ReasoningEffort } from "../llm/provider";
 import type { MistralClient } from "../mistral/client";
 import type { JsonSchemaObject } from "../mistral/types";
+import { annotateBboxes, type BboxAnnotateOutcome } from "./bboxAnnotate";
 import { emit, type ProgressListener } from "./events";
 import { inferSchema, type InferredSchema } from "./inferSchema";
 import type { OcrText } from "./ocrText";
 import type { PromptContext } from "./prompts";
-import { annotateWithOcr, runOcr, type AnnotationOutcome, type OcrInput, type OcrOutcome } from "./runOcr";
-import { annotationPrompt } from "./prompts";
+import { DOCUMENT_ANNOTATION_MAX_IMAGES, runOcr, type OcrInput, type OcrOutcome } from "./runOcr";
 import { getBuiltinSchema } from "./schemas";
 import { sanitizeSchema } from "./schema";
 import { translateStructured, type TranslationOutcome } from "./translate";
@@ -33,14 +42,18 @@ export interface PipelineSettings extends PromptContext {
   temperature: number;
   reasoningEffort?: ReasoningEffort | undefined;
   maxOutputTokens?: number | undefined;
-  /** Send the resolved JSON format to Mistral OCR as document annotation before translating. */
-  annotateWithOcr: boolean;
+  /** Send the first bounding-box images with the text to the vision model (document annotation). */
+  sendImages: boolean;
+  /** Describe each bounding box with the vision model (bbox annotation). */
+  bboxAnnotations: boolean;
+  /** Upper bound on bounding boxes described per run. */
+  maxBboxAnnotations: number;
 }
 
 export interface PipelineContext {
   /** Mistral client used for OCR. */
   ocr: MistralClient;
-  /** Chat provider used for schema inference and translation. */
+  /** Vision-capable chat provider used for schema inference, bbox annotation and translation. */
   chat: ChatProvider;
   settings: PipelineSettings;
   signal?: AbortSignal | undefined;
@@ -57,16 +70,13 @@ export interface SchemaResolution {
 export interface TranslateTextResult {
   schema: SchemaResolution;
   translation: TranslationOutcome;
-  /** Mistral OCR's own extraction into the schema, when the stage ran. */
-  annotation: AnnotationOutcome | null;
-  /** Why the annotation stage did not run (shown in the UI). */
-  annotationNote: string | null;
+  /** Per-bounding-box descriptions, when the stage ran. */
+  bboxes: BboxAnnotateOutcome | null;
 }
 
 export interface TranslateTextOptions {
-  /** The original document, needed to run the annotation stage. */
-  document?: OcrInput | undefined;
-  pageCount?: number | null | undefined;
+  /** OCR result of the loaded document, so bounding boxes can be used. */
+  ocr?: OcrText | undefined;
 }
 
 export async function ocrOnly(ctx: PipelineContext, input: OcrInput): Promise<OcrOutcome> {
@@ -103,42 +113,48 @@ export async function resolveSchema(ctx: PipelineContext, documentText: string):
 }
 
 export async function translateText(ctx: PipelineContext, documentText: string, opts: TranslateTextOptions = {}): Promise<TranslateTextResult> {
+  const { settings } = ctx;
+  const promptCtx = { targetLanguage: settings.targetLanguage, sourceLanguage: settings.sourceLanguage, domainHint: settings.domainHint };
   const schema = await resolveSchema(ctx, documentText);
 
-  let annotation: AnnotationOutcome | null = null;
-  let annotationNote: string | null = null;
-  if (!ctx.settings.annotateWithOcr) {
-    annotationNote = "Disabled in Settings.";
-    emit(ctx.onProgress, "annotate", "skipped", "Mistral OCR annotation disabled in Settings");
-  } else if (!opts.document) {
-    annotationNote = "Only possible when the source is a PDF or image; pasted or text-file input skips it.";
-    emit(ctx.onProgress, "annotate", "skipped", "No document to annotate (text input)");
+  // BBox annotation: one vision call per extracted box.
+  let bboxes: BboxAnnotateOutcome | null = null;
+  if (!opts.ocr) {
+    emit(ctx.onProgress, "bbox_annotate", "skipped", "No bounding boxes (text input)");
+  } else if (!settings.bboxAnnotations) {
+    emit(ctx.onProgress, "bbox_annotate", "skipped", "Bounding-box descriptions disabled in Settings");
   } else {
-    annotation = await annotateWithOcr(ctx.ocr, opts.document, {
-      model: ctx.settings.ocrModel,
-      schema: schema.schema,
-      pageCount: opts.pageCount,
-      prompt: annotationPrompt(ctx.settings),
+    bboxes = await annotateBboxes(ctx.chat, opts.ocr, {
+      ...promptCtx,
+      model: settings.chatModel,
+      maxBoxes: settings.maxBboxAnnotations,
+      reasoningEffort: settings.reasoningEffort,
       signal: ctx.signal,
       onProgress: ctx.onProgress,
     });
   }
 
+  // Document annotation: text + first eight bbox images + schema → translated JSON.
+  const images =
+    opts.ocr && settings.sendImages
+      ? opts.ocr.bboxes
+          .filter((b) => b.dataUrl)
+          .slice(0, DOCUMENT_ANNOTATION_MAX_IMAGES)
+          .map((b) => ({ id: b.id, dataUrl: b.dataUrl! }))
+      : [];
   const translation = await translateStructured(ctx.chat, documentText, {
-    annotationJson: annotation ? JSON.stringify(annotation.data, null, 2) : undefined,
-    model: ctx.settings.chatModel,
+    ...promptCtx,
+    model: settings.chatModel,
     schema: schema.schema,
-    temperature: ctx.settings.temperature,
-    reasoningEffort: ctx.settings.reasoningEffort,
-    maxOutputTokens: ctx.settings.maxOutputTokens,
-    streaming: ctx.settings.streaming,
-    targetLanguage: ctx.settings.targetLanguage,
-    sourceLanguage: ctx.settings.sourceLanguage,
-    domainHint: ctx.settings.domainHint,
+    images,
+    temperature: settings.temperature,
+    reasoningEffort: settings.reasoningEffort,
+    maxOutputTokens: settings.maxOutputTokens,
+    streaming: settings.streaming,
     signal: ctx.signal,
     onProgress: ctx.onProgress,
   });
-  return { schema, translation, annotation, annotationNote };
+  return { schema, translation, bboxes };
 }
 
 export interface OcrAndTranslateResult extends TranslateTextResult {
@@ -147,8 +163,8 @@ export interface OcrAndTranslateResult extends TranslateTextResult {
 
 export async function ocrAndTranslate(ctx: PipelineContext, input: OcrInput): Promise<OcrAndTranslateResult> {
   const ocr = await ocrOnly(ctx, input);
-  const rest = await translateText(ctx, ocr.text.text, { document: input, pageCount: ocr.text.pagesProcessed });
+  const rest = await translateText(ctx, ocr.text.text, { ocr: ocr.text });
   return { ocr, ...rest };
 }
 
-export type { OcrText, OcrOutcome, TranslationOutcome, InferredSchema, AnnotationOutcome };
+export type { OcrText, OcrOutcome, TranslationOutcome, InferredSchema, BboxAnnotateOutcome };

@@ -13,11 +13,10 @@ import { sha256Hex } from "@/lib/files/hash";
 import { openPdfPreview } from "@/lib/files/pdfPreview";
 import { emit } from "@/lib/pipeline/events";
 import { ocrOnly, translateText, type PipelineContext, type PipelineSettings, type SchemaMode } from "@/lib/pipeline/pipeline";
-import type { OcrInput } from "@/lib/pipeline/runOcr";
-import { buildOcrText } from "@/lib/pipeline/ocrText";
+import { buildOcrText, type OcrText } from "@/lib/pipeline/ocrText";
 import { OCR_MAX_FILE_BYTES } from "@/lib/pipeline/runOcr";
 import { clearApiKey, saveApiKey } from "@/lib/storage/apiKeys";
-import { getCachedOcr, ocrCacheKey, putCachedOcr } from "@/lib/storage/ocrCache";
+import { getCachedOcr, OCR_CACHE_VERSION, ocrCacheKey, putCachedOcr } from "@/lib/storage/ocrCache";
 import { saveSettings, type Settings } from "@/lib/storage/settings";
 import { applyTheme } from "@/lib/storage/theme";
 import { formatBytes } from "@/lib/util/text";
@@ -249,7 +248,7 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
   const controller = new AbortController();
   rt.dispatch({
     type: "job/start",
-    job: { kind, startedAt: Date.now(), events: [], currentStage: "prepare", receivedChars: 0, controller },
+    job: { kind, startedAt: Date.now(), events: [], currentStage: "prepare", receivedChars: 0, streamText: "", controller },
   });
   const onProgress: PipelineContext["onProgress"] = (event) => rt.dispatch({ type: "job/event", event });
   const ctx: PipelineContext = {
@@ -262,8 +261,8 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
 
   try {
     let sourceText: string | null = null;
-    // The document itself, for the Mistral OCR annotation stage.
-    let annotationInput: { document: OcrInput; pageCount: number | null } | null = null;
+    // OCR result of the loaded document, so bounding boxes can be used by the vision model.
+    let ocrText: OcrText | null = null;
 
     if (kind === "ocr" || kind === "both") {
       const doc = state.doc;
@@ -271,8 +270,7 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
       emit(onProgress, "prepare", "start", `Encoding ${doc.name} (${formatBytes(doc.size)})`);
       const dataUrl = await fileToDataUrl(doc.file, doc.mimeType);
       emit(onProgress, "prepare", "done", "Document encoded");
-      annotationInput = { document: { dataUrl, mimeType: doc.mimeType, fileName: doc.name }, pageCount: doc.pageCount };
-      const outcome = await ocrOnly(ctx, annotationInput.document);
+      const outcome = await ocrOnly(ctx, { dataUrl, mimeType: doc.mimeType, fileName: doc.name });
       controller.signal.throwIfAborted();
       rt.dispatch({
         type: "ocr/set",
@@ -282,6 +280,7 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
       if (state.settings.cacheOcr && doc.hash) {
         void putCachedOcr({
           key: ocrCacheKey(doc.hash, state.settings.ocrModel),
+          version: OCR_CACHE_VERSION,
           fileName: doc.name,
           fileSize: doc.size,
           model: outcome.response.model,
@@ -290,25 +289,19 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
         });
       }
       sourceText = outcome.text.text;
+      ocrText = outcome.text;
     }
 
     if (kind === "translate") {
       const source = selectSourceText(state);
       if (!source) throw new Error("Nothing to translate: run OCR first, drop a text file, or paste text.");
       sourceText = source.text;
-      // Reusing an OCR result of a loaded PDF/image: the file is still here for annotation.
-      const doc = state.doc;
-      if (source.origin === "ocr" && doc && (doc.kind === "pdf" || doc.kind === "image") && state.settings.annotateWithOcr) {
-        emit(onProgress, "prepare", "start", `Encoding ${doc.name} for Mistral OCR annotation`);
-        const dataUrl = await fileToDataUrl(doc.file, doc.mimeType);
-        emit(onProgress, "prepare", "done", "Document encoded");
-        annotationInput = { document: { dataUrl, mimeType: doc.mimeType, fileName: doc.name }, pageCount: doc.pageCount ?? state.ocr?.text.pagesProcessed ?? null };
-      }
+      if (source.origin === "ocr" && state.ocr) ocrText = state.ocr.text;
     }
 
     if (kind === "translate" || kind === "both") {
       if (!sourceText?.trim()) throw new Error("OCR returned no text to translate.");
-      const result = await translateText(ctx, sourceText, annotationInput ? { document: annotationInput.document, pageCount: annotationInput.pageCount } : {});
+      const result = await translateText(ctx, sourceText, ocrText ? { ocr: ocrText } : {});
       controller.signal.throwIfAborted();
       rt.dispatch({
         type: "translation/set",
@@ -328,8 +321,9 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
           targetLanguage: state.settings.targetLanguage,
           completedAt: Date.now(),
           sourceChars: sourceText.length,
-          annotation: result.annotation,
-          annotationNote: result.annotationNote,
+          imagesSent: result.translation.imagesSent,
+          bboxAnnotations: result.bboxes?.annotations ?? [],
+          bboxUsage: result.bboxes?.usage ?? null,
         },
       });
     }
@@ -383,7 +377,9 @@ function toPipelineSettings(settings: Settings): PipelineSettings | { error: Non
     temperature: settings.temperature,
     reasoningEffort: info.supportsReasoningEffort ? settings.reasoningEffort : undefined,
     maxOutputTokens: settings.maxOutputTokens ?? undefined,
-    annotateWithOcr: settings.annotateWithOcr,
+    sendImages: settings.sendImages,
+    bboxAnnotations: settings.bboxAnnotations,
+    maxBboxAnnotations: settings.maxBboxAnnotations,
     targetLanguage: settings.targetLanguage,
     sourceLanguage: settings.sourceLanguage,
     domainHint: settings.domainHint,

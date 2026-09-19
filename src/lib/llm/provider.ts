@@ -15,10 +15,19 @@ export type JsonFormat =
   | { type: "json_object" }
   | { type: "json_schema"; name: string; description?: string; schema: JsonSchemaObject; strict: boolean };
 
+export interface AttachedImage {
+  /** Identifier used in the text (e.g. the OCR image id) so the model can relate them. */
+  id: string;
+  /** `data:image/...;base64,...` */
+  dataUrl: string;
+}
+
 export interface JsonChatRequest {
   model: string;
   system: string;
   user: string;
+  /** Images appended to the user message (vision models). Omitted when empty. */
+  images?: AttachedImage[] | undefined;
   format: JsonFormat;
   stream: boolean;
   /** Sampling temperature; providers that do not support it ignore it. */

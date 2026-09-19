@@ -28,30 +28,36 @@ anywhere else.
    - **Translate only** — translate the OCR text of the loaded file (this
      session's result or the local cache), a dropped text file, or pasted text.
 3. **OCR** runs on `mistral-ocr-latest` with `extract_header` /
-   `extract_footer` on and images disabled, so headers, footers and images
-   never reach the translation step.
+   `extract_footer` on, `include_image_base64` (the extracted bounding boxes
+   with their cropped images) and `include_blocks` (paragraph-level boxes).
+   Headers and footers never reach the translation step; image references in
+   the text become `[Image: id]` placeholders that match the box ids.
 4. **JSON format inference** (default) asks the translation model to design a
    JSON Schema for *this* document — the API-side counterpart of Mistral's
    playground option "infer a JSON format from the document". You can instead
    pick the built-in *patent office communication* schema or paste your own.
-5. **Mistral OCR annotation** (on by default) sends that JSON format back to
-   Mistral OCR as `document_annotation_format`, so the OCR model itself fills
-   the fields from the page images, in the source language. This is a second
-   OCR pass (the format is only known after the first read) and the API
-   annotates at most the first 8 pages. The result is shown in its own tab
-   and handed to the translation model together with the full text. The
-   "Translation" tab shows a step strip that states whether this happened.
-6. **Translation** calls the provider's `/v1/chat/completions` with
+5. **BBox annotation** (Mistral's workflow, performed by the selected vision
+   model): one call per extracted bounding box with a fixed format
+   (`image_type`, `short_description`, `summary`, plus the text in the image
+   and its translation). Capped by a setting (default 20 boxes per run).
+6. **Document annotation = translation** (Mistral's workflow, performed by
+   the vision model): the OCR Markdown, the first 8 bounding-box images and
+   the JSON format go to the model in one `/v1/chat/completions` call with
    `response_format: { type: "json_schema", strict: true }`, so the API only
-   returns well-formed JSON that matches the schema. Tokens are streamed to
-   show progress. If the API rejects the request, the app falls back
-   step by step (non-streaming, then `json_object` mode).
-   Target language is a toggle: **English** or **German**.
+   returns well-formed JSON that matches the schema. Tokens are streamed and
+   the partial JSON is rendered live. If the API rejects the request, the app
+   falls back step by step (without images, non-streaming, then
+   `json_object` mode). Target language is a toggle: **English** or **German**.
+   The "Translation" tab starts with a step strip that states which model did
+   what, including how many images were sent.
 7. **Browse the result**: an outline of the fields, one collapsible card per
    field (expand/collapse all), long text collapsible and rendered as
    Markdown (tables, lists), arrays as lists or grids, full-text search
-   across fields, copy/download of the JSON, and tabs for the OCR text and
-   the schema that was used.
+   across fields, copy/download of the JSON, and tabs for the OCR text, the
+   schema that was used, and a **Bounding boxes** view that draws the OCR
+   boxes (figures and paragraph blocks) over the rendered page, with the
+   cropped image and the vision model's description for each box. The
+   document card has a checkbox to hide the page thumbnails.
 
 Two API keys are requested on first use (Mistral for OCR, OpenAI for
 translation), verified against each provider's `GET /v1/models`, and cached
@@ -111,7 +117,8 @@ All defaults live in code so they can be changed in one place:
 | Translation model | `gpt-5.6-luna` (OpenAI) / `mistral-large-latest` (Mistral); any model from `/v1/models` selectable | `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
 | Reasoning effort (OpenAI) | `none` | Settings panel |
 | Max output tokens | provider default | Settings panel |
-| Mistral OCR annotation | on (PDF/image input only, first 8 pages) | Settings panel |
+| Document annotation with images | on (first 8 boxes, `DOCUMENT_ANNOTATION_MAX_IMAGES`) | Settings panel, `src/lib/pipeline/runOcr.ts` |
+| BBox annotation | on, up to 20 boxes per run | Settings panel; format in `src/lib/pipeline/schemas/bboxAnnotation.ts` |
 | Target / source language | English or German toggle / auto-detect | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`) |
 | JSON format | inferred from document; built-in `patent_communication`; custom | `src/lib/pipeline/schemas/` |
 | Prompts | schema inference and translation | `src/lib/pipeline/prompts.ts` |
@@ -132,8 +139,10 @@ All defaults live in code so they can be changed in one place:
   be raised in Settings.
 - The API keys live in `localStorage` of this origin, as requested. Anyone
   with access to the browser profile can read them.
-- Mistral's OCR *document annotation* covers at most 8 pages per the API;
-  longer documents are annotated on their first 8 pages and the translation
-  model fills the rest from the full text. "OCR only" never annotates.
+- The vision steps need a model with image input (GPT Luna has it; for the
+  Mistral provider pick a multimodal model). If the model rejects images, the
+  translation is retried text-only and the step strip says so.
+- OCR results cached in the browser before this workflow (without images)
+  are ignored; the file is OCR'd again once.
 
 See [AGENTS.md](AGENTS.md) for the code map and conventions.

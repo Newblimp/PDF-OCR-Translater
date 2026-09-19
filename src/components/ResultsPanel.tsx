@@ -1,6 +1,9 @@
 import { useState } from "preact/hooks";
 import type { AppState, ResultTab, TranslationState } from "@/app/store";
-import { prettyJson } from "@/lib/util/json";
+import { isPlainObject, prettyJson } from "@/lib/util/json";
+import { parsePartialJson } from "@/lib/util/partialJson";
+import type { JsonSchemaObject } from "@/lib/mistral/types";
+import { BboxView } from "./BboxView";
 import { estimateTokens, formatNumber } from "@/lib/util/text";
 import { PROVIDERS } from "@/lib/llm/registry";
 import { JsonBrowser } from "./JsonBrowser/JsonBrowser";
@@ -38,8 +41,8 @@ function baseName(state: AppState): string {
 export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
   const { translation, ocr } = state;
   const tabs: Array<{ id: ResultTab; label: string; available: boolean }> = [
-    { id: "translation", label: "Translation", available: !!translation },
-    { id: "annotation", label: "Mistral OCR annotation", available: !!translation?.annotation },
+    { id: "translation", label: "Translation", available: !!translation || !!state.job?.streamText },
+    { id: "bboxes", label: "Bounding boxes", available: !!ocr },
     { id: "ocr", label: "OCR text", available: !!ocr },
     { id: "schema", label: "JSON format", available: !!translation },
     { id: "json", label: "Raw JSON", available: !!translation },
@@ -82,7 +85,13 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
           ))}
       </div>
 
-      {active === "translation" && translation && (
+      {active === "translation" && state.job?.streamText && (
+        <div class="tab-panel">
+          <StreamingView text={state.job.streamText} schema={translation?.schema ?? null} />
+        </div>
+      )}
+
+      {active === "translation" && translation && !state.job?.streamText && (
         <div class="tab-panel">
           <div class="toolbar">
             <span class="muted small">
@@ -104,7 +113,7 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
               </button>
             </div>
           </div>
-          <PipelineStrip translation={translation} onTab={onTab} />
+          <PipelineStrip translation={translation} ocr={ocr} onTab={onTab} />
           {(translation.violations.length > 0 || translation.finishReason === "length" || translation.finishReason === "model_length") && (
             <div class="banner banner-warn">
               {translation.finishReason === "length" || translation.finishReason === "model_length" ? (
@@ -122,29 +131,7 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
         </div>
       )}
 
-      {active === "annotation" && translation?.annotation && (
-        <div class="tab-panel">
-          <div class="toolbar">
-            <span class="muted small">
-              Extracted by {translation.annotation.model} from the page images using the JSON format ({translation.annotation.pagesAnnotated} page(s)),
-              in the source language. This was given to the translation model together with the full OCR text.
-            </span>
-            <div class="btn-row">
-              <button type="button" class="btn btn-ghost small" onClick={() => void copy(prettyJson(translation.annotation?.data))}>
-                Copy JSON
-              </button>
-              <button
-                type="button"
-                class="btn btn-ghost small"
-                onClick={() => download(`${baseName(state)}.ocr-annotation.json`, prettyJson(translation.annotation?.data), "application/json")}
-              >
-                Download JSON
-              </button>
-            </div>
-          </div>
-          <JsonBrowser data={translation.annotation.data} schema={translation.schema} />
-        </div>
-      )}
+      {active === "bboxes" && ocr && <BboxView doc={state.doc} ocr={ocr.text} annotations={translation?.bboxAnnotations ?? []} />}
 
       {active === "ocr" && ocr && <OcrView state={state} />}
 
@@ -202,9 +189,11 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
   );
 }
 
-/** Shows which model did what, so it is clear where the JSON format was used. */
-function PipelineStrip({ translation, onTab }: { translation: TranslationState; onTab: (tab: ResultTab) => void }) {
+/** Shows which model did what, mirroring Mistral's annotation workflow. */
+function PipelineStrip({ translation, ocr, onTab }: { translation: TranslationState; ocr: AppState["ocr"]; onTab: (tab: ResultTab) => void }) {
   const chat = `${PROVIDERS[translation.provider].label} · ${translation.model}`;
+  const boxes = ocr?.text.bboxes.length ?? 0;
+  const described = translation.bboxAnnotations.filter((a) => a.data).length;
   const schemaStep =
     translation.schemaSource === "inferred"
       ? `JSON format inferred by ${chat}`
@@ -213,28 +202,50 @@ function PipelineStrip({ translation, onTab }: { translation: TranslationState; 
         : "Custom JSON format";
   return (
     <ol class="pipeline-strip" aria-label="Processing steps">
-      <li class="step step-done">Mistral OCR read the document</li>
+      <li class="step step-done">
+        {ocr ? (
+          <button type="button" class="btn btn-link small" onClick={() => onTab("bboxes")}>
+            Mistral OCR: {ocr.text.pagesProcessed} page(s), {boxes} bounding box(es)
+          </button>
+        ) : (
+          "Text input (no OCR)"
+        )}
+      </li>
       <li class="step step-done">
         <button type="button" class="btn btn-link small" onClick={() => onTab("schema")}>
           {schemaStep}
         </button>
       </li>
-      {translation.annotation ? (
+      {translation.bboxAnnotations.length > 0 ? (
         <li class="step step-done">
-          <button type="button" class="btn btn-link small" onClick={() => onTab("annotation")}>
-            JSON format sent to Mistral OCR: fields extracted from {translation.annotation.pagesAnnotated} page(s)
+          <button type="button" class="btn btn-link small" onClick={() => onTab("bboxes")}>
+            BBox annotation: {described} of {translation.bboxAnnotations.length} box(es) described by the vision model
           </button>
         </li>
       ) : (
-        <li class="step step-skipped" title={translation.annotationNote ?? undefined}>
-          JSON format not sent to Mistral OCR{translation.annotationNote ? ` — ${translation.annotationNote}` : ""}
-        </li>
+        <li class="step step-skipped">BBox annotation skipped{boxes === 0 ? " (no boxes)" : ""}</li>
       )}
       <li class="step step-done">
-        Translated into {translation.targetLanguage} by {chat}
-        {translation.annotation ? " (from the OCR extraction and the full text)" : " (from the full text)"}
+        Document annotation: translated into {translation.targetLanguage} by {chat} from the text
+        {translation.imagesSent ? ` + ${translation.imagesSent} bounding-box image(s)` : " only"}
       </li>
     </ol>
+  );
+}
+
+/** Live view of the translation while it streams: partial JSON rendered as it grows. */
+function StreamingView({ text, schema }: { text: string; schema: JsonSchemaObject | null }) {
+  const partial = parsePartialJson(text);
+  return (
+    <div class="stream-panel" aria-live="polite">
+      <div class="toolbar">
+        <span class="small">
+          <span class="stream-cursor">Translation streaming in… {text.length.toLocaleString()} characters</span>
+        </span>
+      </div>
+      <pre class="stream-tail">{text.slice(-400)}</pre>
+      {partial !== undefined && isPlainObject(partial) && Object.keys(partial).length > 0 && <JsonBrowser data={partial} schema={schema} />}
+    </div>
   );
 }
 
@@ -249,7 +260,7 @@ function OcrView({ state }: { state: AppState }) {
         <span class="muted small">
           {ocr.model} · {ocr.text.pagesProcessed} page(s) · {ocr.text.chars.toLocaleString()} characters (~{formatNumber(estimateTokens(ocr.text.text))} tokens)
           {ocr.source === "cache" ? " · from local cache" : ""}
-          {ocr.text.imagesRemoved ? ` · ${ocr.text.imagesRemoved} image(s) dropped` : ""}
+          {ocr.text.bboxes.length ? ` · ${ocr.text.bboxes.length} bounding box(es)` : ""}
         </span>
         <div class="btn-row">
           <label class="checkbox small">

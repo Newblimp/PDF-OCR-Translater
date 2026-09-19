@@ -38,6 +38,9 @@ export interface RecordedRequest {
 export const MISTRAL_KEY = "mistral-test-key";
 export const OPENAI_KEY = "sk-openai-test-key";
 
+/** 1×1 PNG, enough for an <img> and for a vision request body. */
+export const TINY_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
 export const OCR_MARKDOWN = [
   "# 第一次审查意见通知书",
   "",
@@ -46,7 +49,34 @@ export const OCR_MARKDOWN = [
   "![img-0.jpeg](img-0.jpeg)",
   "",
   "权利要求1不具备创造性。",
+  "",
+  "![img-1.jpeg](img-1.jpeg)",
 ].join("\n");
+
+export const OCR_PAGE = {
+  index: 0,
+  markdown: OCR_MARKDOWN,
+  images: [
+    { id: "img-0.jpeg", top_left_x: 100, top_left_y: 300, bottom_right_x: 500, bottom_right_y: 600, image_base64: TINY_PNG },
+    { id: "img-1.jpeg", top_left_x: 900, top_left_y: 1500, bottom_right_x: 1300, bottom_right_y: 1900, image_base64: TINY_PNG },
+  ],
+  dimensions: { dpi: 200, height: 2200, width: 1700 },
+  header: "国家知识产权局",
+  footer: "第 1 页",
+  blocks: [
+    { type: "title", top_left_x: 100, top_left_y: 100, bottom_right_x: 1600, bottom_right_y: 200, content: "第一次审查意见通知书" },
+    { type: "text", top_left_x: 100, top_left_y: 220, bottom_right_x: 1600, bottom_right_y: 280, content: "申请号：CN202310000001.2" },
+    { type: "image", top_left_x: 100, top_left_y: 300, bottom_right_x: 500, bottom_right_y: 600, content: "", image_id: "img-0.jpeg" },
+  ],
+};
+
+export const BBOX_ANNOTATION = {
+  image_type: "stamp",
+  short_description: "Official seal of the patent office.",
+  summary: "A red circular seal.",
+  text_in_image: "国家知识产权局",
+  text_translated: "China National Intellectual Property Administration",
+};
 
 export const INFERRED_SCHEMA = {
   type: "object",
@@ -116,33 +146,7 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
     }
 
     if (url.endsWith("/v1/ocr")) {
-      const annotate = !!body?.["document_annotation_format"];
-      return json(route, 200, {
-        ...(annotate
-          ? {
-              document_annotation: JSON.stringify({
-                document_type: "第一次审查意见通知书",
-                application_number: "CN202310000001.2",
-                summary: "审查员认为权利要求1不具备创造性。",
-                body_sections: [{ heading: "创造性", content: "权利要求1不具备创造性。" }],
-                cited_references: [{ label: "D1", identifier: "CN123456A" }],
-                notes_for_reader: "",
-              }),
-            }
-          : {}),
-        model: "mistral-ocr-latest",
-        pages: [
-          {
-            index: 0,
-            markdown: OCR_MARKDOWN,
-            images: [{ id: "img-0.jpeg", top_left_x: 0, top_left_y: 0, bottom_right_x: 1, bottom_right_y: 1 }],
-            dimensions: { dpi: 200, height: 2200, width: 1700 },
-            header: "国家知识产权局",
-            footer: "第 1 页",
-          },
-        ],
-        usage_info: { pages_processed: 1, doc_size_bytes: 1234 },
-      });
+      return json(route, 200, { model: "mistral-ocr-latest", pages: [OCR_PAGE], usage_info: { pages_processed: 1, doc_size_bytes: 1234 } });
     }
 
     if (url.endsWith("/v1/chat/completions")) return chatCompletion(route, body, "mistral-large-latest", false);
@@ -179,12 +183,24 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
   });
 }
 
-/** Schema inference answers in json_object mode; translation streams JSON in json_schema mode. */
+/** Schema inference answers in json_object mode; bbox annotation and translation in json_schema mode (translation streamed). */
 function chatCompletion(route: Route, body: Record<string, unknown> | null, model: string, openai: boolean) {
-  const format = (body?.["response_format"] as { type?: string } | undefined)?.type;
-  const messages = (body?.["messages"] as Array<{ role: string; content: string }> | undefined) ?? [];
-  const system = messages.find((m) => m.role === "system")?.content ?? "";
+  const responseFormat = body?.["response_format"] as { type?: string; json_schema?: { name?: string } } | undefined;
+  const format = responseFormat?.type;
+  const messages = (body?.["messages"] as Array<{ role: string; content: string | unknown[] }> | undefined) ?? [];
+  const systemContent = messages.find((m) => m.role === "system")?.content;
+  const system = typeof systemContent === "string" ? systemContent : "";
   const german = /into German/.test(system);
+  if (format === "json_schema" && responseFormat?.json_schema?.name === "bbox_annotation") {
+    return json(route, 200, {
+      id: "cmpl-bbox",
+      object: "chat.completion",
+      model,
+      created: 0,
+      usage: { prompt_tokens: 40, completion_tokens: 20, total_tokens: 60 },
+      choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify(BBOX_ANNOTATION) }, finish_reason: "stop" }],
+    });
+  }
   if (format === "json_object") {
     return json(route, 200, {
       id: "cmpl-1",
@@ -229,4 +245,45 @@ function chatCompletion(route: Route, body: Record<string, unknown> | null, mode
     });
   }
   return route.fulfill({ status: 200, contentType: "text/event-stream", body: sse(frames) });
+}
+
+/**
+ * Make the translation request truly stream inside the browser: patches
+ * `window.fetch` so the streamed chat completion arrives as SSE frames with
+ * a delay between them. Playwright's `route.fulfill` delivers bodies at once,
+ * so this is the only way to exercise the live-streaming UI.
+ */
+export async function installStreamingTranslationMock(page: Page, delayMs = 150, chunks = 8): Promise<void> {
+  await page.addInitScript(
+    ({ translation, delayMs, chunks }) => {
+      const original = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("api.openai.com/v1/chat/completions") && init?.body) {
+          const body = JSON.parse(String(init.body)) as { stream?: boolean; response_format?: { json_schema?: { name?: string } } };
+          if (body.stream && body.response_format?.json_schema?.name === "translated_document") {
+            const text = JSON.stringify(translation);
+            const size = Math.ceil(text.length / chunks);
+            const encoder = new TextEncoder();
+            const frame = (content: string, finish: string | null) =>
+              `data: ${JSON.stringify({ id: "s", object: "chat.completion.chunk", model: "gpt-5.6-luna", created: 0, choices: [{ index: 0, delta: { content }, finish_reason: finish }] })}\n\n`;
+            const stream = new ReadableStream<Uint8Array>({
+              async start(controller) {
+                for (let i = 0; i < chunks; i++) {
+                  await new Promise((r) => setTimeout(r, delayMs));
+                  const piece = text.slice(i * size, (i + 1) * size);
+                  controller.enqueue(encoder.encode(frame(piece, i === chunks - 1 ? "stop" : null)));
+                }
+                controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                controller.close();
+              },
+            });
+            return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+          }
+        }
+        return original(input, init);
+      };
+    },
+    { translation: TRANSLATION, delayMs, chunks },
+  );
 }

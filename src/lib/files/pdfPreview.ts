@@ -29,6 +29,19 @@ function loadPdfJs(): Promise<PdfJs> {
   return pdfjsPromise;
 }
 
+/**
+ * Render one page of a PDF file to a PNG data URL at the given CSS width.
+ * Opens and closes the document each time; callers cache the result.
+ */
+export async function renderPdfPage(file: Blob, pageNumber: number, width: number): Promise<string> {
+  const preview = await openPdfPreview(await file.arrayBuffer());
+  try {
+    return await preview.renderPage(pageNumber, width);
+  } finally {
+    preview.destroy();
+  }
+}
+
 export async function openPdfPreview(data: ArrayBuffer): Promise<PdfPreview> {
   const pdfjs = await loadPdfJs();
   const loadingTask = pdfjs.getDocument({

@@ -1,17 +1,22 @@
 /**
- * Step 1: send the document to Mistral OCR and clean the result.
+ * Step 1: send the document to Mistral OCR.
+ *
+ * Following Mistral's annotation workflow, the OCR call returns the Markdown
+ * text plus the extracted image bounding boxes (with their cropped images)
+ * and paragraph-level blocks. The vision LLM steps use the text and the
+ * bounding boxes; the UI overlays the boxes on the page images.
  */
+import { ApiError } from "../http/apiError";
 import type { MistralClient } from "../mistral/client";
-import type { JsonSchemaObject, OcrRequest, OcrResponse } from "../mistral/types";
-import { parseModelJson } from "../util/json";
+import type { OcrRequest, OcrResponse } from "../mistral/types";
 import { emit, type ProgressListener } from "./events";
 import { buildOcrText, type OcrText } from "./ocrText";
 
 /** API limits documented at https://docs.mistral.ai/capabilities/document_ai/basic_ocr */
 export const OCR_MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const OCR_MAX_PAGES = 1000;
-/** Document annotation (`document_annotation_format`) is only applied to documents of up to this many pages. */
-export const OCR_ANNOTATION_MAX_PAGES = 8;
+/** Mistral's document annotation sends the first eight bounding boxes to the vision model; we do the same. */
+export const DOCUMENT_ANNOTATION_MAX_IMAGES = 8;
 
 export interface OcrInput {
   /** `data:<mime>;base64,...` of the PDF or image. */
@@ -24,80 +29,12 @@ export interface RunOcrOptions {
   model: string;
   signal?: AbortSignal | undefined;
   onProgress?: ProgressListener | undefined;
-  /**
-   * Optional structured extraction performed by the OCR model itself
-   * (Mistral "document annotation"). Unused by the default flows; kept as an
-   * extension point. Ignored by the API for documents longer than 8 pages.
-   */
-  documentAnnotation?: { schema: OcrRequest["document_annotation_format"]; prompt?: string };
 }
 
 export interface OcrOutcome {
-  /** Raw API response minus image payloads (kept small for caching). */
+  /** Raw API response, including the bounding-box images (base64). */
   response: OcrResponse;
   text: OcrText;
-}
-
-export interface AnnotationOutcome {
-  /** Parsed `document_annotation` (source language, shaped by the schema). */
-  data: unknown;
-  raw: string;
-  /** Number of pages the annotation covered (the API caps this at OCR_ANNOTATION_MAX_PAGES). */
-  pagesAnnotated: number;
-  model: string;
-}
-
-export interface AnnotateOptions {
-  model: string;
-  schema: JsonSchemaObject;
-  /** Total pages of the document, if known; longer documents are annotated on their first pages only. */
-  pageCount?: number | null | undefined;
-  prompt?: string | undefined;
-  signal?: AbortSignal | undefined;
-  onProgress?: ProgressListener | undefined;
-}
-
-/**
- * Ask Mistral OCR to extract the document into the given JSON Schema
- * ("document annotation"): the OCR model itself fills the fields, in the
- * source language, page images in hand. This is a second OCR call because
- * an inferred schema is only known after the text has been read once.
- */
-export async function annotateWithOcr(client: MistralClient, input: OcrInput, options: AnnotateOptions): Promise<AnnotationOutcome> {
-  const { onProgress } = options;
-  const limited = (options.pageCount ?? 0) > OCR_ANNOTATION_MAX_PAGES;
-  emit(
-    onProgress,
-    "annotate",
-    "start",
-    `Sending the JSON format to ${options.model} as document annotation${limited ? ` (first ${OCR_ANNOTATION_MAX_PAGES} of ${options.pageCount} pages)` : ""}`,
-  );
-  const request: OcrRequest = {
-    model: options.model,
-    document: isImageMime(input.mimeType)
-      ? { type: "image_url", image_url: input.dataUrl }
-      : { type: "document_url", document_url: input.dataUrl, document_name: input.fileName },
-    include_image_base64: false,
-    extract_header: true,
-    extract_footer: true,
-    table_format: "markdown",
-    document_annotation_format: {
-      type: "json_schema",
-      json_schema: { name: "document_annotation", schema: options.schema, strict: true },
-    },
-    document_annotation_prompt: options.prompt ?? null,
-  };
-  if (limited) request.pages = Array.from({ length: OCR_ANNOTATION_MAX_PAGES }, (_, i) => i);
-
-  const response = await client.ocr(request, options.signal);
-  const raw = response.document_annotation ?? "";
-  const parsed = parseModelJson(raw);
-  if (!parsed.ok) throw new Error(`Mistral OCR returned no usable document annotation: ${parsed.error}`);
-  const pagesAnnotated = response.usage_info?.pages_processed ?? response.pages.length;
-  emit(onProgress, "annotate", "done", `Mistral OCR filled the JSON format from ${pagesAnnotated} page(s)`, {
-    detail: limited ? `Only the first ${OCR_ANNOTATION_MAX_PAGES} pages can be annotated by the API` : undefined,
-  });
-  return { data: parsed.value, raw, pagesAnnotated, model: response.model };
 }
 
 export function isImageMime(mime: string): boolean {
@@ -113,24 +50,37 @@ export async function runOcr(client: MistralClient, input: OcrInput, options: Ru
     document: isImageMime(input.mimeType)
       ? { type: "image_url", image_url: input.dataUrl }
       : { type: "document_url", document_url: input.dataUrl, document_name: input.fileName },
-    include_image_base64: false,
+    // Bounding boxes with their images: the figures the vision model gets.
+    include_image_base64: true,
+    // Paragraph-level boxes for the bounding-box overview.
+    include_blocks: true,
     extract_header: true,
     extract_footer: true,
     table_format: "markdown",
   };
-  if (options.documentAnnotation?.schema) {
-    request.document_annotation_format = options.documentAnnotation.schema;
-    if (options.documentAnnotation.prompt) request.document_annotation_prompt = options.documentAnnotation.prompt;
+
+  let response: OcrResponse;
+  try {
+    response = await client.ocr(request, options.signal);
+  } catch (err) {
+    // `include_blocks` is newer than the rest of the request; degrade gracefully if the API rejects it.
+    if (err instanceof ApiError && err.kind === "request" && /include_blocks|blocks/i.test(err.message)) {
+      emit(onProgress, "ocr", "warning", "The OCR API rejected block extraction; retrying without paragraph boxes", { detail: err.message });
+      delete request.include_blocks;
+      response = await client.ocr(request, options.signal);
+    } else {
+      throw err;
+    }
   }
 
-  const response = await client.ocr(request, options.signal);
-  // Drop any image payloads defensively; they are never shown or translated.
-  for (const page of response.pages) {
-    page.images = (page.images ?? []).map((img) => ({ ...img, image_base64: null }));
-  }
   const text = buildOcrText(response);
-  emit(onProgress, "ocr", "done", `OCR finished: ${text.pagesProcessed} page(s), ${text.chars.toLocaleString()} characters`, {
-    detail: text.imagesRemoved ? `${text.imagesRemoved} image reference(s) removed` : undefined,
-  });
+  const withImages = text.bboxes.filter((b) => b.dataUrl).length;
+  emit(
+    onProgress,
+    "ocr",
+    "done",
+    `OCR finished: ${text.pagesProcessed} page(s), ${text.chars.toLocaleString()} characters, ${text.bboxes.length} bounding box(es)`,
+    { detail: text.bboxes.length && withImages < text.bboxes.length ? `${withImages} of them came with an image` : undefined },
+  );
   return { response, text };
 }

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY, type RecordedRequest } from "./helpers";
+import { installStreamingTranslationMock, makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY, type RecordedRequest } from "./helpers";
 
 const APP_HOST = "localhost:4173";
 const ALLOWED_HOSTS = new Set([APP_HOST, "api.mistral.ai", "api.openai.com"]);
@@ -80,34 +80,36 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
   await page.getByRole("tab", { name: "OCR text" }).click();
   await expect(page.getByText("Headers and footers removed from the translated text")).toBeVisible();
   await expect(page.locator(".ocr-page")).toContainText("权利要求1不具备创造性");
-  await expect(page.locator(".ocr-page")).not.toContainText("img-0.jpeg");
+  await expect(page.locator(".ocr-page")).toContainText("[Image: img-0.jpeg]"); // placeholder, not the raw image
 
-  // Requests: OCR went to Mistral with a base64 data URI, no images, headers/footers extracted.
+  // Requests: OCR went to Mistral with a base64 data URI, bounding-box images requested, headers/footers extracted.
   const ocr = recorded.find((r) => r.url.endsWith("/v1/ocr"));
   expect(ocr?.host).toBe("api.mistral.ai");
-  expect(ocr!.body).toMatchObject({ model: "mistral-ocr-latest", include_image_base64: false, extract_header: true, extract_footer: true });
+  expect(ocr!.body).toMatchObject({ model: "mistral-ocr-latest", include_image_base64: true, extract_header: true, extract_footer: true });
   expect(String((ocr!.body!["document"] as { document_url: string }).document_url)).toMatch(/^data:application\/pdf;base64,/);
 
-  // The inferred JSON format was sent back to Mistral OCR as document annotation (second OCR call, strict schema).
+  // One OCR call, asking for bounding-box images and paragraph blocks (Mistral's annotation workflow).
   const ocrCalls = recorded.filter((r) => r.url.endsWith("/v1/ocr"));
-  expect(ocrCalls).toHaveLength(2);
+  expect(ocrCalls).toHaveLength(1);
+  expect(ocrCalls[0]!.body).toMatchObject({ include_image_base64: true, include_blocks: true });
   expect(ocrCalls[0]!.body).not.toHaveProperty("document_annotation_format");
-  const annotationFormat = ocrCalls[1]!.body!["document_annotation_format"] as { type: string; json_schema: { strict: boolean; schema: { properties: Record<string, unknown> } } };
-  expect(annotationFormat.type).toBe("json_schema");
-  expect(annotationFormat.json_schema.strict).toBe(true);
-  expect(Object.keys(annotationFormat.json_schema.schema.properties)).toContain("application_number");
-  expect(typeof ocrCalls[1]!.body!["document_annotation_prompt"]).toBe("string");
-  // ...and the UI says so, with the source-language extraction browsable in its own tab.
-  await page.getByRole("tab", { name: "Translation" }).click();
-  await expect(page.locator(".pipeline-strip")).toContainText("JSON format sent to Mistral OCR: fields extracted from 1 page(s)");
-  await page.getByRole("tab", { name: "Mistral OCR annotation" }).click();
-  await expect(page.getByText("第一次审查意见通知书")).toBeVisible();
 
-  // Chat: schema inference (json_object) then translation (strict json_schema, streamed) both on OpenAI.
+  // The strip explains the workflow.
+  await page.getByRole("tab", { name: "Translation" }).click();
+  await expect(page.locator(".pipeline-strip")).toContainText("Mistral OCR: 1 page(s), 2 bounding box(es)");
+  await expect(page.locator(".pipeline-strip")).toContainText("BBox annotation: 2 of 2 box(es) described by the vision model");
+  await expect(page.locator(".pipeline-strip")).toContainText("from the text + 2 bounding-box image(s)");
+
+  // Chat on OpenAI: schema inference (json_object), one bbox annotation per box (json_schema), then the translation.
   const chats = recorded.filter((r) => r.url.endsWith("/v1/chat/completions"));
-  expect(chats.map((c) => c.host)).toEqual(["api.openai.com", "api.openai.com"]);
+  expect(chats.every((c) => c.host === "api.openai.com")).toBe(true);
+  expect(chats).toHaveLength(4);
   expect((chats[0]!.body!["response_format"] as { type: string }).type).toBe("json_object");
-  const translate = chats[1]!.body!;
+  const bboxCalls = chats.filter((c) => (c.body!["response_format"] as { json_schema?: { name?: string } }).json_schema?.name === "bbox_annotation");
+  expect(bboxCalls).toHaveLength(2);
+  const bboxContent = (bboxCalls[0]!.body!["messages"] as Array<{ role: string; content: unknown }>)[1]!.content as Array<{ type: string }>;
+  expect(bboxContent.some((p) => p.type === "image_url")).toBe(true);
+  const translate = chats.at(-1)!.body!;
   expect(translate).toMatchObject({
     model: "gpt-5.6-luna",
     stream: true,
@@ -116,12 +118,17 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
     response_format: { type: "json_schema", json_schema: { name: "translated_document", strict: true } },
   });
   expect(translate).not.toHaveProperty("temperature");
-  const userMessage = (translate["messages"] as Array<{ role: string; content: string }>)[1]!.content;
+  // Document annotation input: text part + the bounding-box images, ids referenced in the text.
+  const userContent = (translate["messages"] as Array<{ role: string; content: unknown }>)[1]!.content as Array<{ type: string; text?: string; image_url?: { url: string } }>;
+  expect(Array.isArray(userContent)).toBe(true);
+  const userMessage = userContent[0]!.text!;
   expect(userMessage).toContain("权利要求1不具备创造性");
-  expect(userMessage).toContain("The OCR model already extracted the document"); // annotation handed to the translator
-  expect(userMessage).not.toContain("img-0.jpeg");
-  expect(userMessage).not.toContain("国家知识产权局");
-  expect(userMessage).not.toContain("第 1 页");
+  expect(userMessage).toContain("[Image: img-0.jpeg]");
+  expect(userMessage).toContain('"img-0.jpeg", "img-1.jpeg"');
+  expect(userMessage).not.toContain("国家知识产权局"); // header excluded
+  expect(userMessage).not.toContain("第 1 页"); // footer excluded
+  expect(userContent.filter((p) => p.type === "image_url")).toHaveLength(2);
+  expect(userContent.find((p) => p.type === "image_url")?.image_url?.url).toMatch(/^data:image\/png;base64,/);
   expect(foreign).toEqual([]);
 });
 
@@ -163,9 +170,10 @@ test("German toggle changes the target language of the next translation", async 
   await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("Erster Prüfungsbescheid")).toBeVisible();
   await expect(page.locator(".toolbar")).toContainText("→ German");
-  // Pasted text: nothing to send to Mistral OCR, and the UI says so.
-  await expect(page.locator(".pipeline-strip")).toContainText("JSON format not sent to Mistral OCR");
-  await expect(page.getByRole("tab", { name: "Mistral OCR annotation" })).toHaveCount(0);
+  // Pasted text: no OCR, no bounding boxes, and the UI says so.
+  await expect(page.locator(".pipeline-strip")).toContainText("Text input (no OCR)");
+  await expect(page.locator(".pipeline-strip")).toContainText("BBox annotation skipped");
+  await expect(page.getByRole("tab", { name: "Bounding boxes" })).toHaveCount(0);
 
   const translate = recorded.filter((r) => r.url.endsWith("/v1/chat/completions")).at(-1)!.body!;
   const system = (translate["messages"] as Array<{ role: string; content: string }>)[0]!.content;
@@ -287,6 +295,70 @@ test("Mistral can still be chosen as translation provider", async ({ page }) => 
   expect(chats.map((c) => c.host)).toEqual(["api.mistral.ai", "api.mistral.ai"]);
   expect(chats[1]!.body).toMatchObject({ model: "mistral-large-latest", temperature: 0.2 });
   expect(chats[1]!.body).not.toHaveProperty("reasoning_effort");
+});
+
+test("bounding boxes are drawn over the page with the vision model's descriptions", async ({ page }) => {
+  await setup(page);
+  await enterKeys(page);
+  await loadPdf(page);
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".pipeline-strip")).toBeVisible();
+
+  await page.getByRole("tab", { name: "Bounding boxes" }).click();
+  await expect(page.locator(".bbox-stage img")).toBeVisible(); // page rendered by pdf.js
+  await expect(page.locator(".bbox-box")).toHaveCount(5); // 3 blocks + 2 image boxes
+  await page.getByLabel("Paragraph blocks").uncheck();
+  await expect(page.locator(".bbox-box")).toHaveCount(2);
+  const box = page.getByRole("button", { name: "Image box img-0.jpeg" });
+  const style = (await box.getAttribute("style")) ?? "";
+  expect(style).toMatch(/left: ?5\.88/); // 100 / 1700 of the page width
+  expect(style).toMatch(/top: ?13\.63/); // 300 / 2200 of the page height
+  await box.click();
+  await expect(page.locator(".bbox-detail")).toContainText("stamp");
+  await expect(page.locator(".bbox-detail")).toContainText("China National Intellectual Property Administration");
+  await expect(page.locator(".bbox-detail img")).toBeVisible();
+  await page.getByLabel("Image boxes (sent to the vision model)").uncheck();
+  await expect(page.locator(".bbox-box")).toHaveCount(0);
+});
+
+test("the document preview can be hidden with a checkbox and the choice persists", async ({ page }) => {
+  await setup(page);
+  await enterKeys(page);
+  await loadPdf(page);
+  await expect(page.locator(".preview-page img")).toHaveCount(1);
+  await page.getByLabel("Show document preview").uncheck();
+  await expect(page.locator(".preview-page img")).toHaveCount(0);
+  await page.reload();
+  await loadPdf(page);
+  await expect(page.getByRole("heading", { name: "office-action.pdf" })).toBeVisible();
+  await expect(page.getByLabel("Show document preview")).not.toBeChecked();
+  await expect(page.locator(".preview-page img")).toHaveCount(0);
+  await page.getByLabel("Show document preview").check();
+  await expect(page.locator(".preview-page img")).toHaveCount(1);
+});
+
+test("the translation is shown live while it streams", async ({ page }) => {
+  await installStreamingTranslationMock(page, 200, 8);
+  await setup(page);
+  await enterKeys(page);
+  await loadPdf(page);
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+
+  // While the job is still running, partial output is visible and grows.
+  const panel = page.locator(".stream-panel");
+  await expect(panel).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
+  const first = (await panel.locator(".stream-tail").textContent()) ?? "";
+  await expect(panel.getByRole("heading", { name: "Document type", exact: true })).toBeVisible();
+  await expect
+    .poll(async () => ((await panel.locator(".stream-tail").textContent()) ?? "").length, { timeout: 5_000 })
+    .toBeGreaterThan(first.length);
+
+  // Then the final, parsed translation replaces it.
+  await expect(panel).toBeHidden({ timeout: 20_000 });
+  await expect(page.locator(".pipeline-strip")).toBeVisible();
+  await expect(page.getByText("CN202310000001.2").first()).toBeVisible();
 });
 
 test("cancel stops a running job without an error", async ({ page }) => {

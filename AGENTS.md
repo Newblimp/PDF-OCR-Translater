@@ -45,6 +45,7 @@ src/
     runner.ts                  side effects: load document, verify key, run jobs
   components/                  presentational Preact components
     JsonBrowser/               browsable view of the translated JSON
+    BboxView.tsx               bounding boxes drawn over the rendered page
   lib/
     http/
       apiFetch.ts              the one authenticated fetch + error mapping
@@ -64,19 +65,20 @@ src/
       types.ts                 wire types
       models.ts                OpenAI model ids, model-list filtering
     pipeline/
-      runOcr.ts                document → OCR (headers/footers extracted, no images);
-                               annotateWithOcr(): second OCR call with document_annotation_format
+      runOcr.ts                document → OCR (headers/footers extracted, bbox images + blocks)
+      bboxAnnotate.ts          vision model, one call per bounding box (bbox annotation)
       ocrText.ts               OCR response → clean text for translation
       inferSchema.ts           text → JSON Schema (json_object mode)
       schema.ts                schema sanitiser for strict mode + light validator
       schemas/                 built-in schemas (registry in index.ts)
       prompts.ts               all prompt text
-      translate.ts             text + schema → JSON (json_schema strict, fallback json_object)
+      translate.ts             text + first 8 bbox images + schema → JSON (document annotation);
+                               fallbacks: without images → non-streaming → json_object
       pipeline.ts              ocrOnly / translateText / ocrAndTranslate
       events.ts                progress events shared by the steps
     files/                     hashing, data-URL encoding, pdf.js preview, file kinds
     storage/                   localStorage (keys, settings, theme), IndexedDB OCR cache
-    util/                      JSON extraction, text helpers
+    util/                      JSON extraction, partial-JSON parser for streaming, text helpers
   styles/global.css
 e2e/                           Playwright specs + API mock
 public/_headers                Cloudflare Pages headers (CSP etc.)
@@ -99,12 +101,18 @@ into `store.ts` and rendered by the components.
   emit progress with `emit()` from `events.ts` (add a `StageId` if needed),
   and compose it in `pipeline.ts`. Then surface results through a new field in
   `AppState` and a component.
-- **Mistral document annotation** runs as the `annotate` stage in
-  `pipeline.translateText()` when `settings.annotateWithOcr` is on and the
-  source is a PDF/image: the resolved schema is sent with
-  `document_annotation_format` (≤ 8 pages), the parsed result is stored in
-  `TranslationState.annotation` and passed to the translation prompt. The
-  `PipelineStrip` in `ResultsPanel` tells the user whether it ran.
+- **Annotation workflow** (`pipeline.translateText()`): mirrors Mistral's
+  Document AI annotations with the vision LLM swapped for the selected chat
+  provider. `bboxAnnotate.ts` describes each `OcrText.bboxes` entry that has
+  an image (stage `bbox_annotate`); `translate.ts` attaches the first
+  `DOCUMENT_ANNOTATION_MAX_IMAGES` box images to the user message
+  (`JsonChatRequest.images`, rendered as `image_url` parts by each provider).
+  `ResultsPanel`'s `PipelineStrip` tells the user what ran; `BboxView` draws
+  `OcrText.bboxes` and `OcrCleanPage.blocks` over the page rendered by
+  `renderPdfPage()`.
+- **Live streaming**: `translate.ts` emits `streamText` on progress events
+  (throttled); the store keeps it in `job.streamText`; `ResultsPanel`'s
+  `StreamingView` renders it through `util/partialJson.ts`.
 - **Another translation provider**: (1) widen the `ApiProvider` union in
   `src/lib/http/apiError.ts` (it is the `ProviderId` type); (2) implement
   `ChatProvider` (`src/lib/llm/provider.ts`) on a client in `src/lib/<name>/`;

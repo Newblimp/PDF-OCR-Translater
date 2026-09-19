@@ -77,6 +77,23 @@ export interface OcrImage {
   image_annotation?: string | null;
 }
 
+/**
+ * Paragraph-level content block returned when `include_blocks` is set.
+ * Coordinates are pixels of the page image described by `OcrPage.dimensions`.
+ */
+export interface OcrBlock {
+  type: "text" | "title" | "table" | "image" | "header" | "footer" | "caption" | "list" | "equation" | "code" | "signature" | "references" | "aside_text" | string;
+  top_left_x: number;
+  top_left_y: number;
+  bottom_right_x: number;
+  bottom_right_y: number;
+  /** Text/markdown/html content of this block */
+  content: string;
+  /** For image blocks: the id of the corresponding entry in `OcrPage.images`. */
+  image_id?: string;
+  table_id?: string | null;
+}
+
 export interface OcrPage {
   index: number;
   markdown: string;
@@ -85,8 +102,8 @@ export interface OcrPage {
   footer?: string | null;
   hyperlinks?: string[];
   dimensions: { dpi: number; height: number; width: number } | null;
-  /** Present only when `include_blocks` / confidence options are requested. Untyped here. */
-  blocks?: unknown[];
+  /** Present only when `include_blocks` is requested. */
+  blocks?: OcrBlock[];
   tables?: unknown[];
   confidence_scores?: unknown;
 }
@@ -118,6 +135,7 @@ export type ContentChunk =
 
 export interface ChatMessage {
   role: ChatRole;
+  /** Vision-capable models accept an array mixing text and `image_url` chunks (data URIs allowed). */
   content: string | ContentChunk[];
 }
 

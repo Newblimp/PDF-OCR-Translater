@@ -10,6 +10,7 @@ describe("settings persistence", () => {
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
     expect(loadSettings().provider).toBe("openai");
     expect(loadSettings().chatModels.openai).toBe("gpt-5.6-luna");
+    expect(loadSettings()).toMatchObject({ sendImages: true, bboxAnnotations: true, maxBboxAnnotations: 20, showDocumentPreview: true });
   });
 
   it("round-trips and repairs invalid values", () => {

@@ -29,6 +29,10 @@ for (const [name, width] of [
     await page.screenshot({ path: `${out}/${name}-4-translation.png`, fullPage: true });
     await page.getByRole("tab", { name: "OCR text" }).click();
     await page.screenshot({ path: `${out}/${name}-5-ocr.png`, fullPage: true });
+    await page.getByRole("tab", { name: "Bounding boxes" }).click();
+    await page.locator(".bbox-stage img").waitFor();
+    await page.getByRole("button", { name: "Image box img-0.jpeg" }).click();
+    await page.screenshot({ path: `${out}/${name}-5b-bboxes.png`, fullPage: true });
     await page.getByRole("tab", { name: "Translation" }).click();
     await page.locator(".settings > summary").click();
     await page.screenshot({ path: `${out}/${name}-6-settings.png`, fullPage: true });

@@ -1,8 +1,8 @@
 /**
  * All prompts live here so they can be tuned in one place.
  *
- * Both prompts mention "JSON" explicitly: Mistral's `json_object` mode
- * requires the word to appear in the conversation.
+ * The chat prompts mention "JSON" explicitly: `json_object` mode requires
+ * the word to appear in the conversation.
  */
 import { pageDelimiter } from "./ocrText";
 
@@ -45,6 +45,7 @@ export function schemaInferenceSystemPrompt(ctx: PromptContext): string {
     "- Allowed types only: string, number, boolean, object, array. Dates are strings. Do NOT use enum, oneOf, anyOf, allOf, $ref, pattern, format, minimum, maximum or default.",
     "- Long passages are string fields that will hold Markdown (lists and tables preserved).",
     "- Always include `summary` (string) and `notes_for_reader` (string, for illegible or uncertain passages).",
+    "- If the text contains `[Image: ...]` placeholders (figures, stamps, signatures, seals), include a `figures` array of objects (id, description) so their content can be captured.",
     "- Do not invent fields for content that is absent from the document.",
     `- The text contains page delimiters such as "${pageDelimiter(1)}"; they are not content.`,
   ].join("\n");
@@ -58,9 +59,14 @@ export function schemaInferenceUserPrompt(documentText: string): string {
   return `Design the JSON Schema for the following document.\n\n<document>\n${sample}\n</document>`;
 }
 
+/**
+ * Document annotation (Mistral's workflow, performed by the vision model):
+ * OCR Markdown + the first bounding-box images + the JSON format → JSON.
+ * Here the JSON is also the translation.
+ */
 export function translationSystemPrompt(ctx: PromptContext): string {
   return [
-    `You are a professional legal and patent translator. Translate the document from ${sourceClause(ctx.sourceLanguage)} into ${ctx.targetLanguage} and return the result as a JSON object that follows the provided JSON Schema exactly.`,
+    `You are a professional legal and patent translator working with a vision model. You receive the OCR text of a document (Markdown) and, when available, the images of its bounding boxes (figures, stamps, seals, signatures, tables rendered as images). Translate the document from ${sourceClause(ctx.sourceLanguage)} into ${ctx.targetLanguage} and return the result as a JSON object that follows the provided JSON Schema exactly.`,
     "",
     `Document family: ${ctx.domainHint}`,
     "",
@@ -71,6 +77,7 @@ export function translationSystemPrompt(ctx: PromptContext): string {
     "- Use the established official terminology of the target language for legal provisions and institutions (e.g. 'Patent Law of the People's Republic of China, Article 22, Paragraph 3').",
     "- Dates: use ISO 8601 (YYYY-MM-DD) when the date is unambiguous; otherwise keep the original wording.",
     "- Inside string fields, preserve numbering, bullet lists and Markdown tables from the source.",
+    "- \"[Image: id]\" placeholders mark where a bounding box sits in the text; the attached images carry the same ids. Read text inside the images (stamps, seals, handwritten notes, figure labels, tables) and translate it into the relevant field; describe non-text figures briefly where the schema has a place for them. Never reproduce the placeholders themselves.",
     `- Page delimiters like "${pageDelimiter(1)}" are not content; never reproduce them.`,
     "- For data the document does not contain, use an empty string, an empty array or 0. Never invent facts.",
     "- Note illegible or uncertain passages in `notes_for_reader` when such a field exists.",
@@ -78,14 +85,11 @@ export function translationSystemPrompt(ctx: PromptContext): string {
   ].join("\n");
 }
 
-export function translationUserPrompt(documentText: string, schemaJson: string, annotationJson?: string): string {
+export function translationUserPrompt(documentText: string, schemaJson: string, attachedImageIds: string[] = []): string {
   const parts = ["JSON Schema of the expected output:", "```json", schemaJson, "```", ""];
-  if (annotationJson) {
+  if (attachedImageIds.length) {
     parts.push(
-      "The OCR model already extracted the document into this same JSON Schema in the source language (it had the page images, so its field assignment is a strong hint). Translate its values into the target language, and use the full document text below to complete, correct or extend any field it left empty or truncated:",
-      "```json",
-      annotationJson,
-      "```",
+      `Attached after the text: ${attachedImageIds.length} bounding-box image(s) extracted by the OCR model, with ids ${attachedImageIds.map((id) => `"${id}"`).join(", ")}.`,
       "",
     );
   }
@@ -93,7 +97,21 @@ export function translationUserPrompt(documentText: string, schemaJson: string, 
   return parts.join("\n");
 }
 
-/** Prompt passed to Mistral OCR alongside the schema (document annotation). */
-export function annotationPrompt(ctx: PromptContext): string {
-  return `Extract the content of this document into the JSON schema. Document family: ${ctx.domainHint} Keep the original language; copy identifiers, dates and numbers verbatim; put every passage of the body into the most relevant field; leave fields empty only when the document has no such content.`;
+/** BBox annotation (Mistral's workflow, performed by the vision model): one call per bounding box. */
+export function bboxAnnotationSystemPrompt(ctx: PromptContext): string {
+  return [
+    `You describe one image that the OCR model cut out of a document. Document family: ${ctx.domainHint}`,
+    `Write all text in ${ctx.targetLanguage}. If the image contains text (a stamp, seal, signature block, handwritten note, table or figure labels), transcribe it in the original script where relevant and translate it into ${ctx.targetLanguage}.`,
+    "Return JSON only, following the provided schema.",
+  ].join("\n");
+}
+
+export function bboxAnnotationUserPrompt(imageId: string, pageNumber: number, context: string): string {
+  return [
+    `Image "${imageId}" from page ${pageNumber}.`,
+    context ? `Surrounding text (for context only):\n<context>\n${context}\n</context>` : "",
+    "Describe this image according to the JSON schema.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }

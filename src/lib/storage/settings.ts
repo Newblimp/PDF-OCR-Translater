@@ -35,8 +35,14 @@ export interface Settings {
   theme: ThemeSetting;
   /** Optional ceiling for generated tokens per translation; null = provider default (model maximum). */
   maxOutputTokens: number | null;
-  /** Send the JSON format to Mistral OCR (document annotation) before translating. */
-  annotateWithOcr: boolean;
+  /** Send the first bounding-box images with the text to the vision model (document annotation). */
+  sendImages: boolean;
+  /** Describe each bounding box with the vision model (bbox annotation). */
+  bboxAnnotations: boolean;
+  /** Upper bound on bounding boxes described per run (cost control). */
+  maxBboxAnnotations: number;
+  /** Show the page thumbnails in the document card. */
+  showDocumentPreview: boolean;
 }
 
 const VERSION = 2;
@@ -60,7 +66,10 @@ export const DEFAULT_SETTINGS: Settings = {
   cacheOcr: true,
   theme: "system",
   maxOutputTokens: null,
-  annotateWithOcr: true,
+  sendImages: true,
+  bboxAnnotations: true,
+  maxBboxAnnotations: 20,
+  showDocumentPreview: true,
 };
 
 export function loadSettings(): Settings {
@@ -85,6 +94,7 @@ function normalise(parsed: Partial<Settings>): Settings {
   if (!["system", "light", "dark"].includes(merged.theme)) merged.theme = "system";
   if (!["none", "low", "medium", "high"].includes(merged.reasoningEffort)) merged.reasoningEffort = DEFAULT_SETTINGS.reasoningEffort;
   if (typeof merged.maxOutputTokens !== "number" || !Number.isFinite(merged.maxOutputTokens) || merged.maxOutputTokens <= 0) merged.maxOutputTokens = null;
+  if (!Number.isInteger(merged.maxBboxAnnotations) || merged.maxBboxAnnotations < 0) merged.maxBboxAnnotations = DEFAULT_SETTINGS.maxBboxAnnotations;
   return merged;
 }
 

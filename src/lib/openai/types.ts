@@ -12,9 +12,14 @@ export type ResponseFormat =
   | { type: "json_object" }
   | { type: "json_schema"; json_schema: { name: string; description?: string; schema: JsonSchemaObject; strict?: boolean } };
 
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string; detail?: "auto" | "low" | "high" } };
+
 export interface ChatMessage {
   role: "system" | "developer" | "user" | "assistant";
-  content: string;
+  /** User messages may mix text and images (vision models). */
+  content: string | ContentPart[];
 }
 
 export interface ChatCompletionRequest {

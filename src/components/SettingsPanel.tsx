@@ -265,14 +265,34 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
             <span>Stream the translation (shows progress while it is generated)</span>
           </label>
           <label class="checkbox">
+            <input type="checkbox" checked={settings.sendImages} onChange={(e) => onChange({ sendImages: (e.target as HTMLInputElement).checked })} />
+            <span>
+              Document annotation with images: send the first 8 bounding-box images extracted by Mistral OCR together with the
+              text to the vision model (Mistral's annotation workflow).
+            </span>
+          </label>
+          <label class="checkbox">
             <input
               type="checkbox"
-              checked={settings.annotateWithOcr}
-              onChange={(e) => onChange({ annotateWithOcr: (e.target as HTMLInputElement).checked })}
+              checked={settings.bboxAnnotations}
+              onChange={(e) => onChange({ bboxAnnotations: (e.target as HTMLInputElement).checked })}
             />
             <span>
-              Send the JSON format to Mistral OCR (document annotation): the OCR model fills the fields from the page images
-              before translation. Costs a second OCR pass for inferred formats; the API annotates at most the first 8 pages.
+              Bounding-box annotation: describe every extracted box (stamps, seals, figures, tables) with the vision model, one
+              call per box, up to{" "}
+              <input
+                type="number"
+                class="inline-number"
+                min={0}
+                step={1}
+                value={settings.maxBboxAnnotations}
+                aria-label="Maximum bounding boxes to describe"
+                onChange={(e) => {
+                  const n = Number((e.target as HTMLInputElement).value);
+                  onChange({ maxBboxAnnotations: Number.isInteger(n) && n >= 0 ? n : DEFAULT_SETTINGS.maxBboxAnnotations });
+                }}
+              />{" "}
+              boxes per run.
             </span>
           </label>
           <label class="checkbox">

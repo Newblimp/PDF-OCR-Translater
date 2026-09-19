@@ -12,11 +12,12 @@ import type { JsonSchemaObject, OcrResponse } from "@/lib/mistral/types";
 import type { ProgressEvent, StageId } from "@/lib/pipeline/events";
 import type { OcrText } from "@/lib/pipeline/ocrText";
 import type { StructuredMode } from "@/lib/pipeline/translate";
+import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
 import type { FileKind } from "@/lib/files/fileKind";
 import type { Settings } from "@/lib/storage/settings";
 
 export type JobKind = "ocr" | "translate" | "both";
-export type ResultTab = "translation" | "annotation" | "ocr" | "schema" | "json";
+export type ResultTab = "translation" | "bboxes" | "ocr" | "schema" | "json";
 
 export type KeyStatus = "missing" | "unverified" | "checking" | "valid" | "invalid";
 
@@ -69,9 +70,11 @@ export interface TranslationState {
   completedAt: number;
   /** Characters of source text that were translated. */
   sourceChars: number;
-  /** Mistral OCR's extraction into the same schema (source language), if the stage ran. */
-  annotation: { data: unknown; raw: string; pagesAnnotated: number; model: string } | null;
-  annotationNote: string | null;
+  /** Bounding-box images handed to the vision model with the text. */
+  imagesSent: number;
+  /** Per-bounding-box descriptions by the vision model (empty when the stage did not run). */
+  bboxAnnotations: BboxAnnotation[];
+  bboxUsage: TokenUsage | null;
 }
 
 export interface JobState {
@@ -80,6 +83,8 @@ export interface JobState {
   events: ProgressEvent[];
   currentStage: StageId;
   receivedChars: number;
+  /** Partial translation text while it streams in. */
+  streamText: string;
   controller: AbortController;
 }
 
@@ -216,6 +221,7 @@ export function reducer(state: AppState, action: Action): AppState {
           events,
           currentStage: ev.stage,
           receivedChars: ev.receivedChars ?? (ev.stage === state.job.currentStage ? state.job.receivedChars : 0),
+          streamText: ev.streamText ?? state.job.streamText,
         },
       };
     }
