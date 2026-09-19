@@ -19,6 +19,7 @@ import {
   forgetApiKeys,
   loadDocument,
   runJob,
+  setPageSelection,
   submitApiKeys,
   updateSettings,
   verifyAndSaveApiKey,
@@ -72,8 +73,7 @@ export function App() {
               doc={state.doc}
               ocr={state.ocr}
               busy={!!state.job}
-              showPreview={state.settings.showDocumentPreview}
-              onTogglePreview={(showDocumentPreview) => updateSettings(rt, { showDocumentPreview })}
+              onPageSelection={(text) => setPageSelection(rt, text)}
               onReplace={(file) => void loadDocument(rt, file)}
               onRemove={() => clearDocument(rt)}
             />

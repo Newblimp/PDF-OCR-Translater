@@ -106,6 +106,19 @@ export function bboxAnnotationSystemPrompt(ctx: PromptContext): string {
   ].join("\n");
 }
 
+/** Block translation for the bounding-box view: batches of OCR blocks as JSON. */
+export function blockTranslationSystemPrompt(ctx: PromptContext): string {
+  return [
+    `You translate short text blocks of an official document from ${sourceClause(ctx.sourceLanguage)} into ${ctx.targetLanguage}. Document family: ${ctx.domainHint}`,
+    "Translate each block faithfully and completely, keeping numbering, Markdown tables and identifiers verbatim. Use official legal terminology.",
+    "Return JSON only: an object with a `translations` array holding exactly one {id, text} per input block, with the ids unchanged.",
+  ].join("\n");
+}
+
+export function blockTranslationUserPrompt(blocks: Array<{ id: string; text: string }>): string {
+  return `Blocks to translate (JSON):\n${JSON.stringify(blocks, null, 1)}`;
+}
+
 export function bboxAnnotationUserPrompt(imageId: string, pageNumber: number, context: string): string {
   return [
     `Image "${imageId}" from page ${pageNumber}.`,

@@ -17,6 +17,7 @@ function stagesFor(job: JobState, settings: Settings): StageId[] {
     stages.push("infer_schema");
     if (settings.bboxAnnotations) stages.push("bbox_annotate");
     stages.push("translate");
+    if (settings.blockTranslations) stages.push("block_translate");
   }
   return stages;
 }

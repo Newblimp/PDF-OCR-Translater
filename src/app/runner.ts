@@ -12,7 +12,8 @@ import { fileToDataUrl } from "@/lib/files/dataUrl";
 import { sha256Hex } from "@/lib/files/hash";
 import { openPdfPreview } from "@/lib/files/pdfPreview";
 import { emit } from "@/lib/pipeline/events";
-import { ocrOnly, translateText, type PipelineContext, type PipelineSettings, type SchemaMode } from "@/lib/pipeline/pipeline";
+import { blockTranslations, ocrOnly, translateText, type PipelineContext, type PipelineSettings, type SchemaMode } from "@/lib/pipeline/pipeline";
+import { parsePageSelection } from "@/lib/util/pageSelection";
 import { buildOcrText, type OcrText } from "@/lib/pipeline/ocrText";
 import { OCR_MAX_FILE_BYTES } from "@/lib/pipeline/runOcr";
 import { clearApiKey, saveApiKey } from "@/lib/storage/apiKeys";
@@ -143,6 +144,7 @@ export async function loadDocument(rt: Runtime, file: File): Promise<void> {
     previewStatus: classified.kind === "text" ? "ready" : "loading",
     previewError: null,
     textContent: null,
+    pageSelection: "",
   };
   rt.dispatch({ type: "doc/set", doc });
   const patch = (p: Partial<DocState>) => rt.dispatch({ type: "doc/patch", id: doc.id, patch: p });
@@ -200,10 +202,26 @@ export async function loadDocument(rt: Runtime, file: File): Promise<void> {
   }
 }
 
+/** Update the pages-to-OCR selection of the loaded document and re-check the local cache for it. */
+export function setPageSelection(rt: Runtime, text: string): void {
+  const doc = rt.getState().doc;
+  if (!doc) return;
+  rt.dispatch({ type: "doc/patch", id: doc.id, patch: { pageSelection: text } });
+  if (rt.getState().ocr?.source === "cache") rt.dispatch({ type: "ocr/set", ocr: null });
+  if (doc.hash) void restoreCachedOcr(rt, doc.id, doc.hash);
+}
+
+function selectedPages(rt: Runtime): number[] | null {
+  const doc = rt.getState().doc;
+  if (!doc) return null;
+  const parsed = parsePageSelection(doc.pageSelection, doc.pageCount);
+  return parsed.error ? null : parsed.pages;
+}
+
 async function restoreCachedOcr(rt: Runtime, docId: string, hash: string): Promise<void> {
   const state = rt.getState();
   if (!state.settings.cacheOcr) return;
-  const entry = await getCachedOcr(ocrCacheKey(hash, state.settings.ocrModel));
+  const entry = await getCachedOcr(ocrCacheKey(hash, state.settings.ocrModel, selectedPages(rt)));
   if (!entry) return;
   if (rt.getState().doc?.id !== docId || rt.getState().ocr) return;
   rt.dispatch({
@@ -267,10 +285,12 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
     if (kind === "ocr" || kind === "both") {
       const doc = state.doc;
       if (!doc || !canRunOcr(state)) throw new Error("Load a PDF or image first.");
+      const selection = parsePageSelection(doc.pageSelection, doc.pageCount);
+      if (selection.error) throw new Error(`Pages to OCR: ${selection.error}`);
       emit(onProgress, "prepare", "start", `Encoding ${doc.name} (${formatBytes(doc.size)})`);
       const dataUrl = await fileToDataUrl(doc.file, doc.mimeType);
       emit(onProgress, "prepare", "done", "Document encoded");
-      const outcome = await ocrOnly(ctx, { dataUrl, mimeType: doc.mimeType, fileName: doc.name });
+      const outcome = await ocrOnly(ctx, { dataUrl, mimeType: doc.mimeType, fileName: doc.name }, selection.pages);
       controller.signal.throwIfAborted();
       rt.dispatch({
         type: "ocr/set",
@@ -279,7 +299,7 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
       if (kind === "ocr") rt.dispatch({ type: "tab/set", tab: "ocr" });
       if (state.settings.cacheOcr && doc.hash) {
         void putCachedOcr({
-          key: ocrCacheKey(doc.hash, state.settings.ocrModel),
+          key: ocrCacheKey(doc.hash, state.settings.ocrModel, selection.pages),
           version: OCR_CACHE_VERSION,
           fileName: doc.name,
           fileSize: doc.size,
@@ -324,8 +344,18 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
           imagesSent: result.translation.imagesSent,
           bboxAnnotations: result.bboxes?.annotations ?? [],
           bboxUsage: result.bboxes?.usage ?? null,
+          blockTranslations: {},
+          blockUsage: null,
         },
       });
+      // Follow-up stage: per-block translations for the bounding-box view (the main result is already shown).
+      if (ocrText) {
+        const blocks = await blockTranslations(ctx, ocrText);
+        controller.signal.throwIfAborted();
+        if (blocks) rt.dispatch({ type: "translation/patch", patch: { blockTranslations: blocks.translations, blockUsage: blocks.usage } });
+      } else {
+        emit(onProgress, "block_translate", "skipped", "No text blocks (text input)");
+      }
     }
   } catch (err) {
     if (controller.signal.aborted || (err instanceof ApiError && err.kind === "aborted")) {
@@ -380,6 +410,7 @@ function toPipelineSettings(settings: Settings): PipelineSettings | { error: Non
     sendImages: settings.sendImages,
     bboxAnnotations: settings.bboxAnnotations,
     maxBboxAnnotations: settings.maxBboxAnnotations,
+    blockTranslations: settings.blockTranslations,
     targetLanguage: settings.targetLanguage,
     sourceLanguage: settings.sourceLanguage,
     domainHint: settings.domainHint,

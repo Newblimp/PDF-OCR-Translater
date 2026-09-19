@@ -67,6 +67,7 @@ src/
     pipeline/
       runOcr.ts                document → OCR (headers/footers extracted, bbox images + blocks)
       bboxAnnotate.ts          vision model, one call per bounding box (bbox annotation)
+      blockTranslate.ts        batch translation of OCR text blocks (bounding-box view)
       ocrText.ts               OCR response → clean text for translation
       inferSchema.ts           text → JSON Schema (json_object mode)
       schema.ts                schema sanitiser for strict mode + light validator
@@ -76,9 +77,9 @@ src/
                                fallbacks: without images → non-streaming → json_object
       pipeline.ts              ocrOnly / translateText / ocrAndTranslate
       events.ts                progress events shared by the steps
-    files/                     hashing, data-URL encoding, pdf.js preview, file kinds
+    files/                     hashing, data-URL encoding, pdf.js preview, page render cache, file kinds
     storage/                   localStorage (keys, settings, theme), IndexedDB OCR cache
-    util/                      JSON extraction, partial-JSON parser for streaming, text helpers
+    util/                      JSON extraction, partial-JSON parser for streaming, page selection, text helpers
   styles/global.css
 e2e/                           Playwright specs + API mock
 public/_headers                Cloudflare Pages headers (CSP etc.)
@@ -110,6 +111,16 @@ into `store.ts` and rendered by the components.
   `ResultsPanel`'s `PipelineStrip` tells the user what ran; `BboxView` draws
   `OcrText.bboxes` and `OcrCleanPage.blocks` over the page rendered by
   `renderPdfPage()`.
+- **Block translations**: after `translation/set`, the runner runs
+  `pipeline.blockTranslations()` (stage `block_translate`, batches of OCR
+  blocks as JSON) and patches `TranslationState.blockTranslations`;
+  `BboxView` shows them above the original block text.
+- **Page rendering**: `files/pageRenderCache.ts` keeps one pdf.js document
+  open per loaded file, renders on demand and pre-renders the rest in the
+  background (`PREFETCH_LIMIT`); `BboxView` subscribes to it.
+- **Page selection**: `DocState.pageSelection` (1-based text) is parsed by
+  `util/pageSelection.ts` into the OCR API's 0-based `pages`; the OCR cache
+  key includes it.
 - **Live streaming**: `translate.ts` emits `streamText` on progress events
   (throttled); the store keeps it in `job.streamText`; `ResultsPanel`'s
   `StreamingView` renders it through `util/partialJson.ts`.

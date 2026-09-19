@@ -722,9 +722,6 @@ textarea:focus-visible,
   padding: 0.15rem 0.35rem;
   font: inherit;
 }
-.preview-toggle {
-  margin-left: auto;
-}
 .badge-row {
   display: flex;
   flex-wrap: wrap;
@@ -929,6 +926,30 @@ textarea:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
+}
+.outline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+.outline-check {
+  margin-top: 0.55rem;
+  flex: 0 0 auto;
+}
+.outline-item-hidden .outline-link {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.pages-field {
+  margin: 0.4rem 0 0.6rem;
+}
+.block-translation {
+  border-left: 3px solid var(--accent);
+  padding: 0.2rem 0 0.2rem 0.6rem;
+  margin-bottom: 0.6rem;
+}
+.block-details h4 {
+  margin: 0.6rem 0 0.2rem;
 }
 .outline-link {
   width: 100%;

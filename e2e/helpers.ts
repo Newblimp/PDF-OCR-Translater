@@ -5,16 +5,21 @@
  */
 import type { Page, Route } from "@playwright/test";
 
-/** Build a minimal, valid single-page PDF that pdf.js can render. ASCII only. */
-export function makePdf(text: string): Buffer {
-  const content = `BT /F1 18 Tf 72 720 Td (${text.replace(/[()\\]/g, "\\$&")}) Tj ET`;
-  const objects = [
+/** Build a minimal, valid PDF (one page per text entry) that pdf.js can render. ASCII only. */
+export function makePdf(text: string, morePages: string[] = []): Buffer {
+  const texts = [text, ...morePages];
+  const escape = (t: string) => t.replace(/[()\\]/g, "\\$&");
+  // Object numbering: 1 catalog, 2 pages, 3 font, then per page: page object + content stream.
+  const objects: string[] = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
-    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+    `<< /Type /Pages /Kids [${texts.map((_, i) => `${4 + i * 2} 0 R`).join(" ")}] /Count ${texts.length} >>`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
   ];
+  texts.forEach((t, i) => {
+    const content = `BT /F1 18 Tf 72 720 Td (${escape(t)}) Tj ET`;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${5 + i * 2} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`);
+    objects.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  });
   let out = "%PDF-1.4\n";
   const offsets: number[] = [];
   objects.forEach((obj, i) => {
@@ -146,7 +151,14 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
     }
 
     if (url.endsWith("/v1/ocr")) {
-      return json(route, 200, { model: "mistral-ocr-latest", pages: [OCR_PAGE], usage_info: { pages_processed: 1, doc_size_bytes: 1234 } });
+      const requested = body?.["pages"] as number[] | undefined;
+      // Without a selection, "OCR" every page of the uploaded PDF (count the page objects in the data URL).
+      const documentUrl = String((body?.["document"] as { document_url?: string } | undefined)?.document_url ?? "");
+      const pdfText = documentUrl.startsWith("data:") ? Buffer.from(documentUrl.split(",")[1] ?? "", "base64").toString("latin1") : "";
+      const pageCount = Math.max(1, (pdfText.match(/\/Type \/Page\b/g) ?? []).length);
+      const indices = requested?.length ? requested : Array.from({ length: pageCount }, (_, i) => i);
+      const pages = indices.map((index) => ({ ...OCR_PAGE, index, images: index === 0 ? OCR_PAGE.images : [], blocks: index === 0 ? OCR_PAGE.blocks : [OCR_PAGE.blocks[1]] }));
+      return json(route, 200, { model: "mistral-ocr-latest", pages, usage_info: { pages_processed: pages.length, doc_size_bytes: 1234 } });
     }
 
     if (url.endsWith("/v1/chat/completions")) return chatCompletion(route, body, "mistral-large-latest", false);
@@ -191,6 +203,24 @@ function chatCompletion(route: Route, body: Record<string, unknown> | null, mode
   const systemContent = messages.find((m) => m.role === "system")?.content;
   const system = typeof systemContent === "string" ? systemContent : "";
   const german = /into German/.test(system);
+  if (format === "json_schema" && responseFormat?.json_schema?.name === "block_translations") {
+    const user = messages.find((m) => m.role === "user")?.content;
+    const items = JSON.parse(String(user).replace(/^[^[]*/, "")) as Array<{ id: string; text: string }>;
+    return json(route, 200, {
+      id: "cmpl-blocks",
+      object: "chat.completion",
+      model,
+      created: 0,
+      usage: { prompt_tokens: 30, completion_tokens: 30, total_tokens: 60 },
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: JSON.stringify({ translations: items.map((i) => ({ id: i.id, text: `[${german ? "DE" : "EN"}] ${i.text}` })) }) },
+          finish_reason: "stop",
+        },
+      ],
+    });
+  }
   if (format === "json_schema" && responseFormat?.json_schema?.name === "bbox_annotation") {
     return json(route, 200, {
       id: "cmpl-bbox",

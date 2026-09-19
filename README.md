@@ -56,8 +56,13 @@ anywhere else.
    across fields, copy/download of the JSON, and tabs for the OCR text, the
    schema that was used, and a **Bounding boxes** view that draws the OCR
    boxes (figures and paragraph blocks) over the rendered page, with the
-   cropped image and the vision model's description for each box. The
-   document card has a checkbox to hide the page thumbnails.
+   cropped image and the vision model's description for each box; clicking
+   a text block shows its translation above the original (a follow-up
+   step translates every OCR block after the main translation). Fields in
+   the Translation tab can be hidden and shown individually (checkboxes in
+   the outline, Hide all / Show all). Pages render in the background so
+   browsing is instant. The document card takes a page selection
+   (e.g. `1-3, 7`) to OCR only part of a PDF.
 
 Two API keys are requested on first use (Mistral for OCR, OpenAI for
 translation), verified against each provider's `GET /v1/models`, and cached
@@ -119,6 +124,8 @@ All defaults live in code so they can be changed in one place:
 | Max output tokens | provider default | Settings panel |
 | Document annotation with images | on (first 8 boxes, `DOCUMENT_ANNOTATION_MAX_IMAGES`) | Settings panel, `src/lib/pipeline/runOcr.ts` |
 | BBox annotation | on, up to 20 boxes per run | Settings panel; format in `src/lib/pipeline/schemas/bboxAnnotation.ts` |
+| Block translations | on | Settings panel; `src/lib/pipeline/blockTranslate.ts` |
+| Pages to OCR | all | Document card (`src/lib/util/pageSelection.ts`) |
 | Target / source language | English or German toggle / auto-detect | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`) |
 | JSON format | inferred from document; built-in `patent_communication`; custom | `src/lib/pipeline/schemas/` |
 | Prompts | schema inference and translation | `src/lib/pipeline/prompts.ts` |

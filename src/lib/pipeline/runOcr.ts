@@ -27,6 +27,8 @@ export interface OcrInput {
 
 export interface RunOcrOptions {
   model: string;
+  /** 0-based page indices to process; all pages when undefined/null. */
+  pages?: number[] | null | undefined;
   signal?: AbortSignal | undefined;
   onProgress?: ProgressListener | undefined;
 }
@@ -43,7 +45,7 @@ export function isImageMime(mime: string): boolean {
 
 export async function runOcr(client: MistralClient, input: OcrInput, options: RunOcrOptions): Promise<OcrOutcome> {
   const { onProgress } = options;
-  emit(onProgress, "ocr", "start", `Sending ${input.fileName} to ${options.model}`);
+  emit(onProgress, "ocr", "start", `Sending ${input.fileName} to ${options.model}${options.pages?.length ? ` (${options.pages.length} selected page(s))` : ""}`);
 
   const request: OcrRequest = {
     model: options.model,
@@ -58,6 +60,7 @@ export async function runOcr(client: MistralClient, input: OcrInput, options: Ru
     extract_footer: true,
     table_format: "markdown",
   };
+  if (options.pages?.length) request.pages = options.pages;
 
   let response: OcrResponse;
   try {

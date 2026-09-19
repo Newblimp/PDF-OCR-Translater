@@ -26,6 +26,8 @@ interface FieldProps {
   value: unknown;
   options: RenderOptions;
   depth: number;
+  /** Top-level cards can be hidden from the browser (restored from the outline). */
+  onHide?: (() => void) | undefined;
 }
 
 async function copyText(text: string): Promise<void> {
@@ -37,7 +39,7 @@ async function copyText(text: string): Promise<void> {
 }
 
 /** One field of the translated document: collapsible label, optional description, value. */
-export function FieldCard({ path, label, description, value, options, depth }: FieldProps) {
+export function FieldCard({ path, label, description, value, options, depth, onHide }: FieldProps) {
   const [collapsed, setCollapsed] = useState(options.bulk.mode === "collapse");
   const id = pathId(path);
   const joined = path.join("/");
@@ -82,6 +84,11 @@ export function FieldCard({ path, label, description, value, options, depth }: F
           {!empty && (
             <button type="button" class="btn btn-ghost small" onClick={() => void copyValue()} title="Copy value">
               Copy
+            </button>
+          )}
+          {onHide && (
+            <button type="button" class="btn btn-ghost small" onClick={onHide} title="Hide this field (restore it from the outline)" aria-label={`Hide ${label}`}>
+              Hide
             </button>
           )}
         </div>

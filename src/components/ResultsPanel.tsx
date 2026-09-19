@@ -131,7 +131,9 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
         </div>
       )}
 
-      {active === "bboxes" && ocr && <BboxView doc={state.doc} ocr={ocr.text} annotations={translation?.bboxAnnotations ?? []} />}
+      {active === "bboxes" && ocr && (
+        <BboxView doc={state.doc} ocr={ocr.text} annotations={translation?.bboxAnnotations ?? []} blockTranslations={translation?.blockTranslations ?? {}} />
+      )}
 
       {active === "ocr" && ocr && <OcrView state={state} />}
 

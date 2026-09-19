@@ -296,6 +296,14 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
             </span>
           </label>
           <label class="checkbox">
+            <input
+              type="checkbox"
+              checked={settings.blockTranslations}
+              onChange={(e) => onChange({ blockTranslations: (e.target as HTMLInputElement).checked })}
+            />
+            <span>Translate each OCR text block after the main translation, so the bounding-box view shows a translation per block.</span>
+          </label>
+          <label class="checkbox">
             <input type="checkbox" checked={settings.cacheOcr} onChange={(e) => onChange({ cacheOcr: (e.target as HTMLInputElement).checked })} />
             <span>Keep OCR results in this browser so the same file is not OCR'd twice</span>
           </label>

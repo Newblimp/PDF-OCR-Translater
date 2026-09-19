@@ -1,22 +1,23 @@
 import { useRef } from "preact/hooks";
 import { ACCEPT_ATTRIBUTE } from "@/lib/files/fileKind";
 import { formatBytes } from "@/lib/util/text";
+import { parsePageSelection } from "@/lib/util/pageSelection";
 import type { DocState, OcrState } from "@/app/store";
 
 interface Props {
   doc: DocState;
   ocr: OcrState | null;
   busy: boolean;
-  showPreview: boolean;
-  onTogglePreview: (show: boolean) => void;
+  onPageSelection: (text: string) => void;
   onReplace: (file: File) => void;
   onRemove: () => void;
 }
 
 const KIND_LABEL = { pdf: "PDF", image: "Image", text: "Text" } as const;
 
-export function DocumentCard({ doc, ocr, busy, showPreview, onTogglePreview, onReplace, onRemove }: Props) {
+export function DocumentCard({ doc, ocr, busy, onPageSelection, onReplace, onRemove }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const selection = parsePageSelection(doc.pageSelection, doc.pageCount);
   return (
     <div class="card document-card">
       <div class="card-head">
@@ -59,13 +60,30 @@ export function DocumentCard({ doc, ocr, busy, showPreview, onTogglePreview, onR
             {ocr.text.bboxes.length ? ` · ${ocr.text.bboxes.length} bounding box(es)` : ""}
           </span>
         )}
-        <label class="checkbox small preview-toggle">
-          <input type="checkbox" checked={showPreview} onChange={(e) => onTogglePreview((e.target as HTMLInputElement).checked)} />
-          <span>Show document preview</span>
-        </label>
       </div>
 
-      {!showPreview ? null : doc.kind === "text" ? (
+      {doc.kind === "pdf" && (
+        <label class="field pages-field">
+          <span>Pages to OCR</span>
+          <input
+            type="text"
+            value={doc.pageSelection}
+            placeholder={doc.pageCount ? `all (1-${doc.pageCount})` : "all"}
+            disabled={busy}
+            aria-invalid={!!selection.error}
+            onInput={(e) => onPageSelection((e.target as HTMLInputElement).value)}
+          />
+          <span class={`small ${selection.error ? "error-text" : "muted"}`}>
+            {selection.error
+              ? selection.error
+              : selection.pages
+                ? `${selection.pages.length} page(s) selected: ${selection.text}`
+                : "Ranges or single pages, e.g. 1-3, 7. Empty = all pages."}
+          </span>
+        </label>
+      )}
+
+      {doc.kind === "text" ? (
         <pre class="text-preview">{(doc.textContent ?? "").slice(0, 1500)}{(doc.textContent?.length ?? 0) > 1500 ? "\n…" : ""}</pre>
       ) : (
         <div class="preview-strip" aria-label="Document preview">

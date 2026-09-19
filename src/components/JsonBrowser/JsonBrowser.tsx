@@ -31,6 +31,8 @@ export function JsonBrowser({ data, schema }: Props) {
   const [showEmpty, setShowEmpty] = useState(false);
   const [bulk, setBulk] = useState<RenderOptions["bulk"]>({ mode: "expand", epoch: 0 });
   const [reveal, setReveal] = useState<RenderOptions["reveal"]>(null);
+  /** Top-level fields the user chose not to see. */
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
 
   const fields = useMemo<TopField[]>(() => {
     if (!isPlainObject(data)) {
@@ -52,11 +54,20 @@ export function JsonBrowser({ data, schema }: Props) {
   }, [data, schema]);
 
   const needle = query.trim().toLowerCase();
-  const visible = fields.filter((f) => (showEmpty || !f.empty) && (!needle || f.searchText.includes(needle)));
+  const listed = fields.filter((f) => (showEmpty || !f.empty) && (!needle || f.searchText.includes(needle)));
+  const visible = listed.filter((f) => !hidden.has(f.key));
   const options: RenderOptions = { markdown, showEmpty, bulk, reveal };
   const emptyCount = fields.filter((f) => f.empty).length;
+  const setVisible = (key: string, show: boolean) =>
+    setHidden((h) => {
+      const next = new Set(h);
+      if (show) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const jumpTo = (key: string) => {
+    setVisible(key, true);
     setReveal({ path: key, epoch: (reveal?.epoch ?? 0) + 1 });
     // Let the card expand before scrolling to it.
     requestAnimationFrame(() => document.getElementById(pathId([key]))?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -81,17 +92,40 @@ export function JsonBrowser({ data, schema }: Props) {
             Collapse all
           </button>
         </div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-ghost small" onClick={() => setHidden(new Set())} disabled={hidden.size === 0}>
+            Show all
+          </button>
+          <button type="button" class="btn btn-ghost small" onClick={() => setHidden(new Set(fields.map((f) => f.key)))} disabled={hidden.size === fields.length}>
+            Hide all
+          </button>
+        </div>
         <ul class="outline-list">
-          {visible.map((f) => (
-            <li key={f.key}>
-              <button type="button" class="outline-link" onClick={() => jumpTo(f.key)}>
-                {f.label}
-                <span class="muted small">{summarise(f.value)}</span>
-              </button>
-            </li>
-          ))}
-          {visible.length === 0 && <li class="muted small">No field matches.</li>}
+          {listed.map((f) => {
+            const shown = !hidden.has(f.key);
+            return (
+              <li key={f.key} class={`outline-item${shown ? "" : " outline-item-hidden"}`}>
+                <input
+                  type="checkbox"
+                  class="outline-check"
+                  checked={shown}
+                  aria-label={`Show ${f.label}`}
+                  onChange={(e) => setVisible(f.key, (e.target as HTMLInputElement).checked)}
+                />
+                <button type="button" class="outline-link" onClick={() => jumpTo(f.key)}>
+                  {f.label}
+                  <span class="muted small">{summarise(f.value)}</span>
+                </button>
+              </li>
+            );
+          })}
+          {listed.length === 0 && <li class="muted small">No field matches.</li>}
         </ul>
+        {hidden.size > 0 && (
+          <p class="muted small">
+            {hidden.size} field(s) hidden.
+          </p>
+        )}
         <div class="outline-options">
           <label class="checkbox small">
             <input type="checkbox" checked={markdown} onChange={(e) => setMarkdown((e.target as HTMLInputElement).checked)} />
@@ -107,9 +141,18 @@ export function JsonBrowser({ data, schema }: Props) {
       </aside>
       <div class="fields">
         {visible.map((f) => (
-          <FieldCard key={f.key} path={[f.key]} label={f.label} description={f.description} value={f.value} options={options} depth={0} />
+          <FieldCard
+            key={f.key}
+            path={[f.key]}
+            label={f.label}
+            description={f.description}
+            value={f.value}
+            options={options}
+            depth={0}
+            onHide={() => setVisible(f.key, false)}
+          />
         ))}
-        {visible.length === 0 && <p class="muted">Nothing to show.</p>}
+        {visible.length === 0 && <p class="muted">{listed.length ? "All fields are hidden. Use the checkboxes or “Show all”." : "Nothing to show."}</p>}
       </div>
     </div>
   );

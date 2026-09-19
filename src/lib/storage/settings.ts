@@ -41,8 +41,8 @@ export interface Settings {
   bboxAnnotations: boolean;
   /** Upper bound on bounding boxes described per run (cost control). */
   maxBboxAnnotations: number;
-  /** Show the page thumbnails in the document card. */
-  showDocumentPreview: boolean;
+  /** Translate each OCR text block so the bounding-box view can show it. */
+  blockTranslations: boolean;
 }
 
 const VERSION = 2;
@@ -69,7 +69,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sendImages: true,
   bboxAnnotations: true,
   maxBboxAnnotations: 20,
-  showDocumentPreview: true,
+  blockTranslations: true,
 };
 
 export function loadSettings(): Settings {

@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { renderPdfPage } from "@/lib/files/pdfPreview";
+import { getPageRenderer } from "@/lib/files/pageRenderCache";
 import type { OcrBlock } from "@/lib/mistral/types";
 import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
+import { blockId } from "@/lib/pipeline/blockTranslate";
 import type { OcrBbox, OcrText } from "@/lib/pipeline/ocrText";
 import type { DocState } from "@/app/store";
+import { MarkdownText } from "./MarkdownText";
 
 interface Props {
   doc: DocState | null;
   ocr: OcrText;
   annotations: BboxAnnotation[];
+  /** Translation per block id, from the block-translation stage. */
+  blockTranslations: Record<string, string>;
 }
 
 /** Colours per block type (kept readable in both themes). */
@@ -30,45 +34,77 @@ const BLOCK_COLORS: Record<string, string> = {
 const IMAGE_COLOR = "#d6336c";
 const RENDER_WIDTH = 1000;
 
-type Selected = { kind: "bbox"; bbox: OcrBbox } | { kind: "block"; block: OcrBlock } | null;
+type Selected = { kind: "bbox"; bbox: OcrBbox } | { kind: "block"; block: OcrBlock; id: string } | null;
 
 /**
  * Bounding-box overview: one page at a time, with the OCR bounding boxes
- * (figures) and paragraph blocks drawn over the rendered page. Clicking a box
- * shows its content, the cropped image and the vision model's description.
+ * (figures) and paragraph blocks drawn over the rendered page. Pages render
+ * in the background so navigation is instant. Clicking a box shows its
+ * translation and original text, or the cropped image and the vision
+ * model's description.
  */
-export function BboxView({ doc, ocr, annotations }: Props) {
+export function BboxView({ doc, ocr, annotations, blockTranslations }: Props) {
   const pages = ocr.pages;
-  const [pageIndex, setPageIndex] = useState(pages[0]?.index ?? 0);
+  const [position, setPosition] = useState(0); // index into `pages` (which may be a subset of the document)
   const [showBlocks, setShowBlocks] = useState(true);
   const [showImages, setShowImages] = useState(true);
   const [selected, setSelected] = useState<Selected>(null);
   const [rendered, setRendered] = useState<Record<number, string>>({});
+  const [renderedCount, setRenderedCount] = useState(0);
   const [renderError, setRenderError] = useState<string | null>(null);
 
-  const page = pages.find((p) => p.index === pageIndex) ?? pages[0];
+  const page = pages[Math.min(position, pages.length - 1)];
+  const pageIndex = page?.index ?? 0;
   const pageBoxes = useMemo(() => ocr.bboxes.filter((b) => b.pageIndex === pageIndex), [ocr, pageIndex]);
   const pageBlocks = page?.blocks ?? [];
   const annotationById = useMemo(() => new Map(annotations.map((a) => [a.id, a])), [annotations]);
 
-  // Render the current page lazily from the loaded file.
+  // One renderer per document; it keeps the PDF open and pre-renders pages in the background.
+  const renderer = useMemo(
+    () => (doc ? getPageRenderer(doc.id, doc.file, doc.kind === "image" ? "image" : "pdf", doc.previews[0] ?? null, RENDER_WIDTH) : null),
+    [doc],
+  );
+
   useEffect(() => {
-    if (!doc || rendered[pageIndex]) return;
+    if (!renderer) return;
+    const unsubscribe = renderer.subscribe((index) => {
+      const url = renderer.peek(index);
+      if (url) setRendered((r) => (r[index] ? r : { ...r, [index]: url }));
+      setRenderedCount(renderer.renderedCount);
+    });
+    // Seed from what is already rendered (e.g. the tab was re-opened).
+    const seed: Record<number, string> = {};
+    for (const p of pages) {
+      const url = renderer.peek(p.index);
+      if (url) seed[p.index] = url;
+    }
+    setRendered(seed);
+    setRenderedCount(renderer.renderedCount);
+    renderer.prefetchAll(pageIndex);
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderer]);
+
+  // Make sure the current page renders first when the user navigates.
+  useEffect(() => {
+    if (!renderer || rendered[pageIndex]) return;
     let cancelled = false;
     setRenderError(null);
-    const run = async () => {
-      try {
-        const url = doc.kind === "image" ? (doc.previews[0] ?? "") : await renderPdfPage(doc.file, pageIndex + 1, RENDER_WIDTH);
+    renderer
+      .get(pageIndex)
+      .then((url) => {
         if (!cancelled) setRendered((r) => ({ ...r, [pageIndex]: url }));
-      } catch (err) {
+      })
+      .catch((err: unknown) => {
         if (!cancelled) setRenderError(err instanceof Error ? err.message : String(err));
-      }
-    };
-    void run();
+      });
     return () => {
       cancelled = true;
     };
-  }, [doc, pageIndex, rendered]);
+  }, [renderer, pageIndex, rendered]);
+
+  // Selection belongs to the page it was made on.
+  useEffect(() => setSelected(null), [pageIndex]);
 
   if (!page) return <p class="muted">No pages.</p>;
   const image = rendered[pageIndex];
@@ -79,25 +115,26 @@ export function BboxView({ doc, ocr, annotations }: Props) {
     `left:${pct(x0, width)};top:${pct(y0, height)};width:${pct(x1 - x0, width)};height:${pct(y1 - y0, height)};--box-color:${color}`;
 
   const blockTypes = Array.from(new Set(pageBlocks.map((b) => b.type)));
+  const hasTranslations = Object.keys(blockTranslations).length > 0;
 
   return (
     <div class="tab-panel">
       <div class="toolbar">
         <div class="btn-row">
-          <button type="button" class="btn btn-ghost small" disabled={pageIndex <= (pages[0]?.index ?? 0)} onClick={() => setPageIndex((i) => i - 1)}>
+          <button type="button" class="btn btn-ghost small" disabled={position <= 0} onClick={() => setPosition((i) => i - 1)}>
             ← Previous
           </button>
           <span class="muted small">
-            Page {pageIndex + 1} of {pages.length} · {pageBoxes.length} bounding box(es) · {pageBlocks.length} block(s)
+            Page {pageIndex + 1} · {position + 1} of {pages.length} OCR'd page(s) · {pageBoxes.length} bounding box(es) · {pageBlocks.length} block(s)
           </span>
-          <button
-            type="button"
-            class="btn btn-ghost small"
-            disabled={pageIndex >= (pages.at(-1)?.index ?? 0)}
-            onClick={() => setPageIndex((i) => i + 1)}
-          >
+          <button type="button" class="btn btn-ghost small" disabled={position >= pages.length - 1} onClick={() => setPosition((i) => i + 1)}>
             Next →
           </button>
+          {doc?.kind === "pdf" && (
+            <span class="muted small" data-rendered-pages={renderedCount}>
+              {renderedCount}/{doc.pageCount ?? pages.length} page(s) rendered
+            </span>
+          )}
         </div>
         <div class="btn-row">
           <label class="checkbox small">
@@ -128,21 +165,26 @@ export function BboxView({ doc, ocr, annotations }: Props) {
             {image ? (
               <img src={image} alt={`Page ${pageIndex + 1}`} />
             ) : (
-              <div class="bbox-stage-placeholder">{renderError ? `Page could not be rendered: ${renderError}` : doc ? "Rendering page…" : "Load the document to see the page image."}</div>
+              <div class="bbox-stage-placeholder">
+                {renderError ? `Page could not be rendered: ${renderError}` : doc ? "Rendering page…" : "Load the document to see the page image."}
+              </div>
             )}
             <div class="bbox-layer" aria-label="Bounding boxes">
               {showBlocks &&
-                pageBlocks.map((block, i) => (
-                  <button
-                    type="button"
-                    key={`b${i}`}
-                    class={`bbox-box${selected?.kind === "block" && selected.block === block ? " bbox-box-selected" : ""}`}
-                    style={boxStyle(block.top_left_x, block.top_left_y, block.bottom_right_x, block.bottom_right_y, BLOCK_COLORS[block.type] ?? "#495057")}
-                    title={`${block.type}: ${block.content.slice(0, 80)}`}
-                    aria-label={`${block.type} block`}
-                    onClick={() => setSelected({ kind: "block", block })}
-                  />
-                ))}
+                pageBlocks.map((block, i) => {
+                  const id = blockId(pageIndex, i);
+                  return (
+                    <button
+                      type="button"
+                      key={id}
+                      class={`bbox-box${selected?.kind === "block" && selected.id === id ? " bbox-box-selected" : ""}`}
+                      style={boxStyle(block.top_left_x, block.top_left_y, block.bottom_right_x, block.bottom_right_y, BLOCK_COLORS[block.type] ?? "#495057")}
+                      title={`${block.type}: ${block.content.slice(0, 80)}`}
+                      aria-label={`${block.type} block ${i + 1}`}
+                      onClick={() => setSelected({ kind: "block", block, id })}
+                    />
+                  );
+                })}
               {showImages &&
                 pageBoxes.map((bbox) => (
                   <button
@@ -165,15 +207,9 @@ export function BboxView({ doc, ocr, annotations }: Props) {
           {selected?.kind === "bbox" ? (
             <BboxDetails bbox={selected.bbox} annotation={annotationById.get(selected.bbox.id) ?? null} />
           ) : selected?.kind === "block" ? (
-            <div>
-              <h3>{selected.block.type} block</h3>
-              <p class="muted small">
-                ({selected.block.top_left_x}, {selected.block.top_left_y}) – ({selected.block.bottom_right_x}, {selected.block.bottom_right_y}) px
-              </p>
-              <pre class="text-preview">{selected.block.content || "(no text)"}</pre>
-            </div>
+            <BlockDetails block={selected.block} translation={blockTranslations[selected.id] ?? null} hasTranslations={hasTranslations} />
           ) : (
-            <p class="muted">Click a box on the page to see its content and the vision model's description.</p>
+            <p class="muted">Click a box on the page to see its translation, its content and the vision model's description.</p>
           )}
           {pageBoxes.length > 0 && (
             <div>
@@ -195,6 +231,31 @@ export function BboxView({ doc, ocr, annotations }: Props) {
           )}
         </aside>
       </div>
+    </div>
+  );
+}
+
+function BlockDetails({ block, translation, hasTranslations }: { block: OcrBlock; translation: string | null; hasTranslations: boolean }) {
+  return (
+    <div class="block-details">
+      <h3>{block.type} block</h3>
+      <p class="muted small">
+        ({block.top_left_x}, {block.top_left_y}) – ({block.bottom_right_x}, {block.bottom_right_y}) px
+      </p>
+      <h4 class="small muted">Translation</h4>
+      {translation ? (
+        <div class="block-translation">
+          <MarkdownText text={translation} markdown={true} />
+        </div>
+      ) : (
+        <p class="muted small">
+          {hasTranslations
+            ? "No translation was returned for this block."
+            : "Not translated yet: run OCR + Translate (block translations are produced after the main translation)."}
+        </p>
+      )}
+      <h4 class="small muted">Original</h4>
+      <pre class="text-preview">{block.content || "(no text)"}</pre>
     </div>
   );
 }

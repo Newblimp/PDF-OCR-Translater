@@ -42,6 +42,8 @@ export interface DocState {
   previewError: string | null;
   /** Contents of a dropped .txt/.md file. */
   textContent: string | null;
+  /** Pages to OCR as typed by the user (1-based, e.g. "1-3, 7"); empty = all pages. */
+  pageSelection: string;
 }
 
 export interface OcrState {
@@ -75,6 +77,9 @@ export interface TranslationState {
   /** Per-bounding-box descriptions by the vision model (empty when the stage did not run). */
   bboxAnnotations: BboxAnnotation[];
   bboxUsage: TokenUsage | null;
+  /** Translation per OCR text block id (`${pageIndex}:${blockIndex}`), filled after the main translation. */
+  blockTranslations: Record<string, string>;
+  blockUsage: TokenUsage | null;
 }
 
 export interface JobState {
@@ -126,6 +131,7 @@ export type Action =
   | { type: "paste/text"; text: string }
   | { type: "ocr/set"; ocr: OcrState | null }
   | { type: "translation/set"; translation: TranslationState | null }
+  | { type: "translation/patch"; patch: Partial<TranslationState> }
   | { type: "job/start"; job: JobState }
   | { type: "job/event"; event: ProgressEvent }
   | { type: "job/end" }
@@ -204,6 +210,8 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, ocr: action.ocr };
     case "translation/set":
       return { ...state, translation: action.translation, activeTab: action.translation ? "translation" : state.activeTab };
+    case "translation/patch":
+      return state.translation ? { ...state, translation: { ...state.translation, ...action.patch } } : state;
     case "job/start":
       return { ...state, job: action.job, error: null };
     case "job/event": {

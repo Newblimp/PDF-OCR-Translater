@@ -103,13 +103,14 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
   // Chat on OpenAI: schema inference (json_object), one bbox annotation per box (json_schema), then the translation.
   const chats = recorded.filter((r) => r.url.endsWith("/v1/chat/completions"));
   expect(chats.every((c) => c.host === "api.openai.com")).toBe(true);
-  expect(chats).toHaveLength(4);
+  expect(chats).toHaveLength(5); // schema inference, 2 bbox annotations, translation, block translations
   expect((chats[0]!.body!["response_format"] as { type: string }).type).toBe("json_object");
+  expect((chats.at(-1)!.body!["response_format"] as { json_schema?: { name?: string } }).json_schema?.name).toBe("block_translations");
   const bboxCalls = chats.filter((c) => (c.body!["response_format"] as { json_schema?: { name?: string } }).json_schema?.name === "bbox_annotation");
   expect(bboxCalls).toHaveLength(2);
   const bboxContent = (bboxCalls[0]!.body!["messages"] as Array<{ role: string; content: unknown }>)[1]!.content as Array<{ type: string }>;
   expect(bboxContent.some((p) => p.type === "image_url")).toBe(true);
-  const translate = chats.at(-1)!.body!;
+  const translate = chats.at(-2)!.body!;
   expect(translate).toMatchObject({
     model: "gpt-5.6-luna",
     stream: true,
@@ -320,22 +321,87 @@ test("bounding boxes are drawn over the page with the vision model's description
   await expect(page.locator(".bbox-detail img")).toBeVisible();
   await page.getByLabel("Image boxes (sent to the vision model)").uncheck();
   await expect(page.locator(".bbox-box")).toHaveCount(0);
+
+  // Clicking a text block shows its translation above the original.
+  await page.getByLabel("Paragraph blocks").check();
+  await page.getByRole("button", { name: "text block 2" }).click();
+  const detail = page.locator(".bbox-detail");
+  await expect(detail.locator(".block-translation")).toContainText("[EN] 申请号：CN202310000001.2");
+  await expect(detail.locator(".text-preview")).toContainText("申请号：CN202310000001.2");
+  const translationBox = await detail.locator(".block-translation").boundingBox();
+  const originalBox = await detail.locator(".text-preview").boundingBox();
+  expect(translationBox!.y).toBeLessThan(originalBox!.y);
 });
 
-test("the document preview can be hidden with a checkbox and the choice persists", async ({ page }) => {
+test("pages are pre-rendered in the background so navigating is instant", async ({ page }) => {
+  await setup(page);
+  await enterKeys(page);
+  await page.locator('input[type="file"]').first().setInputFiles({
+    name: "three-pages.pdf",
+    mimeType: "application/pdf",
+    buffer: makePdf("Page one", ["Page two", "Page three"]),
+  });
+  await expect(page.getByText("3 pages")).toBeVisible();
+  await page.getByRole("button", { name: "OCR only" }).click();
+  await expect(page.getByRole("tab", { name: "Bounding boxes" })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("tab", { name: "Bounding boxes" }).click();
+  await expect(page.locator(".bbox-stage img")).toBeVisible();
+  // All three pages render in the background without navigating.
+  await expect(page.locator("[data-rendered-pages]")).toHaveAttribute("data-rendered-pages", "3", { timeout: 20_000 });
+  // OCR covered all pages (no selection): navigation shows the next page immediately.
+  await page.getByRole("button", { name: "Next →" }).click();
+  await expect(page.getByText("Rendering page…")).toHaveCount(0);
+  await expect(page.locator(".bbox-stage img")).toHaveAttribute("alt", "Page 2");
+});
+
+test("only the selected pages are sent to OCR", async ({ page }) => {
+  const { recorded } = await setup(page);
+  await enterKeys(page);
+  await page.locator('input[type="file"]').first().setInputFiles({
+    name: "three-pages.pdf",
+    mimeType: "application/pdf",
+    buffer: makePdf("Page one", ["Page two", "Page three"]),
+  });
+  await expect(page.getByText("3 pages")).toBeVisible();
+  const pagesInput = page.getByLabel("Pages to OCR");
+  await pagesInput.fill("4");
+  await expect(page.getByText("Page 4 does not exist")).toBeVisible();
+  await page.getByRole("button", { name: "OCR only" }).click();
+  await expect(page.getByRole("alert")).toContainText("Pages to OCR");
+  await page.getByRole("alert").getByRole("button", { name: "Dismiss error" }).click();
+
+  await pagesInput.fill("3, 1");
+  await expect(page.getByText("2 page(s) selected: 1, 3")).toBeVisible();
+  await page.getByRole("button", { name: "OCR only" }).click();
+  await expect(page.getByRole("tab", { name: "OCR text" })).toBeVisible({ timeout: 20_000 });
+  const ocr = recorded.find((r) => r.url.endsWith("/v1/ocr"));
+  expect(ocr!.body!["pages"]).toEqual([0, 2]);
+  await expect(page.locator(".ocr-page")).toHaveCount(2);
+  await expect(page.locator("#ocr-page-3")).toBeVisible();
+});
+
+test("fields can be hidden and shown individually and in bulk", async ({ page }) => {
   await setup(page);
   await enterKeys(page);
   await loadPdf(page);
-  await expect(page.locator(".preview-page img")).toHaveCount(1);
-  await page.getByLabel("Show document preview").uncheck();
-  await expect(page.locator(".preview-page img")).toHaveCount(0);
-  await page.reload();
-  await loadPdf(page);
-  await expect(page.getByRole("heading", { name: "office-action.pdf" })).toBeVisible();
-  await expect(page.getByLabel("Show document preview")).not.toBeChecked();
-  await expect(page.locator(".preview-page img")).toHaveCount(0);
-  await page.getByLabel("Show document preview").check();
-  await expect(page.locator(".preview-page img")).toHaveCount(1);
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".pipeline-strip")).toBeVisible();
+  await expect(page.locator(".fields > .field-card")).toHaveCount(5);
+
+  await page.getByRole("button", { name: "Hide Summary" }).click();
+  await expect(page.locator("#field-summary")).toHaveCount(0);
+  await expect(page.locator(".fields > .field-card")).toHaveCount(4);
+  await expect(page.getByLabel("Show Summary")).not.toBeChecked();
+
+  await page.getByLabel("Show Summary").check();
+  await expect(page.locator("#field-summary")).toBeVisible();
+
+  await page.getByRole("button", { name: "Hide all" }).click();
+  await expect(page.locator(".fields > .field-card")).toHaveCount(0);
+  await expect(page.getByText("All fields are hidden")).toBeVisible();
+  await page.getByRole("button", { name: "Show all" }).click();
+  await expect(page.locator(".fields > .field-card")).toHaveCount(5);
 });
 
 test("the translation is shown live while it streams", async ({ page }) => {

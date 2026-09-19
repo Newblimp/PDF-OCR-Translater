@@ -23,8 +23,8 @@ export interface OcrCacheEntry {
   response: OcrResponse;
 }
 
-export function ocrCacheKey(fileHash: string, model: string): string {
-  return `${fileHash}:${model}`;
+export function ocrCacheKey(fileHash: string, model: string, pages: number[] | null = null): string {
+  return `${fileHash}:${model}${pages?.length ? `:p${pages.join(",")}` : ""}`;
 }
 
 function openDb(): Promise<IDBDatabase> {

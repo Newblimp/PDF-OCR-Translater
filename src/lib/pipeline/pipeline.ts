@@ -20,6 +20,7 @@ import type { ChatProvider, ReasoningEffort } from "../llm/provider";
 import type { MistralClient } from "../mistral/client";
 import type { JsonSchemaObject } from "../mistral/types";
 import { annotateBboxes, type BboxAnnotateOutcome } from "./bboxAnnotate";
+import { translateBlocks, type BlockTranslateOutcome } from "./blockTranslate";
 import { emit, type ProgressListener } from "./events";
 import { inferSchema, type InferredSchema } from "./inferSchema";
 import type { OcrText } from "./ocrText";
@@ -48,6 +49,8 @@ export interface PipelineSettings extends PromptContext {
   bboxAnnotations: boolean;
   /** Upper bound on bounding boxes described per run. */
   maxBboxAnnotations: number;
+  /** Translate the OCR text blocks for the bounding-box view. */
+  blockTranslations: boolean;
 }
 
 export interface PipelineContext {
@@ -79,8 +82,26 @@ export interface TranslateTextOptions {
   ocr?: OcrText | undefined;
 }
 
-export async function ocrOnly(ctx: PipelineContext, input: OcrInput): Promise<OcrOutcome> {
-  return runOcr(ctx.ocr, input, { model: ctx.settings.ocrModel, signal: ctx.signal, onProgress: ctx.onProgress });
+export async function ocrOnly(ctx: PipelineContext, input: OcrInput, pages: number[] | null = null): Promise<OcrOutcome> {
+  return runOcr(ctx.ocr, input, { model: ctx.settings.ocrModel, pages, signal: ctx.signal, onProgress: ctx.onProgress });
+}
+
+/** Translate the OCR text blocks for the bounding-box view (runs after the main translation). */
+export async function blockTranslations(ctx: PipelineContext, ocr: OcrText): Promise<BlockTranslateOutcome | null> {
+  if (!ctx.settings.blockTranslations) {
+    emit(ctx.onProgress, "block_translate", "skipped", "Block translations disabled in Settings");
+    return null;
+  }
+  const { settings } = ctx;
+  return translateBlocks(ctx.chat, ocr, {
+    targetLanguage: settings.targetLanguage,
+    sourceLanguage: settings.sourceLanguage,
+    domainHint: settings.domainHint,
+    model: settings.chatModel,
+    reasoningEffort: settings.reasoningEffort,
+    signal: ctx.signal,
+    onProgress: ctx.onProgress,
+  });
 }
 
 /** Resolve the output schema according to the selected mode. */
