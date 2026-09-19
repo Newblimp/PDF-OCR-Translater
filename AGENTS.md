@@ -8,8 +8,9 @@ AI). Keep it current when you change the architecture.
 - Browser-only PDF → OCR (Mistral) → translation (OpenAI GPT Luna, or
   Mistral) → structured JSON. See README.md for the user-facing description.
 - **The document may only ever be sent to `https://api.mistral.ai` (OCR), and
-  the extracted text only to the selected translation provider
-  (`https://api.openai.com` or `https://api.mistral.ai`).** There is no server
+  the extracted text plus the OCR's cropped bounding-box images only to the
+  selected translation provider (`https://api.openai.com` or
+  `https://api.mistral.ai`).** There is no server
   component, no analytics, no third-party scripts. `public/_headers` enforces
   this with a CSP (`connect-src 'self' https://api.mistral.ai https://api.openai.com`).
   Do not add Cloudflare Pages Functions, proxies, or remote fonts/scripts

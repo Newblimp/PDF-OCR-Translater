@@ -404,12 +404,15 @@ test("fields can be hidden and shown individually and in bulk", async ({ page })
   await expect(page.locator(".fields > .field-card")).toHaveCount(5);
 });
 
-test("the translation is shown live while it streams", async ({ page }) => {
+test("the translation is shown live while it streams, even when another tab was active", async ({ page }) => {
   await installStreamingTranslationMock(page, 200, 8);
   await setup(page);
   await enterKeys(page);
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  // "OCR only" leaves the OCR tab active; a following translation must still show its stream.
+  await page.getByRole("button", { name: "OCR only" }).click();
+  await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
+  await page.getByRole("button", { name: "Translate only" }).click();
 
   // While the job is still running, partial output is visible and grows.
   const panel = page.locator(".stream-panel");
@@ -425,6 +428,19 @@ test("the translation is shown live while it streams", async ({ page }) => {
   await expect(panel).toBeHidden({ timeout: 20_000 });
   await expect(page.locator(".pipeline-strip")).toBeVisible();
   await expect(page.getByText("CN202310000001.2").first()).toBeVisible();
+});
+
+test("cancelling during streaming stops cleanly", async ({ page }) => {
+  await installStreamingTranslationMock(page, 400, 10);
+  await setup(page);
+  await enterKeys(page);
+  await loadPdf(page);
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await expect(page.locator(".stream-panel")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".stream-panel")).toHaveCount(0);
 });
 
 test("cancel stops a running job without an error", async ({ page }) => {

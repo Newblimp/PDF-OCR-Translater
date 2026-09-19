@@ -56,9 +56,32 @@ export async function getCachedOcr(key: string): Promise<OcrCacheEntry | null> {
     const tx = db.transaction(STORE, "readonly");
     const entry = await requestToPromise(tx.objectStore(STORE).get(key) as IDBRequest<OcrCacheEntry | undefined>);
     db.close();
-    return entry && entry.version === OCR_CACHE_VERSION ? entry : null;
+    if (entry && entry.version !== OCR_CACHE_VERSION) {
+      void deleteCachedOcr(key); // stale shape from an older release
+      return null;
+    }
+    return entry ?? null;
   } catch {
     return null;
+  }
+}
+
+/** Keep the newest entries only; OCR responses now carry bounding-box images and can be large. */
+export const OCR_CACHE_MAX_ENTRIES = 20;
+
+async function deleteCachedOcr(key: string): Promise<void> {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).delete(key);
+    await new Promise<void>((resolve) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    });
+    db.close();
+  } catch {
+    // ignore
   }
 }
 
@@ -66,7 +89,15 @@ export async function putCachedOcr(entry: OcrCacheEntry): Promise<void> {
   try {
     const db = await openDb();
     const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(entry);
+    const store = tx.objectStore(STORE);
+    store.put(entry);
+    // Evict the oldest entries beyond the cap (the createdAt index is ascending).
+    const keys = await requestToPromise(store.index("createdAt").getAllKeys() as IDBRequest<IDBValidKey[]>);
+    const excess = keys.length - OCR_CACHE_MAX_ENTRIES;
+    if (excess > 0) {
+      const oldest = await requestToPromise(store.index("createdAt").getAll(undefined, excess) as IDBRequest<OcrCacheEntry[]>);
+      for (const old of oldest) if (old.key !== entry.key) store.delete(old.key);
+    }
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error("IndexedDB write failed"));

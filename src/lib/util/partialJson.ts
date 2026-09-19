@@ -15,16 +15,28 @@ export function parsePartialJson(text: string): unknown {
   };
 
   function value(): unknown {
-    ws();
-    if (i >= n) return undefined;
-    const c = src[i]!;
-    if (c === "{") return object();
-    if (c === "[") return array();
-    if (c === '"') return string();
-    if (c === "t" || c === "f" || c === "n") return literal();
-    if (c === "-" || (c >= "0" && c <= "9")) return number();
-    // Unexpected character (e.g. prose before the JSON): skip it.
-    i++;
+    for (;;) {
+      ws();
+      if (i >= n) return undefined;
+      const c = src[i]!;
+      if (c === "{") return object();
+      if (c === "[") return array();
+      if (c === '"') return string();
+      if (c === "t" || c === "f" || c === "n") {
+        const lit = literal();
+        if (lit !== undefined || i >= n) return lit;
+        continue; // a word that merely started like a literal (prose): keep skipping
+      }
+      if (c === "-" || (c >= "0" && c <= "9")) return number();
+      // Unexpected character (e.g. prose before the JSON): skip it (iteratively, never recursively).
+      i++;
+    }
+  }
+
+  /** At the top level, prose such as "Here is the JSON: {...}" is skipped until an object or array starts. */
+  function topLevel(): unknown {
+    const firstStructural = src.search(/[{[]/);
+    if (firstStructural > 0) i = firstStructural;
     return value();
   }
 
@@ -144,8 +156,12 @@ export function parsePartialJson(text: string): unknown {
       i += 4;
       return null;
     }
-    // A truncated literal ("tr", "nu"): nothing usable yet.
-    i = n;
+    // Either a truncated literal at the very end ("tr", "nu") or prose that starts with t/f/n.
+    if (i + 5 >= n && ("true".startsWith(rest) || "false".startsWith(rest) || "null".startsWith(rest))) {
+      i = n;
+      return undefined;
+    }
+    i++;
     return undefined;
   }
 
@@ -160,5 +176,5 @@ export function parsePartialJson(text: string): unknown {
     return Number(m[0]);
   }
 
-  return value();
+  return topLevel();
 }

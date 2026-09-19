@@ -66,8 +66,8 @@ export async function runOcr(client: MistralClient, input: OcrInput, options: Ru
   try {
     response = await client.ocr(request, options.signal);
   } catch (err) {
-    // `include_blocks` is newer than the rest of the request; degrade gracefully if the API rejects it.
-    if (err instanceof ApiError && err.kind === "request" && /include_blocks|blocks/i.test(err.message)) {
+    // `include_blocks` is newer than the rest of the request; if the API rejects the request (4xx) retry once without it.
+    if (err instanceof ApiError && err.kind === "request" && request.include_blocks) {
       emit(onProgress, "ocr", "warning", "The OCR API rejected block extraction; retrying without paragraph boxes", { detail: err.message });
       delete request.include_blocks;
       response = await client.ocr(request, options.signal);

@@ -207,7 +207,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case "paste/text":
       return { ...state, pastedText: action.text };
     case "ocr/set":
-      return { ...state, ocr: action.ocr };
+      // A fresh OCR result invalidates a translation made from the previous one.
+      return { ...state, ocr: action.ocr, translation: action.ocr?.source === "api" ? null : state.translation };
     case "translation/set":
       return { ...state, translation: action.translation, activeTab: action.translation ? "translation" : state.activeTab };
     case "translation/patch":
@@ -218,12 +219,15 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!state.job) return state;
       const ev = action.event;
       const last = state.job.events.at(-1);
+      // The live stream lives in the Translation tab: switch to it when streaming starts.
+      const activeTab = ev.streamText && !state.job.streamText ? "translation" : state.activeTab;
       const events =
         ev.status === "progress" && last?.status === "progress" && last.stage === ev.stage
           ? [...state.job.events.slice(0, -1), ev]
           : [...state.job.events, ev];
       return {
         ...state,
+        activeTab,
         job: {
           ...state.job,
           events,

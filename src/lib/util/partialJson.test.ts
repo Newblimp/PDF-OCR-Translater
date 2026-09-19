@@ -24,6 +24,15 @@ describe("parsePartialJson", () => {
     expect(parsePartialJson("   ")).toBeUndefined();
     expect(parsePartialJson('```json\n{"a":tr')).toEqual({});
     expect(parsePartialJson('Sure: {"n": -12.5e1, "ok": false')).toEqual({ n: -125, ok: false });
+    expect(parsePartialJson('Here is the translation:\n{"document_type":"First')).toEqual({ document_type: "First" });
+    expect(parsePartialJson('The 3 fields are: {"a":1}')).toEqual({ a: 1 });
+    expect(parsePartialJson("no json at all")).toBeUndefined();
+  });
+
+  it("does not overflow the stack on long non-JSON preambles", () => {
+    const preamble = "thinking… ".repeat(5000);
+    expect(parsePartialJson(`${preamble}{"a":"b"}`)).toEqual({ a: "b" });
+    expect(parsePartialJson(preamble)).toBeUndefined();
   });
 
   it("is monotonic over a streamed prefix sequence", () => {

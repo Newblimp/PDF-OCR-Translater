@@ -65,36 +65,35 @@ export async function translateStructured(provider: ChatProvider, documentText: 
     `Translating with ${options.model} (${provider.label}) into ${options.targetLanguage}${images.length ? `, with ${images.length} bounding-box image(s)` : ""}`,
   );
 
-  // Attempts, in order. A fallback only triggers on a 4xx "bad request" that a
+  // Fallback ladder. A retry only happens on a 4xx "bad request" that a
   // different request shape could fix; every other error propagates.
+  //   image-related rejection  -> same request without images
+  //   otherwise, streaming     -> non-streaming (images kept)
+  //   otherwise, json_schema   -> json_object (images kept)
   const streaming = options.streaming !== false;
-  const attempts: Attempt[] = [];
-  const push = (a: Attempt) => {
-    if (!attempts.some((x) => x.mode === a.mode && x.stream === a.stream && x.images === a.images)) attempts.push(a);
-  };
-  push({ mode: "json_schema", stream: streaming, images: images.length > 0 });
-  if (images.length) push({ mode: "json_schema", stream: streaming, images: false });
-  if (streaming) push({ mode: "json_schema", stream: false, images: false });
-  push({ mode: "json_object", stream: false, images: false });
-
+  let attempt: Attempt = { mode: "json_schema", stream: streaming, images: images.length > 0 };
   let result: JsonChatResult | null = null;
-  let used: Attempt = attempts[0]!;
-  for (let i = 0; i < attempts.length; i++) {
-    const attempt = attempts[i]!;
+  let used: Attempt = attempt;
+  for (let guard = 0; guard < 6; guard++) {
     try {
       result = await complete(provider, system, documentText, schemaJson, attempt.images ? images : [], options, attempt);
       used = attempt;
       break;
     } catch (err) {
-      const next = attempts[i + 1];
-      if (!isRetryableRejection(err) || !next) throw err;
-      emit(
-        onProgress,
-        "translate",
-        "warning",
-        `The API rejected the request (${describe(attempt)}); retrying (${describe(next)})`,
-        { detail: err.message },
-      );
+      if (!isRetryableRejection(err)) throw err;
+      const next: Attempt | null =
+        attempt.images && isImageRejection(err)
+          ? { ...attempt, images: false }
+          : attempt.stream
+            ? { ...attempt, stream: false }
+            : attempt.mode === "json_schema"
+              ? { ...attempt, mode: "json_object" }
+              : null;
+      if (!next) throw err;
+      emit(onProgress, "translate", "warning", `The API rejected the request (${describe(attempt)}); retrying (${describe(next)})`, {
+        detail: err.message,
+      });
+      attempt = next;
     }
   }
   if (!result) throw new Error("Translation did not run.");
@@ -127,6 +126,11 @@ export async function translateStructured(provider: ChatProvider, documentText: 
     violations,
     finishReason: result.finishReason,
   };
+}
+
+/** The provider complained about the images themselves (no vision support, bad content type, payload too large). */
+function isImageRejection(err: ApiError): boolean {
+  return err.status === 413 || /image|vision|content type|multimodal|too large|payload/i.test(err.message);
 }
 
 function describe(a: Attempt): string {

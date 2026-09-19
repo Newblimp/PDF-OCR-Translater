@@ -284,6 +284,7 @@ function chatCompletion(route: Route, body: Record<string, unknown> | null, mode
  * so this is the only way to exercise the live-streaming UI.
  */
 export async function installStreamingTranslationMock(page: Page, delayMs = 150, chunks = 8): Promise<void> {
+  // Frames are token-sized so several land inside one throttle window; the stream honours AbortSignal.
   await page.addInitScript(
     ({ translation, delayMs, chunks }) => {
       const original = window.fetch.bind(window);
@@ -297,12 +298,21 @@ export async function installStreamingTranslationMock(page: Page, delayMs = 150,
             const encoder = new TextEncoder();
             const frame = (content: string, finish: string | null) =>
               `data: ${JSON.stringify({ id: "s", object: "chat.completion.chunk", model: "gpt-5.6-luna", created: 0, choices: [{ index: 0, delta: { content }, finish_reason: finish }] })}\n\n`;
+            const signal = init.signal ?? null;
             const stream = new ReadableStream<Uint8Array>({
               async start(controller) {
                 for (let i = 0; i < chunks; i++) {
                   await new Promise((r) => setTimeout(r, delayMs));
+                  if (signal?.aborted) {
+                    controller.error(new DOMException("Aborted", "AbortError"));
+                    return;
+                  }
                   const piece = text.slice(i * size, (i + 1) * size);
-                  controller.enqueue(encoder.encode(frame(piece, i === chunks - 1 ? "stop" : null)));
+                  // Split each piece into small frames, like real token streaming.
+                  for (let j = 0; j < piece.length; j += 4) {
+                    const last = i === chunks - 1 && j + 4 >= piece.length;
+                    controller.enqueue(encoder.encode(frame(piece.slice(j, j + 4), last ? "stop" : null)));
+                  }
                 }
                 controller.enqueue(encoder.encode("data: [DONE]\n\n"));
                 controller.close();

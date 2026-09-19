@@ -11,7 +11,10 @@ remain available as an alternative translation provider.
 
 **Privacy model:** the site is a static bundle. The document is read in your
 browser, base64-encoded there and sent **only** to `https://api.mistral.ai`
-(OCR). The extracted text is then sent **only** to the translation provider
+(OCR). The extracted text **and the cropped bounding-box images that Mistral
+OCR returns** (figures, stamps, seals; up to 8 with the translation request
+and up to the configured limit for per-box descriptions, both can be turned
+off in Settings) are then sent **only** to the translation provider
 (`https://api.openai.com` by default). Nothing is uploaded to GitHub,
 Cloudflare, or any other server. A Content-Security-Policy header
 (`public/_headers`) enforces this in production: the page cannot connect

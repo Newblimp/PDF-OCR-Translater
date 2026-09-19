@@ -103,16 +103,19 @@ export function BboxView({ doc, ocr, annotations, blockTranslations }: Props) {
     };
   }, [renderer, pageIndex, rendered]);
 
-  // Selection belongs to the page it was made on.
-  useEffect(() => setSelected(null), [pageIndex]);
+  // Selection belongs to the page and OCR result it was made on.
+  useEffect(() => setSelected(null), [pageIndex, ocr]);
+  useEffect(() => setPosition(0), [ocr]);
 
   if (!page) return <p class="muted">No pages.</p>;
   const image = rendered[pageIndex];
-  const width = page.width ?? 1;
-  const height = page.height ?? 1;
+  // Coordinates are pixels of the OCR page image; without its size the boxes cannot be placed.
+  const width = page.width ?? pageBoxes[0]?.pageWidth ?? null;
+  const height = page.height ?? pageBoxes[0]?.pageHeight ?? null;
+  const canOverlay = !!width && !!height;
   const pct = (v: number, total: number) => `${(v / total) * 100}%`;
   const boxStyle = (x0: number, y0: number, x1: number, y1: number, color: string) =>
-    `left:${pct(x0, width)};top:${pct(y0, height)};width:${pct(x1 - x0, width)};height:${pct(y1 - y0, height)};--box-color:${color}`;
+    `left:${pct(x0, width ?? 1)};top:${pct(y0, height ?? 1)};width:${pct(x1 - x0, width ?? 1)};height:${pct(y1 - y0, height ?? 1)};--box-color:${color}`;
 
   const blockTypes = Array.from(new Set(pageBlocks.map((b) => b.type)));
   const hasTranslations = Object.keys(blockTranslations).length > 0;
@@ -161,7 +164,8 @@ export function BboxView({ doc, ocr, annotations, blockTranslations }: Props) {
 
       <div class="bbox-layout">
         <div>
-          <div class="bbox-stage" style={image ? "" : `width:100%;aspect-ratio:${width}/${height}`}>
+          {!canOverlay && <p class="muted small">The OCR API returned no page dimensions for this page, so boxes cannot be drawn over it.</p>}
+          <div class="bbox-stage" style={image ? "" : `width:100%;aspect-ratio:${width ?? 1}/${height ?? 1.4}`}>
             {image ? (
               <img src={image} alt={`Page ${pageIndex + 1}`} />
             ) : (
@@ -170,7 +174,8 @@ export function BboxView({ doc, ocr, annotations, blockTranslations }: Props) {
               </div>
             )}
             <div class="bbox-layer" aria-label="Bounding boxes">
-              {showBlocks &&
+              {canOverlay &&
+                showBlocks &&
                 pageBlocks.map((block, i) => {
                   const id = blockId(pageIndex, i);
                   return (
@@ -180,12 +185,13 @@ export function BboxView({ doc, ocr, annotations, blockTranslations }: Props) {
                       class={`bbox-box${selected?.kind === "block" && selected.id === id ? " bbox-box-selected" : ""}`}
                       style={boxStyle(block.top_left_x, block.top_left_y, block.bottom_right_x, block.bottom_right_y, BLOCK_COLORS[block.type] ?? "#495057")}
                       title={`${block.type}: ${block.content.slice(0, 80)}`}
-                      aria-label={`${block.type} block ${i + 1}`}
+                      aria-label={`${block.type} block ${i + 1}${block.content ? `: ${block.content.slice(0, 60)}` : ""}`}
                       onClick={() => setSelected({ kind: "block", block, id })}
                     />
                   );
                 })}
-              {showImages &&
+              {canOverlay &&
+                showImages &&
                 pageBoxes.map((bbox) => (
                   <button
                     type="button"

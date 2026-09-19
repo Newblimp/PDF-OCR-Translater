@@ -55,6 +55,23 @@ describe("translateStructured", () => {
     expect(events.filter((e) => e.status === "warning")).toHaveLength(2);
   });
 
+  it("keeps the images when the rejection is about the schema, and only drops streaming / strict mode", async () => {
+    const seen: JsonChatRequest[] = [];
+    const provider = fakeProvider((req) => {
+      seen.push(req);
+      if (req.format.type === "json_schema") throw new ApiError("HTTP 400: Invalid schema for response_format 'translated_document'", "request", "openai", 400);
+      return ok('{"title":"ok"}');
+    });
+    const images = [{ id: "img-0.jpeg", dataUrl: "data:image/png;base64,AA" }];
+    const out = await translateStructured(provider, "text", { ...base, images });
+    expect(seen.map((r) => `${r.format.type}:${r.stream ? "stream" : "plain"}:${r.images?.length ?? 0}`)).toEqual([
+      "json_schema:stream:1",
+      "json_schema:plain:1",
+      "json_object:plain:1",
+    ]);
+    expect(out.imagesSent).toBe(1);
+  });
+
   it("attaches bounding-box images, lists their ids in the prompt, and drops them if the model rejects images", async () => {
     const seen: JsonChatRequest[] = [];
     const provider = fakeProvider((req) => {

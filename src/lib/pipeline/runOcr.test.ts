@@ -12,7 +12,8 @@ function client(bodies: Record<string, unknown>[], rejectBlocks = false) {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       bodies.push(body);
       if (rejectBlocks && body["include_blocks"]) {
-        return new Response(JSON.stringify({ message: "Extra inputs are not permitted: include_blocks" }), { status: 422 });
+        // Pydantic-style payload: the field name is only in `loc`, not in the message.
+        return new Response(JSON.stringify({ detail: [{ type: "extra_forbidden", loc: ["body", "include_blocks"], msg: "Extra inputs are not permitted" }] }), { status: 422 });
       }
       return new Response(
         JSON.stringify({

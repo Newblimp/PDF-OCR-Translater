@@ -746,6 +746,7 @@ textarea:focus-visible,
   border: 1px solid var(--border);
   background: #fff;
   line-height: 0;
+  overflow: hidden;
 }
 .bbox-stage img {
   display: block;

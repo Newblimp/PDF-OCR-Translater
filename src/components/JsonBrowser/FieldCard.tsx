@@ -17,6 +17,8 @@ export interface RenderOptions {
   bulk: { mode: "expand" | "collapse"; epoch: number };
   /** A path the user jumped to from the outline; cards on that path expand. */
   reveal: { path: string; epoch: number } | null;
+  /** Never switch an array between table and card layout (used while streaming). */
+  stableLayout?: boolean;
 }
 
 interface FieldProps {
@@ -151,7 +153,7 @@ export function ValueView({ value, path, options, depth }: ValueProps) {
         </ol>
       );
     }
-    if (isTabular(value)) return <PrimitiveTable rows={value} />;
+    if (!options.stableLayout && isTabular(value)) return <PrimitiveTable rows={value} />;
     return (
       <ol class="value-items">
         {value.map((item, i) => (

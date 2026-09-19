@@ -288,8 +288,9 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
                 value={settings.maxBboxAnnotations}
                 aria-label="Maximum bounding boxes to describe"
                 onChange={(e) => {
-                  const n = Number((e.target as HTMLInputElement).value);
-                  onChange({ maxBboxAnnotations: Number.isInteger(n) && n >= 0 ? n : DEFAULT_SETTINGS.maxBboxAnnotations });
+                  const raw = (e.target as HTMLInputElement).value.trim();
+                  const n = Number(raw);
+                  onChange({ maxBboxAnnotations: raw && Number.isInteger(n) && n >= 0 ? n : DEFAULT_SETTINGS.maxBboxAnnotations });
                 }}
               />{" "}
               boxes per run.

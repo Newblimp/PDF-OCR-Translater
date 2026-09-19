@@ -44,6 +44,30 @@ describe("annotateBboxes", () => {
     expect(events.at(-1)?.status).toBe("done");
   });
 
+  it("stops scheduling boxes after a systematic error and fails fast on auth errors", async () => {
+    const { ApiError } = await import("../http/apiError");
+    let calls = 0;
+    const rateLimited = fakeProvider(() => {
+      calls++;
+      throw new ApiError("HTTP 429", "rate_limit", "openai", 429);
+    });
+    const out = await annotateBboxes(rateLimited, ocr, { ...base, concurrency: 1 });
+    expect(calls).toBe(1);
+    expect(out.annotations.every((a) => a.error)).toBe(true);
+    const unauthorized = fakeProvider(() => {
+      throw new ApiError("HTTP 401", "auth", "openai", 401);
+    });
+    await expect(annotateBboxes(unauthorized, ocr, { ...base })).rejects.toMatchObject({ kind: "auth" });
+  });
+
+  it("explains a zero limit instead of claiming there are no images", async () => {
+    const provider = fakeProvider(() => "unused");
+    const events: { message: string }[] = [];
+    const out = await annotateBboxes(provider, ocr, { ...base, maxBoxes: 0, onProgress: (e) => events.push(e) });
+    expect(out.skipped).toBe(2);
+    expect(events[0]?.message).toMatch(/limit in Settings is 0/);
+  });
+
   it("respects the limit and keeps going when one box fails", async () => {
     let n = 0;
     const provider = fakeProvider(() => {

@@ -2,7 +2,6 @@ import { useState } from "preact/hooks";
 import type { AppState, ResultTab, TranslationState } from "@/app/store";
 import { isPlainObject, prettyJson } from "@/lib/util/json";
 import { parsePartialJson } from "@/lib/util/partialJson";
-import type { JsonSchemaObject } from "@/lib/mistral/types";
 import { BboxView } from "./BboxView";
 import { estimateTokens, formatNumber } from "@/lib/util/text";
 import { PROVIDERS } from "@/lib/llm/registry";
@@ -59,8 +58,8 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
           <li>Browse the translated fields, the OCR text, and the inferred JSON format.</li>
         </ol>
         <p class="muted small">
-          The file is encoded in your browser and sent to api.mistral.ai for OCR; the OCR text goes to the translation provider. Nothing is
-          uploaded to this site's host.
+          The file is encoded in your browser and sent to api.mistral.ai for OCR; the OCR text and the cropped figure images it returns go to
+          the translation provider (configurable in Settings). Nothing is uploaded to this site's host.
         </p>
       </div>
     );
@@ -87,7 +86,7 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
 
       {active === "translation" && state.job?.streamText && (
         <div class="tab-panel">
-          <StreamingView text={state.job.streamText} schema={translation?.schema ?? null} />
+          <StreamingView text={state.job.streamText} />
         </div>
       )}
 
@@ -236,17 +235,24 @@ function PipelineStrip({ translation, ocr, onTab }: { translation: TranslationSt
 }
 
 /** Live view of the translation while it streams: partial JSON rendered as it grows. */
-function StreamingView({ text, schema }: { text: string; schema: JsonSchemaObject | null }) {
-  const partial = parsePartialJson(text);
+function StreamingView({ text }: { text: string }) {
+  let partial: unknown;
+  try {
+    partial = parsePartialJson(text);
+  } catch {
+    partial = undefined; // never let a parser edge case take the page down
+  }
   return (
-    <div class="stream-panel" aria-live="polite">
+    <div class="stream-panel">
       <div class="toolbar">
-        <span class="small">
-          <span class="stream-cursor">Translation streaming in… {text.length.toLocaleString()} characters</span>
+        <span class="small" aria-live="polite" aria-atomic="true">
+          <span class="stream-cursor">Translation streaming in… {Math.round(text.length / 1000)}k characters</span>
         </span>
       </div>
-      <pre class="stream-tail">{text.slice(-400)}</pre>
-      {partial !== undefined && isPlainObject(partial) && Object.keys(partial).length > 0 && <JsonBrowser data={partial} schema={schema} />}
+      <pre class="stream-tail" aria-hidden="true">
+        {text.slice(-400)}
+      </pre>
+      {partial !== undefined && isPlainObject(partial) && Object.keys(partial).length > 0 && <JsonBrowser data={partial} schema={null} streaming />}
     </div>
   );
 }

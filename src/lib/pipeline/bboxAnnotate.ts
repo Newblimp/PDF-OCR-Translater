@@ -3,6 +3,7 @@
  * called once per extracted bounding box with the bbox annotation format.
  * Calls run a few at a time; one failing box never fails the pipeline.
  */
+import { ApiError } from "../http/apiError";
 import type { ChatProvider, ReasoningEffort, TokenUsage } from "../llm/provider";
 import { parseModelJson } from "../util/json";
 import { emit, type ProgressListener } from "./events";
@@ -51,8 +52,13 @@ export async function annotateBboxes(provider: ChatProvider, ocr: OcrText, optio
   const usage: TokenUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
   if (targets.length === 0) {
-    emit(onProgress, "bbox_annotate", "skipped", "No bounding-box images to describe");
-    return { annotations: [], usage, skipped: 0 };
+    emit(
+      onProgress,
+      "bbox_annotate",
+      "skipped",
+      candidates.length ? `${candidates.length} bounding box(es) skipped: the limit in Settings is 0` : "No bounding-box images to describe",
+    );
+    return { annotations: [], usage, skipped };
   }
   emit(onProgress, "bbox_annotate", "start", `Describing ${targets.length} bounding box(es) with ${options.model}`, {
     detail: skipped ? `${skipped} more box(es) skipped (limit in Settings)` : undefined,
@@ -61,8 +67,10 @@ export async function annotateBboxes(provider: ChatProvider, ocr: OcrText, optio
   const annotations: BboxAnnotation[] = targets.map((b) => ({ id: b.id, pageIndex: b.pageIndex, data: null, error: null }));
   let done = 0;
   let next = 0;
+  /** Set when an error would repeat for every box (auth, quota, unsupported model); remaining boxes are skipped. */
+  let systemic: string | null = null;
   const worker = async () => {
-    while (next < targets.length) {
+    while (next < targets.length && !systemic) {
       const index = next++;
       const bbox = targets[index]!;
       const slot = annotations[index]!;
@@ -85,7 +93,11 @@ export async function annotateBboxes(provider: ChatProvider, ocr: OcrText, optio
         usage.total_tokens = (usage.total_tokens ?? 0) + (result.usage?.total_tokens ?? 0);
       } catch (err) {
         if (options.signal?.aborted) throw err;
+        if (err instanceof ApiError && err.kind === "auth") throw err; // a bad key fails everything; stop now
         slot.error = err instanceof Error ? err.message : String(err);
+        if (err instanceof ApiError && (err.kind === "rate_limit" || err.kind === "protocol" || (err.kind === "request" && /unsupported|model_not_found|does not exist|do not have access|invalid model|image|vision/i.test(err.message)))) {
+          systemic = slot.error;
+        }
       }
       done++;
       emit(onProgress, "bbox_annotate", "progress", `Described ${done} of ${targets.length} bounding box(es)`);
@@ -93,6 +105,9 @@ export async function annotateBboxes(provider: ChatProvider, ocr: OcrText, optio
   };
   await Promise.all(Array.from({ length: Math.min(options.concurrency ?? 4, targets.length) }, worker));
 
+  if (systemic) {
+    for (const a of annotations) if (!a.data && !a.error) a.error = `Skipped after a systematic error: ${systemic}`;
+  }
   const failed = annotations.filter((a) => a.error).length;
   emit(onProgress, "bbox_annotate", failed ? "warning" : "done", `${annotations.length - failed} of ${annotations.length} bounding box(es) described`, {
     detail: failed ? `${failed} failed: ${annotations.find((a) => a.error)?.error ?? ""}` : undefined,

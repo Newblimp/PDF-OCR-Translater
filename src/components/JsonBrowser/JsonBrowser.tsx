@@ -8,6 +8,8 @@ import { isEmptyValue, pathId, valueToSearchText } from "./valueUtils";
 interface Props {
   data: unknown;
   schema: JsonSchemaObject | null;
+  /** While streaming, keep layouts stable (no table/card flips as strings grow). */
+  streaming?: boolean;
 }
 
 interface TopField {
@@ -25,7 +27,7 @@ interface TopField {
  * per field, long text collapsible and rendered as Markdown, arrays as lists
  * or tables, nested objects as nested cards.
  */
-export function JsonBrowser({ data, schema }: Props) {
+export function JsonBrowser({ data, schema, streaming = false }: Props) {
   const [query, setQuery] = useState("");
   const [markdown, setMarkdown] = useState(true);
   const [showEmpty, setShowEmpty] = useState(false);
@@ -56,7 +58,7 @@ export function JsonBrowser({ data, schema }: Props) {
   const needle = query.trim().toLowerCase();
   const listed = fields.filter((f) => (showEmpty || !f.empty) && (!needle || f.searchText.includes(needle)));
   const visible = listed.filter((f) => !hidden.has(f.key));
-  const options: RenderOptions = { markdown, showEmpty, bulk, reveal };
+  const options: RenderOptions = { markdown, showEmpty, bulk, reveal, stableLayout: streaming };
   const emptyCount = fields.filter((f) => f.empty).length;
   const setVisible = (key: string, show: boolean) =>
     setHidden((h) => {
