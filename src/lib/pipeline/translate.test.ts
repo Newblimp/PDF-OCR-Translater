@@ -55,6 +55,29 @@ describe("translateStructured", () => {
     expect(events.filter((e) => e.status === "warning")).toHaveLength(2);
   });
 
+  it("does not retry on refusals or on rejections a different format cannot fix", async () => {
+    let calls = 0;
+    const refusing = fakeProvider(() => {
+      calls++;
+      throw new ApiError("The model refused to answer: no", "refusal", "openai");
+    });
+    await expect(translateStructured(refusing, "text", { ...base })).rejects.toMatchObject({ kind: "refusal" });
+    expect(calls).toBe(1);
+
+    calls = 0;
+    const unsupported = fakeProvider(() => {
+      calls++;
+      throw new ApiError("HTTP 400: Unsupported parameter: 'reasoning_effort' is not supported with this model.", "request", "openai", 400);
+    });
+    await expect(translateStructured(unsupported, "text", { ...base })).rejects.toMatchObject({ kind: "request" });
+    expect(calls).toBe(1);
+  });
+
+  it("explains a content-filter stop instead of a parse error", async () => {
+    const provider = fakeProvider(() => ({ content: "", finishReason: "content_filter", usage: null, model: "m" }));
+    await expect(translateStructured(provider, "text", { ...base, streaming: false })).rejects.toThrow(/content filter/);
+  });
+
   it("does not retry on auth or network errors", async () => {
     const provider = fakeProvider(() => {
       throw new ApiError("nope", "auth", "openai", 401);

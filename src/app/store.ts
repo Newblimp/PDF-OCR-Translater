@@ -6,6 +6,7 @@
  * an action, and a `case` below.
  */
 import type { ProviderId, TokenUsage } from "@/lib/llm/provider";
+import { OCR_PROVIDER, perProvider } from "@/lib/llm/registry";
 import type { ModelOption } from "@/lib/mistral/models";
 import type { JsonSchemaObject, OcrResponse } from "@/lib/mistral/types";
 import type { ProgressEvent, StageId } from "@/lib/pipeline/events";
@@ -127,21 +128,27 @@ function keyState(value: string | null): KeyState {
   return { value, status: value ? "unverified" : "missing", error: null };
 }
 
-/** Providers whose key is required for the current settings. */
+/** Providers whose key is required for the given settings (OCR provider first). */
 export function requiredProviders(settings: Settings): ProviderId[] {
-  return settings.provider === "mistral" ? ["mistral"] : ["mistral", settings.provider];
+  return settings.provider === OCR_PROVIDER ? [OCR_PROVIDER] : [OCR_PROVIDER, settings.provider];
 }
 
-export function missingKeys(state: AppState): ProviderId[] {
-  return requiredProviders(state.settings).filter((p) => !state.keys[p].value);
+/** A key that can be used for requests: present and not known to be rejected. */
+export function usableKey(keys: Record<ProviderId, KeyState>, provider: ProviderId): string | null {
+  const k = keys[provider];
+  return k.value && k.status !== "invalid" ? k.value : null;
+}
+
+/** Required providers without a usable key, for the given (or current) settings. */
+export function missingKeys(state: AppState, settings: Settings = state.settings): ProviderId[] {
+  return requiredProviders(settings).filter((p) => !usableKey(state.keys, p));
 }
 
 export function initialState(keys: Record<ProviderId, string | null>, settings: Settings): AppState {
-  const keyStates = { mistral: keyState(keys.mistral), openai: keyState(keys.openai) };
   const state: AppState = {
-    keys: keyStates,
+    keys: perProvider((id) => keyState(keys[id])),
     keyDialogOpen: false,
-    models: { mistral: [], openai: [] },
+    models: perProvider(() => []),
     settings,
     settingsOpen: false,
     doc: null,

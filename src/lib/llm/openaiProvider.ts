@@ -56,7 +56,7 @@ export class OpenAIProvider implements ChatProvider {
       : await this.client.chat(body, request.signal);
 
     if (result.refusal && !result.content) {
-      throw new ApiError(`The model refused to answer: ${result.refusal}`, "request", "openai");
+      throw new ApiError(`The model refused to answer: ${result.refusal}`, "refusal", "openai");
     }
     return {
       content: result.content,

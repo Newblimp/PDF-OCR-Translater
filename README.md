@@ -48,7 +48,9 @@ anywhere else.
 
 Two API keys are requested on first use (Mistral for OCR, OpenAI for
 translation), verified against each provider's `GET /v1/models`, and cached
-in this browser's `localStorage` only. "Forget" in the header removes them.
+in this browser's `localStorage` only. The key dialog also lets you pick
+Mistral as the translation provider, in which case only the Mistral key is
+needed. "Forget" in the header removes all keys.
 OCR results are cached in the browser's IndexedDB (keyed by a SHA-256 of the
 file) so re-running "Translate only" on the same file costs no OCR credits.
 Both caches can be cleared from the UI. The header also offers a
@@ -63,7 +65,7 @@ npm install
 npm run dev          # http://localhost:5173, with the production CSP applied
 npm run typecheck    # strict TypeScript
 npm test             # unit tests (Vitest)
-npm run e2e          # Playwright end-to-end tests against a mocked Mistral API
+npm run e2e          # Playwright end-to-end tests against mocked Mistral and OpenAI APIs
 npm run build        # typecheck + production build into dist/
 npm run preview      # serve dist/ locally
 ```
@@ -101,10 +103,11 @@ All defaults live in code so they can be changed in one place:
 | Translation provider | OpenAI (GPT Luna); Mistral selectable | `src/lib/llm/registry.ts` |
 | Translation model | `gpt-5.6-luna` (OpenAI) / `mistral-large-latest` (Mistral); any model from `/v1/models` selectable | `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
 | Reasoning effort (OpenAI) | `none` | Settings panel |
+| Max output tokens | provider default | Settings panel |
 | Target / source language | English or German toggle / auto-detect | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`) |
 | JSON format | inferred from document; built-in `patent_communication`; custom | `src/lib/pipeline/schemas/` |
 | Prompts | schema inference and translation | `src/lib/pipeline/prompts.ts` |
-| Temperature | 0.2 | Settings panel |
+| Temperature (Mistral only) | 0.2 | Settings panel |
 | API limits (50 MB, 1000 pages) | checked client-side | `src/lib/pipeline/runOcr.ts` |
 | CSP / security headers | `connect-src https://api.mistral.ai https://api.openai.com` | `public/_headers` |
 

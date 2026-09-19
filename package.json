@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Browser-only PDF OCR + translation front-end for Mistral Document AI. Documents go straight from the browser to api.mistral.ai; nothing is stored on a server.",
+  "description": "Browser-only PDF OCR (Mistral Document AI) + translation (OpenAI GPT Luna or Mistral) front-end. Documents go straight from the browser to api.mistral.ai and the extracted text to the translation provider; nothing is stored on a server.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",

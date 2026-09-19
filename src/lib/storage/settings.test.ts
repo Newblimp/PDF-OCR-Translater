@@ -20,6 +20,35 @@ describe("settings persistence", () => {
   });
 });
 
+describe("settings v1 migration", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("carries compatible v1 fields over, maps chatModel to Mistral, and removes the v1 entry", () => {
+    localStorage.setItem(
+      "pdf-ocr-translater.settings.v1",
+      JSON.stringify({
+        chatModel: "mistral-medium-latest",
+        targetLanguage: "French",
+        domainHint: "custom hint",
+        schemaMode: { kind: "custom", schemaText: "{\"type\":\"object\"}" },
+        temperature: 0.5,
+        cacheOcr: false,
+      }),
+    );
+    const settings = loadSettings();
+    expect(settings.chatModels.mistral).toBe("mistral-medium-latest");
+    expect(settings.chatModels.openai).toBe(DEFAULT_SETTINGS.chatModels.openai);
+    expect(settings.targetLanguage).toBe("English"); // French is not in the toggle
+    expect(settings.domainHint).toBe("custom hint");
+    expect(settings.schemaMode).toEqual({ kind: "custom", schemaText: "{\"type\":\"object\"}" });
+    expect(settings.temperature).toBe(0.5);
+    expect(settings.cacheOcr).toBe(false);
+    expect(settings.provider).toBe("openai");
+    expect(localStorage.getItem("pdf-ocr-translater.settings.v1")).toBeNull();
+    expect(localStorage.getItem("pdf-ocr-translater.settings.v2")).not.toBeNull();
+  });
+});
+
 describe("api key storage", () => {
   beforeEach(() => localStorage.clear());
 

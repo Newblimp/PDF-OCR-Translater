@@ -67,7 +67,7 @@ export async function translateStructured(provider: ChatProvider, documentText: 
       break;
     } catch (err) {
       const next = attempts[i + 1];
-      if (!(err instanceof ApiError) || err.kind !== "request" || !next) throw err;
+      if (!isFormatRejection(err) || !next) throw err;
       emit(
         onProgress,
         "translate",
@@ -84,7 +84,15 @@ export async function translateStructured(provider: ChatProvider, documentText: 
   }
 
   const parsed = parseModelJson(result.content);
-  if (!parsed.ok) throw new Error(`Translation output could not be parsed: ${parsed.error}`);
+  if (!parsed.ok) {
+    if (result.finishReason === "content_filter") {
+      throw new Error("The provider's content filter stopped the output before any JSON was produced. Try another model or split the document.");
+    }
+    throw new Error(`Translation output could not be parsed: ${parsed.error}`);
+  }
+  if (result.finishReason === "content_filter") {
+    emit(onProgress, "translate", "warning", "The provider's content filter stopped the output early; the translation may be incomplete.");
+  }
   const violations = findSchemaViolations(parsed.value, options.schema);
   emit(onProgress, "translate", "done", `Translation received (${result.content.length.toLocaleString()} characters)`, {
     detail: violations.length ? `${violations.length} schema deviation(s)` : undefined,
@@ -98,6 +106,16 @@ export async function translateStructured(provider: ChatProvider, documentText: 
     violations,
     finishReason: result.finishReason,
   };
+}
+
+/**
+ * Only 4xx rejections that could be caused by the response format or the
+ * streaming flag are worth a retry with a different format. Refusals,
+ * unsupported parameters and unknown models fail the same way every time.
+ */
+function isFormatRejection(err: unknown): err is ApiError {
+  if (!(err instanceof ApiError) || err.kind !== "request") return false;
+  return !/unsupported parameter|unsupported value|model_not_found|does not exist|do not have access|invalid model|not supported/i.test(err.message);
 }
 
 function complete(provider: ChatProvider, system: string, user: string, options: TranslateOptions, mode: StructuredMode, stream: boolean) {

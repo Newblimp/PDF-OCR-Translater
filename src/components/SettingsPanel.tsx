@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { ProviderId, ReasoningEffort } from "@/lib/llm/provider";
 import { PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
 import type { ModelOption } from "@/lib/mistral/models";
@@ -15,6 +16,58 @@ interface Props {
 }
 
 const EFFORTS: ReasoningEffort[] = ["none", "low", "medium", "high"];
+
+interface DraftProps {
+  value: string;
+  /** Called on blur / Enter with the trimmed text (or `fallback` when empty). */
+  onCommit: (value: string) => void;
+  fallback?: string;
+  placeholder?: string;
+  rows?: number;
+  class?: string;
+  spellcheck?: boolean;
+  "aria-label"?: string;
+}
+
+/**
+ * Text input that keeps a local draft while focused and commits on blur or
+ * Enter. Controlled inputs that commit on every keystroke would be reset by
+ * unrelated re-renders (streaming progress, model lists arriving).
+ */
+function DraftText({ value, onCommit, fallback, rows, ...rest }: DraftProps) {
+  const [draft, setDraft] = useState(value);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setDraft(value);
+  }, [value]);
+  const commit = () => {
+    const next = draft.trim() || fallback || "";
+    setDraft(next);
+    if (next !== value) onCommit(next);
+  };
+  const common = {
+    value: draft,
+    onFocus: () => {
+      focused.current = true;
+    },
+    onInput: (e: Event) => setDraft((e.target as HTMLInputElement | HTMLTextAreaElement).value),
+    onBlur: () => {
+      focused.current = false;
+      commit();
+    },
+    ...rest,
+  };
+  if (rows) return <textarea rows={rows} {...common} />;
+  return (
+    <input
+      type="text"
+      {...common}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+      }}
+    />
+  );
+}
 
 export function SettingsPanel({ settings, models, open, onToggle, onChange }: Props) {
   const provider = PROVIDERS[settings.provider];
@@ -82,13 +135,7 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
             ))}
             {!modelInList && <option value="__custom">{chatModel} (custom)</option>}
           </select>
-          <input
-            type="text"
-            value={chatModel}
-            spellcheck={false}
-            aria-label="Translation model id"
-            onChange={(e) => setChatModel((e.target as HTMLInputElement).value.trim() || provider.defaultModel)}
-          />
+          <DraftText value={chatModel} fallback={provider.defaultModel} spellcheck={false} aria-label="Translation model id" onCommit={setChatModel} />
         </label>
 
         {provider.supportsReasoningEffort && (
@@ -126,23 +173,29 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
         )}
 
         <label class="field">
-          <span>OCR model (Mistral)</span>
+          <span>Max output tokens (optional)</span>
           <input
-            type="text"
-            value={settings.ocrModel}
-            spellcheck={false}
-            onChange={(e) => onChange({ ocrModel: (e.target as HTMLInputElement).value.trim() || DEFAULT_SETTINGS.ocrModel })}
+            type="number"
+            min={1}
+            step={1000}
+            placeholder="provider default"
+            value={settings.maxOutputTokens ?? ""}
+            onChange={(e) => {
+              const n = Number((e.target as HTMLInputElement).value);
+              onChange({ maxOutputTokens: Number.isFinite(n) && n > 0 ? Math.round(n) : null });
+            }}
           />
+          <span class="muted small">Leave empty to allow the model's maximum. Set it if translations get cut off unexpectedly.</span>
+        </label>
+
+        <label class="field">
+          <span>OCR model (Mistral)</span>
+          <DraftText value={settings.ocrModel} fallback={DEFAULT_SETTINGS.ocrModel} spellcheck={false} onCommit={(ocrModel) => onChange({ ocrModel })} />
         </label>
 
         <label class="field">
           <span>Source language</span>
-          <input
-            type="text"
-            value={settings.sourceLanguage}
-            placeholder="auto"
-            onChange={(e) => onChange({ sourceLanguage: (e.target as HTMLInputElement).value || "auto" })}
-          />
+          <DraftText value={settings.sourceLanguage} fallback="auto" placeholder="auto" onCommit={(sourceLanguage) => onChange({ sourceLanguage })} />
           <span class="muted small">“auto” lets the model detect it.</span>
         </label>
 
@@ -195,12 +248,12 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
             <span>Custom JSON Schema</span>
           </label>
           {schemaKind === "custom" && (
-            <textarea
+            <DraftText
               class="code-area"
               rows={12}
               spellcheck={false}
               value={settings.schemaMode.kind === "custom" ? settings.schemaMode.schemaText : ""}
-              onChange={(e) => onChange({ schemaMode: { kind: "custom", schemaText: (e.target as HTMLTextAreaElement).value } })}
+              onCommit={(schemaText) => onChange({ schemaMode: { kind: "custom", schemaText } })}
             />
           )}
         </fieldset>
@@ -227,7 +280,7 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
 
         <label class="field field-wide">
           <span>Document family hint (shown to the model)</span>
-          <textarea rows={3} value={settings.domainHint} onChange={(e) => onChange({ domainHint: (e.target as HTMLTextAreaElement).value })} />
+          <DraftText rows={3} value={settings.domainHint} fallback={DEFAULT_SETTINGS.domainHint} onCommit={(domainHint) => onChange({ domainHint })} />
         </label>
       </div>
     </details>

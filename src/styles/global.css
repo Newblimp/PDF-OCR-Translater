@@ -807,6 +807,10 @@ textarea:focus-visible,
   align-items: center;
   gap: 0.5rem;
 }
+.field-title {
+  min-width: 0;
+  margin: 0;
+}
 .field-toggle {
   appearance: none;
   background: none;
@@ -814,6 +818,7 @@ textarea:focus-visible,
   padding: 0.1rem 0.2rem 0.1rem 0;
   margin-left: -0.2rem;
   font: inherit;
+  font-weight: inherit;
   color: inherit;
   display: flex;
   align-items: center;
@@ -826,7 +831,7 @@ textarea:focus-visible,
 .field-toggle:hover {
   background: var(--surface-2);
 }
-.field-toggle h3 {
+.field-toggle {
   overflow-wrap: anywhere;
 }
 .chevron {

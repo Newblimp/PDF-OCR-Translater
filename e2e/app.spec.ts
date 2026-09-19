@@ -118,7 +118,8 @@ test("sections collapse and expand individually, in bulk, and via the outline", 
 
   const summary = page.locator("#field-summary");
   await expect(summary.locator(".field-body")).toBeVisible();
-  await summary.getByRole("button", { name: "Summary" }).click();
+  await summary.getByRole("button", { name: "Summary", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Summary", exact: true })).toBeVisible(); // heading semantics kept
   await expect(summary.locator(".field-body")).toHaveCount(0);
   await expect(summary.locator(".field-preview")).toContainText("lacks inventive step");
 
@@ -183,6 +184,75 @@ test("theme switch forces dark or light and persists; system removes the overrid
   await page.getByRole("radio", { name: "Dark theme" }).click();
   await page.reload();
   await expect(html).toHaveAttribute("data-theme", "dark");
+  // theme-init.js applied the attribute before the bundle ran.
+  await page.goto("/", { waitUntil: "commit" });
+  await page.waitForFunction(() => document.documentElement.dataset["theme"] === "dark");
+});
+
+test("a Mistral-only user can pick Mistral in the key dialog and never needs an OpenAI key", async ({ page }) => {
+  const { recorded } = await setup(page);
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("button", { name: "Save and verify" })).toBeDisabled();
+  await dialog.getByPlaceholder("Paste your Mistral key").fill(MISTRAL_KEY);
+  await expect(dialog.getByRole("button", { name: "Save and verify" })).toBeDisabled(); // OpenAI key still required
+  await dialog.getByLabel("Translate with").selectOption("mistral");
+  await expect(dialog.getByRole("button", { name: "Save and verify" })).toBeEnabled();
+  await dialog.getByRole("button", { name: "Save and verify" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText("Mistral key verified")).toBeVisible();
+  await expect(page.getByText(/OpenAI key/)).toHaveCount(0);
+
+  await page.getByRole("button", { name: "…or paste text to translate" }).click();
+  await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
+  await page.getByRole("button", { name: "Translate only" }).click();
+  await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
+  expect(recorded.every((r) => r.host === "api.mistral.ai")).toBe(true);
+
+  // Switching to OpenAI without a key asks for it immediately; the dialog can be cancelled.
+  await page.locator(".settings > summary").click();
+  await page.getByLabel("Translation provider").selectOption("openai");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Cancel" })).toHaveCount(0);
+  await page.getByRole("dialog").getByLabel("Translate with").selectOption("mistral");
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Cancel" })).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+});
+
+test("a rejected required key keeps the dialog open and is never used for requests", async ({ page }) => {
+  const { recorded } = await setup(page);
+  await enterKeys(page, "wrong-mistral-key", OPENAI_KEY);
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("rejected this key")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toHaveCount(0);
+  await dialog.getByPlaceholder("Paste your Mistral key").fill(MISTRAL_KEY);
+  await dialog.getByRole("button", { name: "Save and verify" }).click();
+  await expect(dialog).toBeHidden();
+  expect(recorded.filter((r) => r.host === "api.mistral.ai" && r.headers["authorization"] === "Bearer wrong-mistral-key").length).toBe(1);
+});
+
+test("Forget during an in-flight verification does not resurrect the keys", async ({ page }) => {
+  await setup(page);
+  await enterKeys(page);
+  await expect(page.getByText("OpenAI key verified")).toBeVisible();
+  // Slow down the model list so the reload-time verification is still pending when we click Forget.
+  await page.route("https://api.mistral.ai/v1/models", async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.fallback();
+  });
+  await page.route("https://api.openai.com/v1/models", async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.fallback();
+  });
+  await page.reload();
+  await expect(page.getByText("Mistral key verifying…")).toBeVisible();
+  await page.getByRole("button", { name: "Forget" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.waitForTimeout(2500);
+  await expect(page.getByRole("dialog")).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.mistral"))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.openai"))).toBeNull();
+  await expect(page.getByText(/key verified/)).toHaveCount(0);
 });
 
 test("Mistral can still be chosen as translation provider", async ({ page }) => {

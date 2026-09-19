@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { isPlainObject, prettyJson } from "@/lib/util/json";
 import { humanizeKey } from "@/lib/util/text";
 import { MarkdownText } from "../MarkdownText";
@@ -42,14 +42,21 @@ export function FieldCard({ path, label, description, value, options, depth }: F
   const id = pathId(path);
   const joined = path.join("/");
 
+  // Bulk and reveal requests are one-shot: remember which epoch was applied so
+  // a remounted card (search filter, new data) does not replay an old request.
+  const appliedBulk = useRef(options.bulk.epoch);
   useEffect(() => {
+    if (appliedBulk.current === options.bulk.epoch) return;
+    appliedBulk.current = options.bulk.epoch;
     setCollapsed(options.bulk.mode === "collapse");
   }, [options.bulk.epoch, options.bulk.mode]);
 
+  const appliedReveal = useRef(options.reveal?.epoch ?? 0);
   useEffect(() => {
-    if (options.reveal && (options.reveal.path === joined || options.reveal.path.startsWith(`${joined}/`))) {
-      setCollapsed(false);
-    }
+    const reveal = options.reveal;
+    if (!reveal || appliedReveal.current === reveal.epoch) return;
+    appliedReveal.current = reveal.epoch;
+    if (reveal.path === joined || reveal.path.startsWith(`${joined}/`)) setCollapsed(false);
   }, [options.reveal, joined]);
 
   const empty = isEmptyValue(value);
@@ -60,18 +67,15 @@ export function FieldCard({ path, label, description, value, options, depth }: F
   return (
     <section class={`field-card depth-${Math.min(depth, 3)}${collapsed ? " field-card-collapsed" : ""}`} id={id} aria-labelledby={`${id}-label`}>
       <header class="field-head">
-        <button
-          type="button"
-          class="field-toggle"
-          aria-expanded={!collapsed}
-          aria-controls={contentId}
-          onClick={() => setCollapsed((c) => !c)}
-        >
-          <span class="chevron" aria-hidden="true">
-            {collapsed ? "▸" : "▾"}
-          </span>
-          <h3 id={`${id}-label`}>{label}</h3>
-        </button>
+        {/* Accordion pattern: the heading wraps the disclosure button, so headings stay navigable. */}
+        <h3 id={`${id}-label`} class="field-title">
+          <button type="button" class="field-toggle" aria-expanded={!collapsed} aria-controls={contentId} onClick={() => setCollapsed((c) => !c)}>
+            <span class="chevron" aria-hidden="true">
+              {collapsed ? "▸" : "▾"}
+            </span>
+            {label}
+          </button>
+        </h3>
         <div class="field-tools">
           {typeof value === "string" && value.length > 0 && <span class="muted small">{value.length.toLocaleString()} chars</span>}
           {Array.isArray(value) && value.length > 0 && <span class="muted small">{value.length} item(s)</span>}

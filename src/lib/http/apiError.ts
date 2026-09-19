@@ -9,6 +9,7 @@ export type ApiErrorKind =
   | "request" // other 4xx (bad schema, unsupported parameter, file too large, ...)
   | "server" // 5xx
   | "aborted" // the caller cancelled
+  | "refusal" // the model declined to answer (a completed, billed response)
   | "protocol"; // unexpected response shape
 
 export type ApiProvider = "mistral" | "openai";
@@ -41,6 +42,8 @@ export class ApiError extends Error {
         return `The ${name} API had an internal problem. Retrying usually helps.`;
       case "aborted":
         return "The request was cancelled.";
+      case "refusal":
+        return `The ${name} model declined to produce the translation. Check the document content or try another model.`;
       case "protocol":
         return `The ${name} API answered with an unexpected payload.`;
     }

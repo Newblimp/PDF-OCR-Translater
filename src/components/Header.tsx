@@ -22,8 +22,6 @@ const STATUS_LABEL: Record<KeyState["status"], string> = {
   invalid: "rejected",
 };
 
-const SHORT: Record<ProviderId, string> = { mistral: "Mistral", openai: "OpenAI" };
-
 export function Header({ keys, activeProvider, theme, onChangeKeys, onForgetKeys, onTheme }: Props) {
   const shown: ProviderId[] = activeProvider === "mistral" ? ["mistral"] : ["mistral", activeProvider];
   const anyKey = shown.some((p) => keys[p].value);
@@ -39,7 +37,7 @@ export function Header({ keys, activeProvider, theme, onChangeKeys, onForgetKeys
       <div class="header-key">
         {shown.map((p) => (
           <span key={p} class={`pill pill-${keys[p].status}`} title={`${PROVIDERS[p].keyLabel}: ${STATUS_LABEL[keys[p].status]}`}>
-            {SHORT[p]} key {STATUS_LABEL[keys[p].status]}
+            {PROVIDERS[p].shortLabel} key {STATUS_LABEL[keys[p].status]}
             {keys[p].value ? ` · ${maskApiKey(keys[p].value)}` : ""}
           </span>
         ))}

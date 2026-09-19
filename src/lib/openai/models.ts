@@ -18,11 +18,16 @@ export const FALLBACK_OPENAI_MODELS: ReadonlyArray<ModelOption> = [
   { id: "gpt-5.6-sol", label: "GPT-5.6 Sol (gpt-5.6-sol)" },
 ];
 
+/**
+ * Ids that are not usable for this app even though they start with gpt-5/6:
+ * "-chat-latest" snapshots reject `reasoning_effort`, "-pro" models are only
+ * served by the Responses API, and the rest are not text chat models.
+ */
+const EXCLUDED_ID = /(codex|realtime|audio|image|transcribe|tts|search|embedding|chat-latest|-pro\b|-pro-)/;
+
 /** Keep the GPT-5.x chat models from /v1/models, Luna variants first. */
 export function openaiModelOptions(models: ModelObject[]): ModelOption[] {
-  const ids = models
-    .map((m) => m.id)
-    .filter((id) => /^gpt-(5|6)/.test(id) && !/(codex|realtime|audio|image|transcribe|tts|search|embedding|pro-\d)/.test(id));
+  const ids = models.map((m) => m.id).filter((id) => /^gpt-(5|6)/.test(id) && !EXCLUDED_ID.test(id));
   const unique = Array.from(new Set(ids));
   unique.sort((a, b) => rank(a) - rank(b) || b.localeCompare(a));
   return unique.map((id) => ({ id, label: FALLBACK_OPENAI_MODELS.find((f) => f.id === id)?.label ?? id }));

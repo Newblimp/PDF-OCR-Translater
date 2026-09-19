@@ -30,8 +30,9 @@ AI). Keep it current when you change the architecture.
   hand-written (`src/lib/mistral/client.ts`, `src/lib/openai/client.ts`) on a
   shared fetch/error/SSE layer (`src/lib/http/`), with wire types derived
   from the official SDKs.
-- Tests: Vitest for pure modules, Playwright for end-to-end flows against a
-  mocked Mistral API (`e2e/helpers.ts`). CI runs both (`.github/workflows/ci.yml`).
+- Tests: Vitest for pure modules, Playwright for end-to-end flows against
+  mocked Mistral and OpenAI APIs (`e2e/helpers.ts`). CI runs both
+  (`.github/workflows/ci.yml`).
 
 ## Code map
 
@@ -100,10 +101,14 @@ into `store.ts` and rendered by the components.
 - **Using Mistral document annotations** (structured extraction by the OCR
   model itself, ≤ 8 pages): pass `documentAnnotation` to `runOcr()`; the
   response's `document_annotation` string is already typed.
-- **Another translation provider**: implement `ChatProvider`
-  (`src/lib/llm/provider.ts`), add it to `PROVIDERS` in `registry.ts`, add
-  its host to the CSP in `public/_headers`, and extend the key dialog's
-  `PURPOSE` map. Keys and models are stored per provider automatically.
+- **Another translation provider**: (1) widen the `ApiProvider` union in
+  `src/lib/http/apiError.ts` (it is the `ProviderId` type); (2) implement
+  `ChatProvider` (`src/lib/llm/provider.ts`) on a client in `src/lib/<name>/`;
+  (3) add a `ProviderInfo` entry to `PROVIDERS` in `src/lib/llm/registry.ts`
+  (labels, key URL, default/fallback models, capability flags, `create`);
+  (4) add its host to the CSP in `public/_headers` and to the e2e mocks.
+  Everything else (key storage, key dialog fields, header pills, settings
+  model lists, `initialState`) iterates `PROVIDER_IDS` / `perProvider()`.
 - **Another API host or a proxy**: the clients take `baseUrl`; update the
   CSP accordingly. This changes the privacy model, so document it.
 - **Model line-up changes**: edit `src/lib/openai/models.ts` or
@@ -121,6 +126,14 @@ into `store.ts` and rendered by the components.
   a user-facing `hint`; the runner converts anything else with `toAppError()`.
 - OpenAI GPT-5.x models reject `temperature`; the OpenAI provider never sends
   it. `reasoning_effort` is sent only to providers that support it.
+- `Runtime.getState()` (see `App.tsx`) mirrors the reducer synchronously, so
+  code in `runner.ts` can read the state right after a `dispatch`. Async
+  work that dispatches late must check it is still relevant (see
+  `verifyAndSaveApiKey`, `loadDocument`).
+- Settings text inputs use `DraftText` (commit on blur/Enter) so unrelated
+  re-renders do not clobber typing.
+- `public/theme-init.js` applies the saved theme before the first paint; it
+  reads the same localStorage key as `storage/settings.ts` (keep in sync).
 - Anything reaching the DOM from the model goes through `MarkdownText`
   (marked + DOMPurify) or is rendered as text. Never inject raw HTML.
 - Keep `README.md` (user-facing) and this file (developer-facing) in sync

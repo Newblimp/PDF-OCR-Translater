@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useReducer, useRef } from "preact/hooks";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "preact/hooks";
 import { loadApiKey } from "@/lib/storage/apiKeys";
 import { loadSettings } from "@/lib/storage/settings";
 import type { ProviderId } from "@/lib/llm/provider";
+import { perProvider, PROVIDER_IDS } from "@/lib/llm/registry";
 import { ActionBar } from "@/components/ActionBar";
 import { ApiKeyDialog } from "@/components/ApiKeyDialog";
 import { DocumentCard } from "@/components/DocumentCard";
@@ -23,21 +24,28 @@ import {
   verifyAndSaveApiKey,
   type Runtime,
 } from "./runner";
-import { canRunOcr, initialState, missingKeys, reducer, requiredProviders, selectSourceText, type AppState } from "./store";
+import { canRunOcr, initialState, missingKeys, reducer, requiredProviders, selectSourceText, type Action, type AppState } from "./store";
 
 export function App() {
-  const [state, dispatch] = useReducer(reducer, null, () =>
-    initialState({ mistral: loadApiKey("mistral"), openai: loadApiKey("openai") }, loadSettings()),
-  );
+  const [state, dispatchRaw] = useReducer(reducer, null, () => initialState(perProvider((id) => loadApiKey(id)), loadSettings()));
 
   // A stable runtime object lets async operations read the latest state.
+  // The reducer is pure, so we mirror it synchronously: `getState()` reflects
+  // an action immediately, not only after Preact's deferred re-render.
   const stateRef = useRef<AppState>(state);
   stateRef.current = state;
+  const dispatch = useCallback(
+    (action: Action) => {
+      stateRef.current = reducer(stateRef.current, action);
+      dispatchRaw(action);
+    },
+    [dispatchRaw],
+  );
   const rt = useMemo<Runtime>(() => ({ getState: () => stateRef.current, dispatch }), [dispatch]);
 
   // Verify cached keys in the background on first load (also fetches the model lists).
   useEffect(() => {
-    for (const provider of Object.keys(stateRef.current.keys) as ProviderId[]) {
+    for (const provider of PROVIDER_IDS) {
       const key = stateRef.current.keys[provider].value;
       if (key) void verifyAndSaveApiKey(rt, provider, key);
     }
@@ -114,8 +122,10 @@ export function App() {
       {state.keyDialogOpen && (
         <ApiKeyDialog
           keys={state.keys}
+          provider={state.settings.provider}
           required={requiredProviders(state.settings)}
           canClose={missingKeys(state).length === 0}
+          onProvider={(provider: ProviderId) => updateSettings(rt, { provider })}
           onSubmit={(keys) => submitApiKeys(rt, keys)}
           onClose={() => dispatch({ type: "key/dialog", open: false })}
         />

@@ -20,7 +20,7 @@ import { getCachedOcr, ocrCacheKey, putCachedOcr } from "@/lib/storage/ocrCache"
 import { saveSettings, type Settings } from "@/lib/storage/settings";
 import { applyTheme } from "@/lib/storage/theme";
 import { formatBytes } from "@/lib/util/text";
-import { canRunOcr, missingKeys, selectSourceText, type Action, type AppState, type DocState, type JobKind } from "./store";
+import { canRunOcr, missingKeys, selectSourceText, usableKey, type Action, type AppState, type DocState, type JobKind } from "./store";
 
 export interface Runtime {
   getState(): AppState;
@@ -33,26 +33,37 @@ const PREVIEW_WIDTH_PX = 260;
 
 // -------------------------------------------------------------------- keys
 
+/** In-flight key verifications, one per provider; a newer request cancels the older one. */
+const verifications = new Map<ProviderId, AbortController>();
+
 /**
  * Store a key and verify it against the provider's model list (which also
  * fills the model dropdown). Returns true when the key was accepted.
+ * Results are only applied if the key is still the current one when the
+ * request completes (the user may have replaced or forgotten it meanwhile).
  */
 export async function verifyAndSaveApiKey(rt: Runtime, provider: ProviderId, key: string): Promise<boolean> {
+  verifications.get(provider)?.abort();
   const trimmed = key.trim();
   if (!trimmed) {
     clearApiKey(provider);
     rt.dispatch({ type: "key/set", provider, key: null });
     return false;
   }
+  const controller = new AbortController();
+  verifications.set(provider, controller);
   rt.dispatch({ type: "key/set", provider, key: trimmed });
   rt.dispatch({ type: "key/status", provider, status: "checking" });
+  const stillCurrent = () => !controller.signal.aborted && rt.getState().keys[provider].value === trimmed;
   try {
-    const options = await createProvider(provider, trimmed).listModels();
+    const options = await createProvider(provider, trimmed).listModels(controller.signal);
+    if (!stillCurrent()) return false;
     rt.dispatch({ type: "models/set", provider, models: options.length ? options : [...PROVIDERS[provider].fallbackModels] });
     rt.dispatch({ type: "key/status", provider, status: "valid" });
     saveApiKey(provider, trimmed);
     return true;
   } catch (err) {
+    if (!stillCurrent()) return false;
     if (err instanceof ApiError && err.kind === "auth") {
       rt.dispatch({ type: "key/status", provider, status: "invalid", error: `${PROVIDERS[provider].label} rejected this key (${err.message}).` });
       return false;
@@ -67,6 +78,8 @@ export async function verifyAndSaveApiKey(rt: Runtime, provider: ProviderId, key
       error: `Could not verify the ${PROVIDERS[provider].label} key: ${err instanceof Error ? err.message : String(err)}. It was saved anyway.`,
     });
     return false;
+  } finally {
+    if (verifications.get(provider) === controller) verifications.delete(provider);
   }
 }
 
@@ -80,12 +93,14 @@ export async function submitApiKeys(rt: Runtime, keys: Partial<Record<ProviderId
     }),
   );
   const state = rt.getState();
+  // Stay open while a required key is missing or rejected, or an entered optional key was rejected.
   const blocking = missingKeys(state).length > 0 || Object.values(state.keys).some((k) => k.status === "invalid" && k.value);
   if (!blocking) rt.dispatch({ type: "key/dialog", open: false });
 }
 
 export function forgetApiKeys(rt: Runtime): void {
   for (const provider of Object.keys(PROVIDERS) as ProviderId[]) {
+    verifications.get(provider)?.abort();
     clearApiKey(provider);
     rt.dispatch({ type: "key/set", provider, key: null });
     rt.dispatch({ type: "models/set", provider, models: [] });
@@ -95,10 +110,11 @@ export function forgetApiKeys(rt: Runtime): void {
 
 export function updateSettings(rt: Runtime, patch: Partial<Settings>): void {
   rt.dispatch({ type: "settings/update", patch });
-  const settings = { ...rt.getState().settings, ...patch };
+  const settings = rt.getState().settings;
   saveSettings(settings);
   if (patch.theme) applyTheme(patch.theme);
-  if (patch.provider && missingKeys(rt.getState()).length > 0) rt.dispatch({ type: "key/dialog", open: true });
+  // Switching to a provider without a usable key: ask for it right away.
+  if (patch.provider && missingKeys(rt.getState(), settings).length > 0) rt.dispatch({ type: "key/dialog", open: true });
 }
 
 // ---------------------------------------------------------------- document
@@ -216,8 +232,8 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
   if (state.job) return;
 
   const needsChat = kind !== "ocr";
-  const mistralKey = state.keys.mistral.value;
-  const chatKey = state.keys[state.settings.provider].value;
+  const mistralKey = usableKey(state.keys, "mistral");
+  const chatKey = usableKey(state.keys, state.settings.provider);
   if (!mistralKey || (needsChat && !chatKey)) {
     rt.dispatch({ type: "key/dialog", open: true });
     return;
@@ -352,6 +368,7 @@ function toPipelineSettings(settings: Settings): PipelineSettings | { error: Non
     streaming: settings.streaming,
     temperature: settings.temperature,
     reasoningEffort: info.supportsReasoningEffort ? settings.reasoningEffort : undefined,
+    maxOutputTokens: settings.maxOutputTokens ?? undefined,
     targetLanguage: settings.targetLanguage,
     sourceLanguage: settings.sourceLanguage,
     domainHint: settings.domainHint,

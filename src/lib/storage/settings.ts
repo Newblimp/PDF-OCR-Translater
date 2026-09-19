@@ -33,10 +33,16 @@ export interface Settings {
   /** Cache OCR results in this browser (IndexedDB) so "Translate only" can reuse them. */
   cacheOcr: boolean;
   theme: ThemeSetting;
+  /** Optional ceiling for generated tokens per translation; null = provider default (model maximum). */
+  maxOutputTokens: number | null;
 }
 
 const VERSION = 2;
 const STORAGE_KEY = `pdf-ocr-translater.settings.v${VERSION}`;
+/** Read once and removed: the first release stored a single `chatModel` (Mistral) and a free-text target language. */
+const LEGACY_V1_KEY = "pdf-ocr-translater.settings.v1";
+/** Keep in sync with public/theme-init.js, which reads the theme before the bundle loads. */
+export const SETTINGS_STORAGE_KEY = STORAGE_KEY;
 
 export const DEFAULT_SETTINGS: Settings = {
   provider: "openai",
@@ -51,24 +57,51 @@ export const DEFAULT_SETTINGS: Settings = {
   reasoningEffort: "none",
   cacheOcr: true,
   theme: "system",
+  maxOutputTokens: null,
 };
 
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return structuredClone(DEFAULT_SETTINGS);
-    const parsed = JSON.parse(raw) as Partial<Settings>;
-    const merged: Settings = {
-      ...structuredClone(DEFAULT_SETTINGS),
-      ...parsed,
-      chatModels: { ...DEFAULT_SETTINGS.chatModels, ...(parsed.chatModels ?? {}) },
-    };
-    if (!(TARGET_LANGUAGES as readonly string[]).includes(merged.targetLanguage)) merged.targetLanguage = DEFAULT_SETTINGS.targetLanguage;
-    if (!(merged.provider in PROVIDERS)) merged.provider = DEFAULT_SETTINGS.provider;
-    if (!["system", "light", "dark"].includes(merged.theme)) merged.theme = "system";
-    return merged;
+    if (!raw) return migrateV1() ?? structuredClone(DEFAULT_SETTINGS);
+    return normalise(JSON.parse(raw) as Partial<Settings>);
   } catch {
     return structuredClone(DEFAULT_SETTINGS);
+  }
+}
+
+/** Merge a stored (possibly partial or invalid) object over the defaults. */
+function normalise(parsed: Partial<Settings>): Settings {
+  const merged: Settings = {
+    ...structuredClone(DEFAULT_SETTINGS),
+    ...parsed,
+    chatModels: { ...DEFAULT_SETTINGS.chatModels, ...(parsed.chatModels ?? {}) },
+  };
+  if (!(TARGET_LANGUAGES as readonly string[]).includes(merged.targetLanguage)) merged.targetLanguage = DEFAULT_SETTINGS.targetLanguage;
+  if (!(merged.provider in PROVIDERS)) merged.provider = DEFAULT_SETTINGS.provider;
+  if (!["system", "light", "dark"].includes(merged.theme)) merged.theme = "system";
+  if (!["none", "low", "medium", "high"].includes(merged.reasoningEffort)) merged.reasoningEffort = DEFAULT_SETTINGS.reasoningEffort;
+  if (typeof merged.maxOutputTokens !== "number" || !Number.isFinite(merged.maxOutputTokens) || merged.maxOutputTokens <= 0) merged.maxOutputTokens = null;
+  return merged;
+}
+
+/** Carry compatible v1 fields over, store them as v2 and drop the v1 entry. */
+function migrateV1(): Settings | null {
+  const raw = localStorage.getItem(LEGACY_V1_KEY);
+  if (!raw) return null;
+  try {
+    const v1 = JSON.parse(raw) as Partial<Settings> & { chatModel?: string; targetLanguage?: string };
+    const { chatModel, ...rest } = v1;
+    const migrated = normalise({
+      ...rest,
+      ...(chatModel ? { chatModels: { ...DEFAULT_SETTINGS.chatModels, mistral: chatModel } } : {}),
+    } as Partial<Settings>);
+    saveSettings(migrated);
+    localStorage.removeItem(LEGACY_V1_KEY);
+    return migrated;
+  } catch {
+    localStorage.removeItem(LEGACY_V1_KEY);
+    return null;
   }
 }
 

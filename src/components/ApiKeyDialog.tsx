@@ -1,28 +1,26 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ProviderId } from "@/lib/llm/provider";
-import { PROVIDERS } from "@/lib/llm/registry";
+import { OCR_PROVIDER, PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
 import type { KeyState } from "@/app/store";
 
 interface Props {
   keys: Record<ProviderId, KeyState>;
+  /** Currently selected translation provider (changeable from the dialog). */
+  provider: ProviderId;
   /** Providers whose key is needed for the current settings. */
   required: ProviderId[];
   canClose: boolean;
+  onProvider: (provider: ProviderId) => void;
   onSubmit: (keys: Partial<Record<ProviderId, string>>) => Promise<void>;
   onClose: () => void;
 }
 
-const PURPOSE: Record<ProviderId, string> = {
-  mistral: "used for OCR (Mistral Document AI)",
-  openai: "used for translation (GPT Luna)",
-};
-
-export function ApiKeyDialog({ keys, required, canClose, onSubmit, onClose }: Props) {
-  const providers: ProviderId[] = ["mistral", "openai"];
-  const [values, setValues] = useState<Record<ProviderId, string>>({
-    mistral: keys.mistral.value ?? "",
-    openai: keys.openai.value ?? "",
-  });
+export function ApiKeyDialog({ keys, provider, required, canClose, onProvider, onSubmit, onClose }: Props) {
+  // OCR provider first, then the rest.
+  const providers: ProviderId[] = [OCR_PROVIDER, ...PROVIDER_IDS.filter((p) => p !== OCR_PROVIDER)];
+  const [values, setValues] = useState<Record<ProviderId, string>>(
+    () => Object.fromEntries(PROVIDER_IDS.map((p) => [p, keys[p].value ?? ""])) as Record<ProviderId, string>,
+  );
   const [show, setShow] = useState(false);
   const firstRef = useRef<HTMLInputElement>(null);
   const busy = providers.some((p) => keys[p].status === "checking");
@@ -59,13 +57,28 @@ export function ApiKeyDialog({ keys, required, canClose, onSubmit, onClose }: Pr
           This app calls the providers' APIs directly from your browser. Keys are cached in this browser's local storage only
           and are never sent anywhere else.
         </p>
+        <label class="field">
+          <span>Translate with</span>
+          <select value={provider} onChange={(e) => onProvider((e.target as HTMLSelectElement).value as ProviderId)}>
+            {PROVIDER_IDS.map((id) => (
+              <option key={id} value={id}>
+                {PROVIDERS[id].label}
+              </option>
+            ))}
+          </select>
+          <span class="muted small">OCR always uses Mistral. Only the keys for the selected providers are required.</span>
+        </label>
         {providers.map((p, i) => {
           const info = PROVIDERS[p];
           const isRequired = required.includes(p);
           return (
             <label class="field" key={p}>
               <span>
-                {info.keyLabel} <span class="muted">— {PURPOSE[p]}{isRequired ? "" : " (optional)"}</span>
+                {info.keyLabel}{" "}
+                <span class="muted">
+                  — {info.purpose}
+                  {isRequired ? "" : " (optional)"}
+                </span>
               </span>
               <div class="input-row">
                 <input
