@@ -1,0 +1,117 @@
+# PDF OCR Translator
+
+A browser-only tool that turns a scanned or digital PDF (for example a
+communication from the China National Intellectual Property Administration,
+CNIPA) into a translated, structured JSON document using
+[Mistral Document AI](https://docs.mistral.ai/capabilities/document_ai/basic_ocr)
+for OCR and a Mistral chat model with
+[structured outputs](https://docs.mistral.ai/capabilities/structured-output/custom_structured_output)
+for translation.
+
+**Privacy model:** the site is a static bundle. The document is read in your
+browser, base64-encoded there and sent **only** to `https://api.mistral.ai`.
+Nothing is uploaded to GitHub, Cloudflare, or any other server. A
+Content-Security-Policy header (`public/_headers`) enforces this in
+production: the page cannot connect anywhere else.
+
+## What it does
+
+1. **Drop or pick a file** — PDF, PNG/JPEG/WebP (OCR), or `.txt`/`.md`
+   (translation only). A preview of the first pages is rendered locally with
+   pdf.js.
+2. **Choose an action**
+   - **OCR + Translate** — full pipeline.
+   - **OCR only** — get the Markdown text of the document.
+   - **Translate only** — translate the OCR text of the loaded file (this
+     session's result or the local cache), a dropped text file, or pasted text.
+3. **OCR** runs on `mistral-ocr-latest` with `extract_header` /
+   `extract_footer` on and images disabled, so headers, footers and images
+   never reach the translation step.
+4. **JSON format inference** (default) asks the chat model to design a JSON
+   Schema for *this* document — the API-side counterpart of the playground's
+   "infer a JSON format from the document" option. You can instead pick the
+   built-in *patent office communication* schema or paste your own.
+5. **Translation** calls `/v1/chat/completions` with
+   `response_format: { type: "json_schema", strict: true }`, so the API only
+   returns well-formed JSON that matches the schema. Tokens are streamed to
+   show progress. If the API rejects a schema, the app falls back once to
+   `json_object` mode.
+6. **Browse the result**: an outline of the fields, one card per field, long
+   text collapsible and rendered as Markdown (tables, lists), arrays as lists
+   or grids, full-text search across fields, copy/download of the JSON, and
+   tabs for the OCR text and the schema that was used.
+
+The API key is requested on first use, verified against `GET /v1/models`, and
+cached in this browser's `localStorage` only. "Forget" in the header removes it.
+OCR results are cached in the browser's IndexedDB (keyed by a SHA-256 of the
+file) so re-running "Translate only" on the same file costs no OCR credits.
+Both can be cleared from the UI.
+
+## Development
+
+Requires Node.js 22.13+ (see `.node-version`).
+
+```bash
+npm install
+npm run dev          # http://localhost:5173, with the production CSP applied
+npm run typecheck    # strict TypeScript
+npm test             # unit tests (Vitest)
+npm run e2e          # Playwright end-to-end tests against a mocked Mistral API
+npm run build        # typecheck + production build into dist/
+npm run preview      # serve dist/ locally
+```
+
+The e2e suite needs a Chromium. Either `npx playwright install chromium` or
+point `CHROMIUM_EXECUTABLE_PATH` at an existing binary. Set `SCREENSHOTS=1`
+to generate screenshots with `npx playwright test e2e/screenshots.spec.ts`.
+
+## Deploying to Cloudflare Pages
+
+Cloudflare Pages builds directly from this repository; there are no Pages
+Functions and no secrets to configure.
+
+1. In the Cloudflare dashboard choose **Workers & Pages → Create → Pages →
+   Connect to Git** and select this repository.
+2. Build settings:
+   - Framework preset: **Vite** (or none)
+   - Build command: `npm run build`
+   - Build output directory: `dist`
+   - Environment variable: `NODE_VERSION=22` (Pages also honours `.node-version`)
+3. Deploy. `public/_headers` is picked up automatically and sets the CSP and
+   other security headers. `public/_headers` also applies to preview
+   deployments of pull requests.
+
+Because everything happens client-side, the same `dist/` folder can be hosted
+on any static host.
+
+## Configuration reference
+
+All defaults live in code so they can be changed in one place:
+
+| Setting | Default | Where |
+| --- | --- | --- |
+| OCR model | `mistral-ocr-latest` | `src/lib/mistral/models.ts` |
+| Translation model | `mistral-large-latest` (any chat model from `/v1/models` selectable) | `src/lib/mistral/models.ts` |
+| Target / source language | English / auto-detect | Settings panel, persisted |
+| JSON format | inferred from document; built-in `patent_communication`; custom | `src/lib/pipeline/schemas/` |
+| Prompts | schema inference and translation | `src/lib/pipeline/prompts.ts` |
+| Temperature | 0.2 | Settings panel |
+| API limits (50 MB, 1000 pages) | checked client-side | `src/lib/pipeline/runOcr.ts` |
+| CSP / security headers | `connect-src https://api.mistral.ai` | `public/_headers` |
+
+## Limitations and notes
+
+- A single translation call must fit in the model's context window. Very
+  long documents (hundreds of pages) would need a chunked strategy; the
+  pipeline is structured so one can be added in `src/lib/pipeline/`.
+- The browser calls `api.mistral.ai` directly, which relies on the API's
+  CORS headers. If a browser ever blocks the call, the app reports it as a
+  network error with a hint.
+- The API key lives in `localStorage` of this origin, as requested. Anyone
+  with access to the browser profile can read it.
+- Mistral's OCR *document annotation* (`document_annotation_format`) is wired
+  in `runOcr.ts` as an extension point but not used by the default flows,
+  because the API limits it to 8 pages and the inferred schema is applied by
+  the translation step instead.
+
+See [AGENTS.md](AGENTS.md) for the code map and conventions.
