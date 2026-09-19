@@ -51,21 +51,33 @@ anywhere else.
    the partial JSON is rendered live. If the API rejects the request, the app
    falls back step by step (without images, non-streaming, then
    `json_object` mode). Target language is a toggle: **English** or **German**.
-   The "Translation" tab starts with a step strip that states which model did
-   what, including how many images were sent.
-7. **Browse the result**: an outline of the fields, one collapsible card per
-   field (expand/collapse all), long text collapsible and rendered as
-   Markdown (tables, lists), arrays as lists or grids, full-text search
-   across fields, copy/download of the JSON, and tabs for the OCR text, the
-   schema that was used, and a **Bounding boxes** view that draws the OCR
-   boxes (figures and paragraph blocks) over the rendered page, with the
-   cropped image and the vision model's description for each box; clicking
-   a text block shows its translation above the original (a follow-up
-   step translates every OCR block after the main translation). Fields in
-   the Translation tab can be hidden and shown individually (checkboxes in
-   the outline, Hide all / Show all). Pages render in the background so
-   browsing is instant. The document card takes a page selection
-   (e.g. `1-3, 7`) to OCR only part of a PDF.
+   The "Structured text" tab starts with a step strip that states which model
+   did what, including how many images were sent.
+7. **Structured text in the original language** (on by default, one extra
+   model call): the same JSON format is filled a second time without
+   translating, so the structured fields can be read in the document's own
+   wording. Together with the per-block translations of the OCR text, this is
+   what the **Show translation** switch turns on and off.
+8. **Browse the result** in five tabs, left to right:
+   - **Bounding boxes** (the default): the OCR boxes (figures and paragraph
+     blocks) drawn over the rendered page, with the cropped image and the
+     vision model's description for each box; clicking a text block shows its
+     translation above the original. Pages render in the background so
+     browsing is instant.
+   - **OCR text**: the Markdown per page, either as OCR'd or rebuilt from the
+     per-block translations.
+   - **Structured text**: an outline of the fields, one collapsible card per
+     field (expand/collapse all), long text collapsible and rendered as
+     Markdown (tables, lists), arrays as lists or grids, full-text search
+     across fields, copy/download of the JSON, and fields that can be hidden
+     and shown individually (checkboxes in the outline, Hide all / Show all).
+   - **JSON format**: the schema that was used.
+   - **Raw JSON**: the result as text.
+
+   A **Show translation** switch in the OCR text, Structured text and Raw JSON
+   toolbars flips all three between the translation and the document's own
+   language; it is one shared setting, not one per tab. The document card
+   takes a page selection (e.g. `1-3, 7`) to OCR only part of a PDF.
 
 Two API keys are requested on first use (Mistral for OCR, OpenAI for
 translation), verified against each provider's `GET /v1/models`, and cached
@@ -121,14 +133,15 @@ All defaults live in code so they can be changed in one place:
 
 | Setting | Default | Where |
 | --- | --- | --- |
-| OCR model | `mistral-ocr-latest` | `src/lib/mistral/models.ts` |
+| OCR model | `mistral-ocr-latest` (dropdown of `OCR_MODELS`) | `src/lib/mistral/models.ts` |
 | Translation provider | OpenAI (GPT Luna); Mistral selectable | `src/lib/llm/registry.ts` |
-| Translation model | `gpt-5.6-luna` (OpenAI) / `mistral-large-latest` (Mistral); any model from `/v1/models` selectable | `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
+| Translation model | `gpt-5.6-luna` (OpenAI) / `mistral-large-latest` (Mistral); dropdown of the models from `/v1/models` | `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
 | Reasoning effort (OpenAI) | `none` | Settings panel |
 | Max output tokens | provider default | Settings panel |
 | Document annotation with images | on (first 8 boxes, `DOCUMENT_ANNOTATION_MAX_IMAGES`) | Settings panel, `src/lib/pipeline/runOcr.ts` |
 | BBox annotation | on, up to 20 boxes per run | Settings panel; format in `src/lib/pipeline/schemas/bboxAnnotation.ts` |
 | Block translations | on | Settings panel; `src/lib/pipeline/blockTranslate.ts` |
+| Structured text in the original language | on (one extra model call) | Settings panel; `src/lib/pipeline/translate.ts` (`target: "original"`) |
 | Pages to OCR | all | Document card (`src/lib/util/pageSelection.ts`) |
 | Target / source language | English or German toggle / auto-detect | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`) |
 | JSON format | inferred from document; built-in `patent_communication`; custom | `src/lib/pipeline/schemas/` |

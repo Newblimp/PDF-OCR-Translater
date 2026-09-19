@@ -3,7 +3,7 @@ import { DEFAULT_SETTINGS } from "@/lib/storage/settings";
 import { initialState, missingKeys, reducer, requiredProviders, usableKey, type OcrState, type TranslationState } from "./store";
 
 describe("streaming and OCR invalidation", () => {
-  it("switches to the Translation tab when the first stream text arrives", () => {
+  it("switches to the Structured text tab when the first stream text arrives", () => {
     let state = initialState({ mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
     state = { ...state, activeTab: "ocr" };
     state = reducer(state, {
@@ -12,19 +12,36 @@ describe("streaming and OCR invalidation", () => {
     });
     expect(state.activeTab).toBe("ocr");
     state = reducer(state, { type: "job/event", event: { stage: "translate", status: "progress", message: "…", streamText: '{"a":', receivedChars: 5, timestamp: 0 } });
-    expect(state.activeTab).toBe("translation");
+    expect(state.activeTab).toBe("structured");
     expect(state.job?.streamText).toBe('{"a":');
   });
 
   it("drops a translation when a new OCR result from the API replaces the old one", () => {
     let state = initialState({ mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
-    const translation: TranslationState = { data: {}, rawText: "", schema: {}, schemaSource: "builtin", schemaWarnings: [], usage: null, inferUsage: null, provider: "openai", model: "m", mode: "json_schema", violations: [], finishReason: "stop", targetLanguage: "English", completedAt: 0, sourceChars: 0, imagesSent: 0, bboxAnnotations: [], bboxUsage: null, blockTranslations: {}, blockUsage: null };
+    const translation: TranslationState = { data: {}, rawText: "", schema: {}, schemaSource: "builtin", schemaWarnings: [], usage: null, inferUsage: null, provider: "openai", model: "m", mode: "json_schema", violations: [], finishReason: "stop", targetLanguage: "English", completedAt: 0, sourceChars: 0, imagesSent: 0, bboxAnnotations: [], bboxUsage: null, blockTranslations: {}, blockUsage: null, originalData: null, originalRawText: null, originalUsage: null, originalViolations: [] };
     state = reducer(state, { type: "translation/set", translation });
     const ocr: OcrState = { source: "cache", model: "m", response: { model: "m", pages: [], usage_info: { pages_processed: 0 } }, text: { text: "", pages: [], bboxes: [], pagesProcessed: 0, chars: 0 }, docId: "d" };
     state = reducer(state, { type: "ocr/set", ocr });
     expect(state.translation).not.toBeNull();
     state = reducer(state, { type: "ocr/set", ocr: { ...ocr, source: "api" } });
     expect(state.translation).toBeNull();
+  });
+});
+
+describe("result tabs", () => {
+  it("starts on the bounding boxes tab and shows the structured text once a translation arrives", () => {
+    const state = initialState({ mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    expect(state.activeTab).toBe("bboxes");
+    expect(state.showTranslation).toBe(true);
+    const translation: TranslationState = {
+      data: {}, rawText: "", schema: {}, schemaSource: "builtin", schemaWarnings: [], usage: null, inferUsage: null, provider: "openai", model: "m",
+      mode: "json_schema", violations: [], finishReason: "stop", targetLanguage: "English", completedAt: 0, sourceChars: 0, imagesSent: 0,
+      bboxAnnotations: [], bboxUsage: null, blockTranslations: {}, blockUsage: null, originalData: null, originalRawText: null, originalUsage: null,
+      originalViolations: [],
+    };
+    const withTranslation = reducer(state, { type: "translation/set", translation });
+    expect(withTranslation.activeTab).toBe("structured");
+    expect(reducer(withTranslation, { type: "view/translation", show: false }).showTranslation).toBe(false);
   });
 });
 

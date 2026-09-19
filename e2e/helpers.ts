@@ -116,6 +116,16 @@ export const TRANSLATION = {
   notes_for_reader: "",
 };
 
+/** Same JSON format as TRANSLATION, but untranslated: the "original_document" call. */
+export const ORIGINAL_STRUCTURE = {
+  document_type: "第一次审查意见通知书",
+  application_number: "CN202310000001.2",
+  summary: "审查员认为权利要求1不具备创造性。",
+  body_sections: [{ heading: "创造性", content: "权利要求1不具备创造性。" }],
+  cited_references: [{ label: "D1", identifier: "CN123456A" }],
+  notes_for_reader: "",
+};
+
 function sse(objects: unknown[]): string {
   return `${objects.map((o) => `data: ${JSON.stringify(o)}`).join("\n\n")}\n\ndata: [DONE]\n\n`;
 }
@@ -195,7 +205,11 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
   });
 }
 
-/** Schema inference answers in json_object mode; bbox annotation and translation in json_schema mode (translation streamed). */
+/**
+ * Schema inference answers in json_object mode; bbox annotation, the
+ * original-language structure and the translation in json_schema mode
+ * (the translation streamed).
+ */
 function chatCompletion(route: Route, body: Record<string, unknown> | null, model: string, openai: boolean) {
   const responseFormat = body?.["response_format"] as { type?: string; json_schema?: { name?: string } } | undefined;
   const format = responseFormat?.type;
@@ -219,6 +233,16 @@ function chatCompletion(route: Route, body: Record<string, unknown> | null, mode
           finish_reason: "stop",
         },
       ],
+    });
+  }
+  if (format === "json_schema" && responseFormat?.json_schema?.name === "original_document") {
+    return json(route, 200, {
+      id: "cmpl-original",
+      object: "chat.completion",
+      model,
+      created: 0,
+      usage: { prompt_tokens: 400, completion_tokens: 150, total_tokens: 550 },
+      choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify(ORIGINAL_STRUCTURE) }, finish_reason: "stop" }],
     });
   }
   if (format === "json_schema" && responseFormat?.json_schema?.name === "bbox_annotation") {

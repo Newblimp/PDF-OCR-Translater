@@ -24,7 +24,7 @@ for (const [name, width] of [
     await page.locator(".preview-page img").first().waitFor();
     await page.screenshot({ path: `${out}/${name}-3-loaded.png`, fullPage: true });
     await page.getByRole("button", { name: "OCR + Translate" }).click();
-    await page.getByRole("tab", { name: "Translation" }).waitFor();
+    await page.getByRole("tab", { name: "Structured text" }).waitFor();
     await page.locator(".field-card .prose table").waitFor();
     await page.screenshot({ path: `${out}/${name}-4-translation.png`, fullPage: true });
     await page.getByRole("tab", { name: "OCR text" }).click();
@@ -33,7 +33,7 @@ for (const [name, width] of [
     await page.locator(".bbox-stage img").waitFor();
     await page.getByRole("button", { name: "Image box img-0.jpeg" }).click();
     await page.screenshot({ path: `${out}/${name}-5b-bboxes.png`, fullPage: true });
-    await page.getByRole("tab", { name: "Translation" }).click();
+    await page.getByRole("tab", { name: "Structured text" }).click();
     await page.locator(".settings > summary").click();
     await page.screenshot({ path: `${out}/${name}-6-settings.png`, fullPage: true });
     await page.getByRole("radio", { name: "Dark theme" }).click();

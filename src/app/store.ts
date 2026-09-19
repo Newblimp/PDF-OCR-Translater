@@ -17,7 +17,8 @@ import type { FileKind } from "@/lib/files/fileKind";
 import type { Settings } from "@/lib/storage/settings";
 
 export type JobKind = "ocr" | "translate" | "both";
-export type ResultTab = "translation" | "bboxes" | "ocr" | "schema" | "json";
+/** Result tabs, in the order they are shown. "bboxes" is the default. */
+export type ResultTab = "bboxes" | "ocr" | "structured" | "schema" | "json";
 
 export type KeyStatus = "missing" | "unverified" | "checking" | "valid" | "invalid";
 
@@ -80,6 +81,11 @@ export interface TranslationState {
   /** Translation per OCR text block id (`${pageIndex}:${blockIndex}`), filled after the main translation. */
   blockTranslations: Record<string, string>;
   blockUsage: TokenUsage | null;
+  /** Same JSON format filled in the document's own language; null until (or unless) that stage runs. */
+  originalData: unknown;
+  originalRawText: string | null;
+  originalUsage: TokenUsage | null;
+  originalViolations: string[];
 }
 
 export interface JobState {
@@ -115,6 +121,11 @@ export interface AppState {
   job: JobState | null;
   error: AppError | null;
   activeTab: ResultTab;
+  /**
+   * Whether the OCR text and the structured text are shown translated or in
+   * the document's own language ("Show translation" in both tabs).
+   */
+  showTranslation: boolean;
 }
 
 export type Action =
@@ -136,7 +147,8 @@ export type Action =
   | { type: "job/event"; event: ProgressEvent }
   | { type: "job/end" }
   | { type: "error/set"; error: AppError | null }
-  | { type: "tab/set"; tab: ResultTab };
+  | { type: "tab/set"; tab: ResultTab }
+  | { type: "view/translation"; show: boolean };
 
 function keyState(value: string | null): KeyState {
   return { value, status: value ? "unverified" : "missing", error: null };
@@ -172,7 +184,8 @@ export function initialState(keys: Record<ProviderId, string | null>, settings: 
     translation: null,
     job: null,
     error: null,
-    activeTab: "translation",
+    activeTab: "bboxes",
+    showTranslation: true,
   };
   state.keyDialogOpen = missingKeys(state).length > 0;
   return state;
@@ -196,7 +209,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "settings/toggle":
       return { ...state, settingsOpen: action.open ?? !state.settingsOpen };
     case "doc/set":
-      return { ...state, doc: action.doc, pasteMode: false, ocr: null, translation: null, error: null, activeTab: "translation" };
+      return { ...state, doc: action.doc, pasteMode: false, ocr: null, translation: null, error: null, activeTab: "bboxes" };
     case "doc/patch":
       if (!state.doc || state.doc.id !== action.id) return state;
       return { ...state, doc: { ...state.doc, ...action.patch } };
@@ -210,7 +223,7 @@ export function reducer(state: AppState, action: Action): AppState {
       // A fresh OCR result invalidates a translation made from the previous one.
       return { ...state, ocr: action.ocr, translation: action.ocr?.source === "api" ? null : state.translation };
     case "translation/set":
-      return { ...state, translation: action.translation, activeTab: action.translation ? "translation" : state.activeTab };
+      return { ...state, translation: action.translation, activeTab: action.translation ? "structured" : state.activeTab };
     case "translation/patch":
       return state.translation ? { ...state, translation: { ...state.translation, ...action.patch } } : state;
     case "job/start":
@@ -219,8 +232,8 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!state.job) return state;
       const ev = action.event;
       const last = state.job.events.at(-1);
-      // The live stream lives in the Translation tab: switch to it when streaming starts.
-      const activeTab = ev.streamText && !state.job.streamText ? "translation" : state.activeTab;
+      // The live stream lives in the Structured text tab: switch to it when streaming starts.
+      const activeTab: ResultTab = ev.streamText && !state.job.streamText ? "structured" : state.activeTab;
       const events =
         ev.status === "progress" && last?.status === "progress" && last.stage === ev.stage
           ? [...state.job.events.slice(0, -1), ev]
@@ -243,6 +256,8 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, error: action.error };
     case "tab/set":
       return { ...state, activeTab: action.tab };
+    case "view/translation":
+      return { ...state, showTranslation: action.show };
     default:
       return state;
   }

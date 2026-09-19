@@ -10,6 +10,17 @@ import type { ModelCard } from "./types";
 export const DEFAULT_OCR_MODEL = "mistral-ocr-latest";
 
 /**
+ * OCR models offered in Settings. `/v1/models` also lists them, but the app
+ * only fetches the chat-capable models, so the choice is kept here.
+ * https://docs.mistral.ai/getting-started/models/models_overview
+ */
+export const OCR_MODELS: ReadonlyArray<ModelOption> = [
+  { id: "mistral-ocr-latest", label: "Mistral OCR (latest)" },
+  { id: "mistral-ocr-2505", label: "Mistral OCR 2505" },
+  { id: "mistral-ocr-2503", label: "Mistral OCR 2503" },
+];
+
+/**
  * Chat model used for schema inference and translation. Patent-office
  * correspondence is dense legal text, so we default to the most capable
  * general model. The UI lets the user pick any chat-capable model returned

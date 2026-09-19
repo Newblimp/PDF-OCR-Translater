@@ -17,6 +17,7 @@ function stagesFor(job: JobState, settings: Settings): StageId[] {
     stages.push("infer_schema");
     if (settings.bboxAnnotations) stages.push("bbox_annotate");
     stages.push("translate");
+    if (settings.structureOriginal) stages.push("structure_original");
     if (settings.blockTranslations) stages.push("block_translate");
   }
   return stages;
@@ -61,7 +62,7 @@ export function JobStatus({ job, settings }: Props) {
                   <div class="muted small">
                     {last.message}
                     {last.detail ? ` — ${last.detail}` : ""}
-                    {stage === "translate" && view === "active" && job.receivedChars > 0
+                    {(stage === "translate" || stage === "structure_original") && view === "active" && job.receivedChars > 0
                       ? ` (${job.receivedChars.toLocaleString()} characters so far)`
                       : ""}
                   </div>

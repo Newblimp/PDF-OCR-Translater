@@ -1,6 +1,6 @@
 /** Progress reporting shared by all pipeline steps. */
 
-export type StageId = "prepare" | "ocr" | "infer_schema" | "bbox_annotate" | "translate" | "block_translate";
+export type StageId = "prepare" | "ocr" | "infer_schema" | "bbox_annotate" | "translate" | "structure_original" | "block_translate";
 
 export const STAGE_LABELS: Record<StageId, string> = {
   prepare: "Preparing document",
@@ -8,6 +8,7 @@ export const STAGE_LABELS: Record<StageId, string> = {
   infer_schema: "Inferring JSON format",
   bbox_annotate: "Describing bounding boxes (vision model)",
   translate: "Document annotation: translating (vision model)",
+  structure_original: "Structured text in the original language (vision model)",
   block_translate: "Translating text blocks for the bounding-box view",
 };
 

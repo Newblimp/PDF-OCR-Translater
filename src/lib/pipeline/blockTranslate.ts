@@ -8,7 +8,7 @@ import type { ChatProvider, ReasoningEffort, TokenUsage } from "../llm/provider"
 import type { JsonSchemaObject } from "../mistral/types";
 import { parseModelJson } from "../util/json";
 import { emit, type ProgressListener } from "./events";
-import type { OcrText } from "./ocrText";
+import type { OcrCleanPage, OcrText } from "./ocrText";
 import { blockTranslationSystemPrompt, blockTranslationUserPrompt, type PromptContext } from "./prompts";
 
 export interface BlockTranslateOptions extends PromptContext {
@@ -56,14 +56,40 @@ export function blockId(pageIndex: number, blockIndex: number): string {
 const MAX_BLOCKS_PER_BATCH = 40;
 const MAX_CHARS_PER_BATCH = 12_000;
 
+/** The blocks of a page that carry text, with the ids used for their translations. */
+export function textBlocks(page: OcrCleanPage): Array<{ id: string; text: string }> {
+  const items: Array<{ id: string; text: string }> = [];
+  page.blocks.forEach((block, i) => {
+    const text = block.content?.trim();
+    if (!text || block.type === "image") return;
+    items.push({ id: blockId(page.index, i), text });
+  });
+  return items;
+}
+
+/**
+ * The page as translated Markdown, built from the per-block translations
+ * (the OCR text view with the translation toggle on). Blocks without a
+ * translation keep their original text so nothing disappears.
+ */
+export function translatedPageMarkdown(page: OcrCleanPage, translations: Record<string, string>): { text: string; total: number; translated: number } {
+  const blocks = textBlocks(page);
+  let translated = 0;
+  const parts = blocks.map((b) => {
+    const t = translations[b.id];
+    if (t?.trim()) {
+      translated++;
+      return t.trim();
+    }
+    return b.text;
+  });
+  return { text: parts.join("\n\n"), total: blocks.length, translated };
+}
+
 export function batchBlocks(ocr: OcrText): Array<Array<{ id: string; text: string }>> {
   const items: Array<{ id: string; text: string }> = [];
   for (const page of ocr.pages) {
-    page.blocks.forEach((block, i) => {
-      const text = block.content?.trim();
-      if (!text || block.type === "image") return;
-      items.push({ id: blockId(page.index, i), text });
-    });
+    items.push(...textBlocks(page));
   }
   const batches: Array<Array<{ id: string; text: string }>> = [];
   let batch: Array<{ id: string; text: string }> = [];

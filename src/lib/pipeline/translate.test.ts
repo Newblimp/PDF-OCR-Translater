@@ -40,6 +40,28 @@ describe("translateStructured", () => {
     expect(out.violations).toEqual([]);
   });
 
+  it("keeps the source language and its own stage with target \"original\"", async () => {
+    const seen: JsonChatRequest[] = [];
+    const events: ProgressEvent[] = [];
+    const provider = fakeProvider((req) => {
+      seen.push(req);
+      return ok('{"title":"你好"}');
+    });
+    const out = await translateStructured(provider, "你好", {
+      ...base,
+      target: "original",
+      stage: "structure_original",
+      streaming: false,
+      onProgress: (e) => events.push(e),
+    });
+    expect(out.data).toEqual({ title: "你好" });
+    expect(seen[0]?.format).toMatchObject({ type: "json_schema", strict: true, name: "original_document" });
+    expect(seen[0]?.stream).toBe(false);
+    expect(seen[0]?.system).toContain("Do NOT translate");
+    expect(seen[0]?.user).toContain("untranslated");
+    expect(events.every((e) => e.stage === "structure_original")).toBe(true);
+  });
+
   it("falls back to non-streaming and then json_object on 4xx errors, reporting warnings", async () => {
     const calls: string[] = [];
     const events: ProgressEvent[] = [];

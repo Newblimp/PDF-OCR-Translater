@@ -9,6 +9,10 @@
  *                                  └─► Markdown + first 8 bbox images + JSON format
  *                                        ──► vision LLM ──► document annotation = translated JSON
  *
+ * Two follow-up stages run after the translation, each behind a setting:
+ * `structureOriginal()` fills the same JSON format with the document's own
+ * wording, and `blockTranslations()` translates the OCR blocks one by one.
+ *
  *   - "OCR only"           : document → OCR
  *   - "Translate only"     : text (+ boxes when the OCR result is at hand) → JSON translation
  *   - "OCR and translate"  : both
@@ -51,6 +55,8 @@ export interface PipelineSettings extends PromptContext {
   maxBboxAnnotations: number;
   /** Translate the OCR text blocks for the bounding-box view. */
   blockTranslations: boolean;
+  /** Also fill the JSON format with the document's own wording (the "show translation" toggle off). */
+  structureOriginal: boolean;
 }
 
 export interface PipelineContext {
@@ -102,6 +108,50 @@ export async function blockTranslations(ctx: PipelineContext, ocr: OcrText): Pro
     signal: ctx.signal,
     onProgress: ctx.onProgress,
   });
+}
+
+/**
+ * Fill the same JSON format with the document's own language, so the
+ * "Structured text" tab can show the original next to the translation.
+ * Runs after the main translation, as a follow-up stage.
+ */
+export async function structureOriginal(
+  ctx: PipelineContext,
+  documentText: string,
+  schema: JsonSchemaObject,
+  ocr?: OcrText | undefined,
+): Promise<TranslationOutcome | null> {
+  if (!ctx.settings.structureOriginal) {
+    emit(ctx.onProgress, "structure_original", "skipped", "Structured text in the original language disabled in Settings");
+    return null;
+  }
+  const { settings } = ctx;
+  return translateStructured(ctx.chat, documentText, {
+    targetLanguage: settings.targetLanguage,
+    sourceLanguage: settings.sourceLanguage,
+    domainHint: settings.domainHint,
+    model: settings.chatModel,
+    schema,
+    images: annotationImages(ctx, ocr),
+    temperature: settings.temperature,
+    reasoningEffort: settings.reasoningEffort,
+    maxOutputTokens: settings.maxOutputTokens,
+    // Only the translation streams into the UI; this one is a follow-up.
+    streaming: false,
+    target: "original",
+    stage: "structure_original",
+    signal: ctx.signal,
+    onProgress: ctx.onProgress,
+  });
+}
+
+/** Bounding-box images handed to the vision model with the text (capped, and only when enabled). */
+function annotationImages(ctx: PipelineContext, ocr: OcrText | undefined): Array<{ id: string; dataUrl: string }> {
+  if (!ocr || !ctx.settings.sendImages) return [];
+  return ocr.bboxes
+    .filter((b) => b.dataUrl)
+    .slice(0, DOCUMENT_ANNOTATION_MAX_IMAGES)
+    .map((b) => ({ id: b.id, dataUrl: b.dataUrl! }));
 }
 
 /** Resolve the output schema according to the selected mode. */
@@ -156,13 +206,7 @@ export async function translateText(ctx: PipelineContext, documentText: string, 
   }
 
   // Document annotation: text + first eight bbox images + schema → translated JSON.
-  const images =
-    opts.ocr && settings.sendImages
-      ? opts.ocr.bboxes
-          .filter((b) => b.dataUrl)
-          .slice(0, DOCUMENT_ANNOTATION_MAX_IMAGES)
-          .map((b) => ({ id: b.id, dataUrl: b.dataUrl! }))
-      : [];
+  const images = annotationImages(ctx, opts.ocr);
   const translation = await translateStructured(ctx.chat, documentText, {
     ...promptCtx,
     model: settings.chatModel,

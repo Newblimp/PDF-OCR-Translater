@@ -24,6 +24,16 @@ async function enterKeys(page: Page, mistral = MISTRAL_KEY, openai = OPENAI_KEY)
   await dialog.getByRole("button", { name: "Save and verify" }).click();
 }
 
+/** The shared "Show translation" switch of the OCR text, Structured text and Raw JSON tabs. */
+function translationSwitch(page: Page) {
+  return page.getByRole("checkbox", { name: "Show translation", exact: true });
+}
+
+/** The `response_format.json_schema.name` of a recorded chat request, which says which step it was. */
+function schemaName(request: RecordedRequest): string | undefined {
+  return (request.body?.["response_format"] as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+}
+
 async function loadPdf(page: Page): Promise<void> {
   await page.locator('input[type="file"]').first().setInputFiles({
     name: "office-action.pdf",
@@ -67,7 +77,7 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
   await expect(page.locator(".preview-page img")).toHaveCount(1);
 
   await page.getByRole("button", { name: "OCR + Translate" }).click();
-  await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
 
   // Browsable output.
   await expect(page.getByRole("heading", { name: "Application number" })).toBeVisible();
@@ -76,11 +86,17 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
   await expect(page.locator(".field-card table.value-table")).toContainText("CN123456A");
   await expect(page.locator(".toolbar")).toContainText("OpenAI (GPT Luna) · gpt-5.6-luna");
 
-  // OCR tab: headers/footers separated, images gone.
+  // OCR tab: headers/footers separated, images gone, and the shared "Show translation" switch.
   await page.getByRole("tab", { name: "OCR text" }).click();
   await expect(page.getByText("Headers and footers removed from the translated text")).toBeVisible();
+  const showTranslation = translationSwitch(page);
+  await expect(showTranslation).toBeEnabled({ timeout: 20_000 }); // enabled once the per-block translations are in
+  await expect(showTranslation).toBeChecked();
+  await expect(page.locator(".ocr-page")).toContainText("[EN] 申请号：CN202310000001.2"); // per-block translation
+  await showTranslation.uncheck();
   await expect(page.locator(".ocr-page")).toContainText("权利要求1不具备创造性");
   await expect(page.locator(".ocr-page")).toContainText("[Image: img-0.jpeg]"); // placeholder, not the raw image
+  await showTranslation.check();
 
   // Requests: OCR went to Mistral with a base64 data URI, bounding-box images requested, headers/footers extracted.
   const ocr = recorded.find((r) => r.url.endsWith("/v1/ocr"));
@@ -95,22 +111,25 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
   expect(ocrCalls[0]!.body).not.toHaveProperty("document_annotation_format");
 
   // The strip explains the workflow.
-  await page.getByRole("tab", { name: "Translation" }).click();
+  await page.getByRole("tab", { name: "Structured text" }).click();
   await expect(page.locator(".pipeline-strip")).toContainText("Mistral OCR: 1 page(s), 2 bounding box(es)");
   await expect(page.locator(".pipeline-strip")).toContainText("BBox annotation: 2 of 2 box(es) described by the vision model");
   await expect(page.locator(".pipeline-strip")).toContainText("from the text + 2 bounding-box image(s)");
+  await expect(page.locator(".pipeline-strip")).toContainText("Structured text in the original language: filled by");
 
   // Chat on OpenAI: schema inference (json_object), one bbox annotation per box (json_schema), then the translation.
   const chats = recorded.filter((r) => r.url.endsWith("/v1/chat/completions"));
   expect(chats.every((c) => c.host === "api.openai.com")).toBe(true);
-  expect(chats).toHaveLength(5); // schema inference, 2 bbox annotations, translation, block translations
+  // schema inference, 2 bbox annotations, translation, original-language structure, block translations
+  expect(chats).toHaveLength(6);
   expect((chats[0]!.body!["response_format"] as { type: string }).type).toBe("json_object");
-  expect((chats.at(-1)!.body!["response_format"] as { json_schema?: { name?: string } }).json_schema?.name).toBe("block_translations");
-  const bboxCalls = chats.filter((c) => (c.body!["response_format"] as { json_schema?: { name?: string } }).json_schema?.name === "bbox_annotation");
+  expect(schemaName(chats.at(-1)!)).toBe("block_translations");
+  expect(chats.map(schemaName)).toContain("original_document");
+  const bboxCalls = chats.filter((c) => schemaName(c) === "bbox_annotation");
   expect(bboxCalls).toHaveLength(2);
   const bboxContent = (bboxCalls[0]!.body!["messages"] as Array<{ role: string; content: unknown }>)[1]!.content as Array<{ type: string }>;
   expect(bboxContent.some((p) => p.type === "image_url")).toBe(true);
-  const translate = chats.at(-2)!.body!;
+  const translate = chats.find((c) => schemaName(c) === "translated_document")!.body!;
   expect(translate).toMatchObject({
     model: "gpt-5.6-luna",
     stream: true,
@@ -138,7 +157,7 @@ test("sections collapse and expand individually, in bulk, and via the outline", 
   await enterKeys(page);
   await loadPdf(page);
   await page.getByRole("button", { name: "OCR + Translate" }).click();
-  await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
 
   const summary = page.locator("#field-summary");
   await expect(summary.locator(".field-body")).toBeVisible();
@@ -168,7 +187,7 @@ test("German toggle changes the target language of the next translation", async 
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("申请号：CN202310000001.2\n\n权利要求1不具备创造性。");
   await page.getByRole("button", { name: "Translate only" }).click();
-  await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("Erster Prüfungsbescheid")).toBeVisible();
   await expect(page.locator(".toolbar")).toContainText("→ German");
   // Pasted text: no OCR, no bounding boxes, and the UI says so.
@@ -176,7 +195,7 @@ test("German toggle changes the target language of the next translation", async 
   await expect(page.locator(".pipeline-strip")).toContainText("BBox annotation skipped");
   await expect(page.getByRole("tab", { name: "Bounding boxes" })).toHaveCount(0);
 
-  const translate = recorded.filter((r) => r.url.endsWith("/v1/chat/completions")).at(-1)!.body!;
+  const translate = recorded.filter((r) => r.url.endsWith("/v1/chat/completions")).find((r) => schemaName(r) === "translated_document")!.body!;
   const system = (translate["messages"] as Array<{ role: string; content: string }>)[0]!.content;
   expect(system).toContain("into German");
   expect(recorded.some((r) => r.url.endsWith("/v1/ocr"))).toBe(false);
@@ -184,6 +203,36 @@ test("German toggle changes the target language of the next translation", async 
   await page.reload();
   await page.locator(".settings > summary").click();
   await expect(page.getByRole("radio", { name: "German" })).toHaveAttribute("aria-checked", "true");
+});
+
+test("the structured text and the OCR text follow one \"Show translation\" switch", async ({ page }) => {
+  await setup(page);
+  await enterKeys(page);
+  await loadPdf(page);
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
+
+  // Translated by default.
+  await expect(page.locator(".fields")).toContainText("The examiner finds claim 1 lacks inventive step.");
+  const toggle = translationSwitch(page);
+  await expect(toggle).toBeChecked();
+
+  // Switched off, the same fields hold the document's own wording.
+  await toggle.uncheck();
+  await expect(page.locator(".fields")).toContainText("审查员认为权利要求1不具备创造性。", { timeout: 20_000 });
+  await expect(page.locator(".toolbar").first()).toContainText("original language");
+
+  // The switch is shared with the OCR text tab and the raw JSON.
+  await page.getByRole("tab", { name: "OCR text" }).click();
+  await expect(translationSwitch(page)).not.toBeChecked();
+  await expect(page.locator(".ocr-page")).toContainText("权利要求1不具备创造性");
+  await page.getByRole("tab", { name: "Raw JSON" }).click();
+  await expect(page.locator(".code-block")).toContainText("第一次审查意见通知书");
+
+  // And back: the translation again, everywhere.
+  await translationSwitch(page).check();
+  await page.getByRole("tab", { name: "Structured text" }).click();
+  await expect(page.locator(".fields")).toContainText("The examiner finds claim 1 lacks inventive step.");
 });
 
 test("theme switch forces dark or light and persists; system removes the override", async ({ page }) => {
@@ -231,7 +280,7 @@ test("a Mistral-only user can pick Mistral in the key dialog and never needs an 
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
   await page.getByRole("button", { name: "Translate only" }).click();
-  await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   expect(recorded.every((r) => r.host === "api.mistral.ai")).toBe(true);
 
   // Switching to OpenAI without a key asks for it immediately; the dialog can be cancelled.
@@ -289,9 +338,10 @@ test("Mistral can still be chosen as translation provider", async ({ page }) => 
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
   await page.getByRole("button", { name: "Translate only" }).click();
-  await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   const chats = recorded.filter((r) => r.url.endsWith("/v1/chat/completions"));
-  expect(chats.map((c) => c.host)).toEqual(["api.mistral.ai", "api.mistral.ai"]);
+  expect(chats.map((c) => c.host)).toEqual(["api.mistral.ai", "api.mistral.ai", "api.mistral.ai"]);
+  expect(chats.map(schemaName)).toEqual([undefined, "translated_document", "original_document"]);
   expect(chats[1]!.body).toMatchObject({ model: "mistral-large-latest", temperature: 0.2 });
   expect(chats[1]!.body).not.toHaveProperty("reasoning_effort");
 });
@@ -301,7 +351,7 @@ test("bounding boxes are drawn over the page with the vision model's description
   await enterKeys(page);
   await loadPdf(page);
   await page.getByRole("button", { name: "OCR + Translate" }).click();
-  await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".pipeline-strip")).toBeVisible();
 
   await page.getByRole("tab", { name: "Bounding boxes" }).click();
@@ -383,7 +433,7 @@ test("fields can be hidden and shown individually and in bulk", async ({ page })
   await enterKeys(page);
   await loadPdf(page);
   await page.getByRole("button", { name: "OCR + Translate" }).click();
-  await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".pipeline-strip")).toBeVisible();
   await expect(page.locator(".fields > .field-card")).toHaveCount(5);
 

@@ -112,10 +112,24 @@ into `store.ts` and rendered by the components.
   `ResultsPanel`'s `PipelineStrip` tells the user what ran; `BboxView` draws
   `OcrText.bboxes` and `OcrCleanPage.blocks` over the page rendered by
   `renderPdfPage()`.
+- **Result tabs**: `ResultTab` in `store.ts` fixes the order — Bounding boxes
+  (the default), OCR text, Structured text, JSON format, Raw JSON. There is no
+  separate translation tab: `AppState.showTranslation` ("Show translation", one
+  switch rendered in several toolbars) decides whether the OCR text, the
+  structured text and the raw JSON are shown translated or in the document's
+  own language.
+- **Structured text in the original language**: after `translation/set` the
+  runner calls `pipeline.structureOriginal()` (stage `structure_original`,
+  `translateStructured(..., target: "original")` with the same schema and bbox
+  images, non-streaming) and patches `TranslationState.originalData`. Without
+  it (setting off, or an older run) the tab falls back to the translation and
+  says so.
 - **Block translations**: after `translation/set`, the runner runs
   `pipeline.blockTranslations()` (stage `block_translate`, batches of OCR
   blocks as JSON) and patches `TranslationState.blockTranslations`;
-  `BboxView` shows them above the original block text.
+  `BboxView` shows them above the original block text, and the OCR text view
+  rebuilds each page from them (`translatedPageMarkdown()`) when "Show
+  translation" is on.
 - **Page rendering**: `files/pageRenderCache.ts` keeps one pdf.js document
   open per loaded file, renders on demand and pre-renders the rest in the
   background (`PREFETCH_LIMIT`); `BboxView` subscribes to it.
@@ -136,7 +150,10 @@ into `store.ts` and rendered by the components.
 - **Another API host or a proxy**: the clients take `baseUrl`; update the
   CSP accordingly. This changes the privacy model, so document it.
 - **Model line-up changes**: edit `src/lib/openai/models.ts` or
-  `src/lib/mistral/models.ts`. The UI lists whatever `/v1/models` returns.
+  `src/lib/mistral/models.ts`. The translation-model dropdown lists whatever
+  `/v1/models` returns (fallback list when it has not answered); the OCR-model
+  dropdown lists `OCR_MODELS`. Both are dropdowns only — no free-text model
+  ids — so a model id stored earlier appears as a "(custom)" entry.
 - **More target languages**: extend `TARGET_LANGUAGES` in
   `src/lib/storage/settings.ts`; the toggle renders from it.
 - **Theme / visual style**: shared with github.com/Newblimp/refcheck (Gruvbox

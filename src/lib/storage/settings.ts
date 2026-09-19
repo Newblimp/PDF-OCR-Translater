@@ -41,8 +41,10 @@ export interface Settings {
   bboxAnnotations: boolean;
   /** Upper bound on bounding boxes described per run (cost control). */
   maxBboxAnnotations: number;
-  /** Translate each OCR text block so the bounding-box view can show it. */
+  /** Translate each OCR text block so the bounding-box view and the OCR text view can show it. */
   blockTranslations: boolean;
+  /** Also fill the JSON format with the document's own wording, so "Structured text" can show the original. */
+  structureOriginal: boolean;
 }
 
 const VERSION = 2;
@@ -70,6 +72,7 @@ export const DEFAULT_SETTINGS: Settings = {
   bboxAnnotations: true,
   maxBboxAnnotations: 20,
   blockTranslations: true,
+  structureOriginal: true,
 };
 
 export function loadSettings(): Settings {

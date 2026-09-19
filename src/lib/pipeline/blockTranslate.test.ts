@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatProvider, JsonChatRequest } from "../llm/provider";
-import { batchBlocks, blockId, translateBlocks } from "./blockTranslate";
+import { batchBlocks, blockId, translateBlocks, translatedPageMarkdown } from "./blockTranslate";
 import type { OcrText } from "./ocrText";
 
 function ocrWith(blocks: Array<{ page: number; type: string; content: string }>): OcrText {
@@ -56,5 +56,23 @@ describe("translateBlocks", () => {
     expect(out.translations).toEqual({ "0:0": "EN(你好)", "0:1": "EN(世界)" });
     expect(out.usage.total_tokens).toBe(10);
     expect(out.missing).toBe(0);
+  });
+});
+
+describe("translatedPageMarkdown", () => {
+  const page = ocrWith([
+    { page: 0, type: "title", content: "标题" },
+    { page: 0, type: "image", content: "" },
+    { page: 0, type: "text", content: "正文" },
+  ]).pages[0]!;
+
+  it("joins the translations of a page's text blocks", () => {
+    const out = translatedPageMarkdown(page, { [blockId(0, 0)]: "Title", [blockId(0, 2)]: "Body" });
+    expect(out).toEqual({ text: "Title\n\nBody", total: 2, translated: 2 });
+  });
+
+  it("keeps the original text of blocks that came back without a translation", () => {
+    const out = translatedPageMarkdown(page, { [blockId(0, 0)]: "Title", [blockId(0, 2)]: "  " });
+    expect(out).toEqual({ text: "Title\n\n正文", total: 2, translated: 1 });
   });
 });

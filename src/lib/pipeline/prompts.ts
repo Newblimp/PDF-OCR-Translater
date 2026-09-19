@@ -86,6 +86,38 @@ export function translationSystemPrompt(ctx: PromptContext): string {
 }
 
 export function translationUserPrompt(documentText: string, schemaJson: string, attachedImageIds: string[] = []): string {
+  return documentUserPrompt("Document to translate (OCR text, Markdown):", documentText, schemaJson, attachedImageIds);
+}
+
+/**
+ * Same call, but the JSON keeps the document's own language: it is the
+ * "Structured text" view with the translation toggle switched off.
+ */
+export function originalStructureSystemPrompt(ctx: PromptContext): string {
+  return [
+    `You are a document analyst working with a vision model. You receive the OCR text of a document (Markdown) and, when available, the images of its bounding boxes (figures, stamps, seals, signatures, tables rendered as images). Put the document's content into a JSON object that follows the provided JSON Schema exactly, keeping every passage in ${sourceClause(ctx.sourceLanguage)}.`,
+    "",
+    `Document family: ${ctx.domainHint}`,
+    "",
+    "Rules:",
+    `- Do NOT translate. Never write ${ctx.targetLanguage} where the document uses another language; copy the wording of the source, only re-arranged into the JSON fields.`,
+    "- Transcribe faithfully and completely. Do not summarise or omit passages unless a field's description explicitly asks for a summary.",
+    "- Every passage of the source must end up in the most relevant field. If nothing fits, use the closest section-like field rather than dropping content.",
+    "- Keep identifiers, numbers and dates exactly as printed.",
+    "- Inside string fields, preserve numbering, bullet lists and Markdown tables from the source.",
+    "- \"[Image: id]\" placeholders mark where a bounding box sits in the text; the attached images carry the same ids. Transcribe text inside the images (stamps, seals, handwritten notes, figure labels, tables) in its original script; describe non-text figures briefly, in the document's language, where the schema has a place for them. Never reproduce the placeholders themselves.",
+    `- Page delimiters like "${pageDelimiter(1)}" are not content; never reproduce them.`,
+    "- For data the document does not contain, use an empty string, an empty array or 0. Never invent facts.",
+    "- Field names stay as the schema spells them; only the values are in the document's language.",
+    "- Output JSON only.",
+  ].join("\n");
+}
+
+export function originalStructureUserPrompt(documentText: string, schemaJson: string, attachedImageIds: string[] = []): string {
+  return documentUserPrompt("Document to put into the JSON fields, untranslated (OCR text, Markdown):", documentText, schemaJson, attachedImageIds);
+}
+
+function documentUserPrompt(intro: string, documentText: string, schemaJson: string, attachedImageIds: string[]): string {
   const parts = ["JSON Schema of the expected output:", "```json", schemaJson, "```", ""];
   if (attachedImageIds.length) {
     parts.push(
@@ -93,7 +125,7 @@ export function translationUserPrompt(documentText: string, schemaJson: string, 
       "",
     );
   }
-  parts.push("Document to translate (OCR text, Markdown):", "<document>", documentText, "</document>");
+  parts.push(intro, "<document>", documentText, "</document>");
   return parts.join("\n");
 }
 

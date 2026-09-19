@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ProviderId, ReasoningEffort } from "@/lib/llm/provider";
 import { PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
-import type { ModelOption } from "@/lib/mistral/models";
+import { OCR_MODELS, type ModelOption } from "@/lib/mistral/models";
 import { BUILTIN_SCHEMAS } from "@/lib/pipeline/schemas";
 import { clearOcrCache } from "@/lib/storage/ocrCache";
 import { DEFAULT_SETTINGS, TARGET_LANGUAGES, type Settings, type TargetLanguage } from "@/lib/storage/settings";
@@ -74,6 +74,7 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
   const chatModel = settings.chatModels[settings.provider];
   const options = models[settings.provider].length ? models[settings.provider] : provider.fallbackModels;
   const modelInList = options.some((m) => m.id === chatModel);
+  const ocrModelInList = OCR_MODELS.some((m) => m.id === settings.ocrModel);
   const schemaKind = settings.schemaMode.kind;
   const setChatModel = (id: string) => onChange({ chatModels: { ...settings.chatModels, [settings.provider]: id } });
 
@@ -135,7 +136,7 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
             ))}
             {!modelInList && <option value="__custom">{chatModel} (custom)</option>}
           </select>
-          <DraftText value={chatModel} fallback={provider.defaultModel} spellcheck={false} aria-label="Translation model id" onCommit={setChatModel} />
+          <span class="muted small">The list comes from the provider's /v1/models.</span>
         </label>
 
         {provider.supportsReasoningEffort && (
@@ -190,7 +191,20 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
 
         <label class="field">
           <span>OCR model (Mistral)</span>
-          <DraftText value={settings.ocrModel} fallback={DEFAULT_SETTINGS.ocrModel} spellcheck={false} onCommit={(ocrModel) => onChange({ ocrModel })} />
+          <select
+            value={ocrModelInList ? settings.ocrModel : "__custom"}
+            onChange={(e) => {
+              const v = (e.target as HTMLSelectElement).value;
+              if (v !== "__custom") onChange({ ocrModel: v });
+            }}
+          >
+            {OCR_MODELS.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+            {!ocrModelInList && <option value="__custom">{settings.ocrModel} (custom)</option>}
+          </select>
         </label>
 
         <label class="field">
@@ -299,10 +313,24 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
           <label class="checkbox">
             <input
               type="checkbox"
+              checked={settings.structureOriginal}
+              onChange={(e) => onChange({ structureOriginal: (e.target as HTMLInputElement).checked })}
+            />
+            <span>
+              Structured text in the original language: fill the same JSON format a second time without translating, so the Structured text
+              tab can also show the document's own wording (one extra model call per run).
+            </span>
+          </label>
+          <label class="checkbox">
+            <input
+              type="checkbox"
               checked={settings.blockTranslations}
               onChange={(e) => onChange({ blockTranslations: (e.target as HTMLInputElement).checked })}
             />
-            <span>Translate each OCR text block after the main translation, so the bounding-box view shows a translation per block.</span>
+            <span>
+              Translate each OCR text block after the main translation, so the bounding-box view shows a translation per block and the OCR
+              text can be shown translated.
+            </span>
           </label>
           <label class="checkbox">
             <input type="checkbox" checked={settings.cacheOcr} onChange={(e) => onChange({ cacheOcr: (e.target as HTMLInputElement).checked })} />

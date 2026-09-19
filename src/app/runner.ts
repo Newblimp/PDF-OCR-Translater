@@ -12,7 +12,15 @@ import { fileToDataUrl } from "@/lib/files/dataUrl";
 import { sha256Hex } from "@/lib/files/hash";
 import { openPdfPreview } from "@/lib/files/pdfPreview";
 import { emit } from "@/lib/pipeline/events";
-import { blockTranslations, ocrOnly, translateText, type PipelineContext, type PipelineSettings, type SchemaMode } from "@/lib/pipeline/pipeline";
+import {
+  blockTranslations,
+  ocrOnly,
+  structureOriginal,
+  translateText,
+  type PipelineContext,
+  type PipelineSettings,
+  type SchemaMode,
+} from "@/lib/pipeline/pipeline";
 import { parsePageSelection } from "@/lib/util/pageSelection";
 import { buildOcrText, type OcrText } from "@/lib/pipeline/ocrText";
 import { OCR_MAX_FILE_BYTES } from "@/lib/pipeline/runOcr";
@@ -346,9 +354,29 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
           bboxUsage: result.bboxes?.usage ?? null,
           blockTranslations: {},
           blockUsage: null,
+          originalData: null,
+          originalRawText: null,
+          originalUsage: null,
+          originalViolations: [],
         },
       });
-      // Follow-up stage: per-block translations for the bounding-box view (the main result is already shown).
+      // Follow-up stage: the same JSON format in the document's own language,
+      // so "Structured text" can be shown untranslated.
+      const original = await structureOriginal(ctx, sourceText, result.schema.schema, ocrText ?? undefined);
+      controller.signal.throwIfAborted();
+      if (original) {
+        rt.dispatch({
+          type: "translation/patch",
+          patch: {
+            originalData: original.data,
+            originalRawText: original.rawText,
+            originalUsage: original.usage,
+            originalViolations: original.violations,
+          },
+        });
+      }
+
+      // Follow-up stage: per-block translations for the bounding-box and OCR text views.
       if (ocrText) {
         const blocks = await blockTranslations(ctx, ocrText);
         controller.signal.throwIfAborted();
@@ -411,6 +439,7 @@ function toPipelineSettings(settings: Settings): PipelineSettings | { error: Non
     bboxAnnotations: settings.bboxAnnotations,
     maxBboxAnnotations: settings.maxBboxAnnotations,
     blockTranslations: settings.blockTranslations,
+    structureOriginal: settings.structureOriginal,
     targetLanguage: settings.targetLanguage,
     sourceLanguage: settings.sourceLanguage,
     domainHint: settings.domainHint,

@@ -113,6 +113,7 @@ export function App() {
           <ResultsPanel
             state={state}
             onTab={(tab) => dispatch({ type: "tab/set", tab })}
+            onShowTranslation={(show) => dispatch({ type: "view/translation", show })}
             onUseSchema={(schemaText) => {
               updateSettings(rt, { schemaMode: { kind: "custom", schemaText } });
               dispatch({ type: "settings/toggle", open: true });
