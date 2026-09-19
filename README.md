@@ -75,7 +75,8 @@ needed. "Forget" in the header removes all keys.
 OCR results are cached in the browser's IndexedDB (keyed by a SHA-256 of the
 file) so re-running "Translate only" on the same file costs no OCR credits.
 Both caches can be cleared from the UI. The header also offers a
-light / dark / system theme switch.
+light / system / dark theme switch; the look (Gruvbox dark by default) is
+shared with [refcheck](https://github.com/Newblimp/refcheck).
 
 ## Development
 

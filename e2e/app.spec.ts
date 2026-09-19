@@ -190,9 +190,7 @@ test("theme switch forces dark or light and persists; system removes the overrid
   await setup(page);
   await enterKeys(page);
   const html = page.locator("html");
-  await expect(html).not.toHaveAttribute("data-theme", /.+/);
-
-  await page.getByRole("radio", { name: "Dark theme" }).click();
+  // Dark is the default, as in refcheck.
   await expect(html).toHaveAttribute("data-theme", "dark");
   const darkBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 

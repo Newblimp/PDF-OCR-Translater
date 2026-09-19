@@ -1,5 +1,6 @@
 import { useRef, useState } from "preact/hooks";
 import { ACCEPT_ATTRIBUTE } from "@/lib/files/fileKind";
+import { UploadIcon } from "./icons";
 
 interface Props {
   onFile: (file: File) => void;
@@ -51,7 +52,7 @@ export function DropZone({ onFile, onPaste }: Props) {
         }}
       />
       <div class="dropzone-icon" aria-hidden="true">
-        ⇩
+        <UploadIcon />
       </div>
       <p class="dropzone-title">Drop a PDF here, or click to choose a file</p>
       <p class="muted">PDF, PNG, JPEG or WebP for OCR · .txt / .md for translation only · up to 50 MB</p>

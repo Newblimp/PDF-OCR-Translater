@@ -64,7 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   temperature: 0.2,
   reasoningEffort: "none",
   cacheOcr: true,
-  theme: "system",
+  theme: "dark",
   maxOutputTokens: null,
   sendImages: true,
   bboxAnnotations: true,
@@ -91,7 +91,7 @@ function normalise(parsed: Partial<Settings>): Settings {
   };
   if (!(TARGET_LANGUAGES as readonly string[]).includes(merged.targetLanguage)) merged.targetLanguage = DEFAULT_SETTINGS.targetLanguage;
   if (!(merged.provider in PROVIDERS)) merged.provider = DEFAULT_SETTINGS.provider;
-  if (!["system", "light", "dark"].includes(merged.theme)) merged.theme = "system";
+  if (!["system", "light", "dark"].includes(merged.theme)) merged.theme = DEFAULT_SETTINGS.theme;
   if (!["none", "low", "medium", "high"].includes(merged.reasoningEffort)) merged.reasoningEffort = DEFAULT_SETTINGS.reasoningEffort;
   if (typeof merged.maxOutputTokens !== "number" || !Number.isFinite(merged.maxOutputTokens) || merged.maxOutputTokens <= 0) merged.maxOutputTokens = null;
   if (!Number.isInteger(merged.maxBboxAnnotations) || merged.maxBboxAnnotations < 0) merged.maxBboxAnnotations = DEFAULT_SETTINGS.maxBboxAnnotations;

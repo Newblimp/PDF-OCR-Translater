@@ -1,32 +1,35 @@
+import type { JSX } from "preact";
 import type { ThemeSetting } from "@/lib/storage/settings";
+import { MonitorIcon, MoonIcon, SunIcon } from "./icons";
 
 interface Props {
   value: ThemeSetting;
   onChange: (theme: ThemeSetting) => void;
 }
 
-const OPTIONS: Array<{ id: ThemeSetting; label: string; icon: string }> = [
-  { id: "system", label: "System", icon: "◐" },
-  { id: "light", label: "Light", icon: "☀" },
-  { id: "dark", label: "Dark", icon: "☾" },
+/** Same order and icons as refcheck's theme toggle: light, system, dark. */
+const OPTIONS: Array<{ id: ThemeSetting; label: string; Icon: () => JSX.Element }> = [
+  { id: "light", label: "Light", Icon: SunIcon },
+  { id: "system", label: "System", Icon: MonitorIcon },
+  { id: "dark", label: "Dark", Icon: MoonIcon },
 ];
 
 /** Three-way theme selector: follow the OS, or force light/dark. */
 export function ThemeSwitch({ value, onChange }: Props) {
   return (
     <div class="segmented" role="radiogroup" aria-label="Colour theme">
-      {OPTIONS.map((o) => (
+      {OPTIONS.map(({ id, label, Icon }) => (
         <button
-          key={o.id}
+          key={id}
           type="button"
           role="radio"
-          aria-checked={value === o.id}
-          aria-label={`${o.label} theme`}
-          class={`segment${value === o.id ? " segment-active" : ""}`}
-          title={`${o.label} theme`}
-          onClick={() => onChange(o.id)}
+          aria-checked={value === id}
+          aria-label={`${label} theme`}
+          class={`segment segment-icon${value === id ? " segment-active" : ""}`}
+          title={`${label} theme`}
+          onClick={() => onChange(id)}
         >
-          <span aria-hidden="true">{o.icon}</span> {o.label}
+          <Icon />
         </button>
       ))}
     </div>

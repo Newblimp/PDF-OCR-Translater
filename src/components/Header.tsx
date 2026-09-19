@@ -4,6 +4,7 @@ import type { ProviderId } from "@/lib/llm/provider";
 import type { ThemeSetting } from "@/lib/storage/settings";
 import type { KeyState } from "@/app/store";
 import { ThemeSwitch } from "./ThemeSwitch";
+import { LogoIcon } from "./icons";
 
 interface Props {
   keys: Record<ProviderId, KeyState>;
@@ -28,12 +29,18 @@ export function Header({ keys, activeProvider, theme, onChangeKeys, onForgetKeys
   return (
     <header class="header">
       <div class="header-title">
-        <h1>PDF OCR Translator</h1>
-        <p class="muted">
-          OCR by Mistral, translation by {PROVIDERS[activeProvider].label}. Runs in your browser; documents go only to{" "}
-          {shown.map((p) => PROVIDERS[p].host).join(" and ")}.
-        </p>
+        <LogoIcon />
+        <div>
+          <h1>
+            PDF OCR<em> Translator</em>
+          </h1>
+          <p>
+            OCR by Mistral, translation by {PROVIDERS[activeProvider].label}. Runs in your browser; documents go only to{" "}
+            {shown.map((p) => PROVIDERS[p].host).join(" and ")}.
+          </p>
+        </div>
       </div>
+      <div class="header-spacer" />
       <div class="header-key">
         {shown.map((p) => (
           <span key={p} class={`pill pill-${keys[p].status}`} title={`${PROVIDERS[p].keyLabel}: ${STATUS_LABEL[keys[p].status]}`}>

@@ -139,9 +139,14 @@ into `store.ts` and rendered by the components.
   `src/lib/mistral/models.ts`. The UI lists whatever `/v1/models` returns.
 - **More target languages**: extend `TARGET_LANGUAGES` in
   `src/lib/storage/settings.ts`; the toggle renders from it.
-- **Theme**: tokens live in `src/styles/global.css` (`:root`, the dark
-  media query, and `[data-theme]` overrides); `storage/theme.ts` applies the
-  choice.
+- **Theme / visual style**: shared with github.com/Newblimp/refcheck (Gruvbox
+  dark default, warm high-contrast light, system font stacks, orange accent,
+  uppercase letter-spaced section labels, dot chips). Tokens keep refcheck's
+  names in `src/styles/global.css` (`:root[data-theme]` plus a
+  `prefers-color-scheme` block for "system"); icons live in
+  `src/components/icons.tsx`; `storage/theme.ts` and `public/theme-init.js`
+  apply the choice. Keep the two apps' stylesheets in step when changing
+  tokens.
 
 ## Conventions
 

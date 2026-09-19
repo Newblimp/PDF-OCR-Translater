@@ -17,7 +17,7 @@ describe("settings persistence", () => {
     saveSettings({ ...DEFAULT_SETTINGS, targetLanguage: "German", theme: "dark" });
     expect(loadSettings()).toMatchObject({ targetLanguage: "German", theme: "dark" });
     localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ targetLanguage: "Klingon", theme: "neon", provider: "nope" }));
-    expect(loadSettings()).toMatchObject({ targetLanguage: "English", theme: "system", provider: "openai" });
+    expect(loadSettings()).toMatchObject({ targetLanguage: "English", theme: "dark", provider: "openai" });
   });
 });
 
