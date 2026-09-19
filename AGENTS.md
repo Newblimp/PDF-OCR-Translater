@@ -64,7 +64,8 @@ src/
       types.ts                 wire types
       models.ts                OpenAI model ids, model-list filtering
     pipeline/
-      runOcr.ts                document → OCR (headers/footers extracted, no images)
+      runOcr.ts                document → OCR (headers/footers extracted, no images);
+                               annotateWithOcr(): second OCR call with document_annotation_format
       ocrText.ts               OCR response → clean text for translation
       inferSchema.ts           text → JSON Schema (json_object mode)
       schema.ts                schema sanitiser for strict mode + light validator
@@ -98,9 +99,12 @@ into `store.ts` and rendered by the components.
   emit progress with `emit()` from `events.ts` (add a `StageId` if needed),
   and compose it in `pipeline.ts`. Then surface results through a new field in
   `AppState` and a component.
-- **Using Mistral document annotations** (structured extraction by the OCR
-  model itself, ≤ 8 pages): pass `documentAnnotation` to `runOcr()`; the
-  response's `document_annotation` string is already typed.
+- **Mistral document annotation** runs as the `annotate` stage in
+  `pipeline.translateText()` when `settings.annotateWithOcr` is on and the
+  source is a PDF/image: the resolved schema is sent with
+  `document_annotation_format` (≤ 8 pages), the parsed result is stored in
+  `TranslationState.annotation` and passed to the translation prompt. The
+  `PipelineStrip` in `ResultsPanel` tells the user whether it ran.
 - **Another translation provider**: (1) widen the `ApiProvider` union in
   `src/lib/http/apiError.ts` (it is the `ProviderId` type); (2) implement
   `ChatProvider` (`src/lib/llm/provider.ts`) on a client in `src/lib/<name>/`;

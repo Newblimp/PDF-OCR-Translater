@@ -265,6 +265,17 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
             <span>Stream the translation (shows progress while it is generated)</span>
           </label>
           <label class="checkbox">
+            <input
+              type="checkbox"
+              checked={settings.annotateWithOcr}
+              onChange={(e) => onChange({ annotateWithOcr: (e.target as HTMLInputElement).checked })}
+            />
+            <span>
+              Send the JSON format to Mistral OCR (document annotation): the OCR model fills the fields from the page images
+              before translation. Costs a second OCR pass for inferred formats; the API annotates at most the first 8 pages.
+            </span>
+          </label>
+          <label class="checkbox">
             <input type="checkbox" checked={settings.cacheOcr} onChange={(e) => onChange({ cacheOcr: (e.target as HTMLInputElement).checked })} />
             <span>Keep OCR results in this browser so the same file is not OCR'd twice</span>
           </label>

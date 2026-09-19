@@ -14,9 +14,10 @@ function stagesFor(job: JobState, settings: Settings): StageId[] {
   const stages: StageId[] = [];
   if (job.kind !== "translate") stages.push("prepare", "ocr");
   if (job.kind !== "ocr") {
-    stages.push("infer_schema", "translate");
+    stages.push("infer_schema");
+    if (settings.annotateWithOcr) stages.push("annotate");
+    stages.push("translate");
   }
-  void settings;
   return stages;
 }
 

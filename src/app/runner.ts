@@ -13,6 +13,7 @@ import { sha256Hex } from "@/lib/files/hash";
 import { openPdfPreview } from "@/lib/files/pdfPreview";
 import { emit } from "@/lib/pipeline/events";
 import { ocrOnly, translateText, type PipelineContext, type PipelineSettings, type SchemaMode } from "@/lib/pipeline/pipeline";
+import type { OcrInput } from "@/lib/pipeline/runOcr";
 import { buildOcrText } from "@/lib/pipeline/ocrText";
 import { OCR_MAX_FILE_BYTES } from "@/lib/pipeline/runOcr";
 import { clearApiKey, saveApiKey } from "@/lib/storage/apiKeys";
@@ -261,6 +262,8 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
 
   try {
     let sourceText: string | null = null;
+    // The document itself, for the Mistral OCR annotation stage.
+    let annotationInput: { document: OcrInput; pageCount: number | null } | null = null;
 
     if (kind === "ocr" || kind === "both") {
       const doc = state.doc;
@@ -268,7 +271,8 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
       emit(onProgress, "prepare", "start", `Encoding ${doc.name} (${formatBytes(doc.size)})`);
       const dataUrl = await fileToDataUrl(doc.file, doc.mimeType);
       emit(onProgress, "prepare", "done", "Document encoded");
-      const outcome = await ocrOnly(ctx, { dataUrl, mimeType: doc.mimeType, fileName: doc.name });
+      annotationInput = { document: { dataUrl, mimeType: doc.mimeType, fileName: doc.name }, pageCount: doc.pageCount };
+      const outcome = await ocrOnly(ctx, annotationInput.document);
       controller.signal.throwIfAborted();
       rt.dispatch({
         type: "ocr/set",
@@ -292,11 +296,19 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
       const source = selectSourceText(state);
       if (!source) throw new Error("Nothing to translate: run OCR first, drop a text file, or paste text.");
       sourceText = source.text;
+      // Reusing an OCR result of a loaded PDF/image: the file is still here for annotation.
+      const doc = state.doc;
+      if (source.origin === "ocr" && doc && (doc.kind === "pdf" || doc.kind === "image") && state.settings.annotateWithOcr) {
+        emit(onProgress, "prepare", "start", `Encoding ${doc.name} for Mistral OCR annotation`);
+        const dataUrl = await fileToDataUrl(doc.file, doc.mimeType);
+        emit(onProgress, "prepare", "done", "Document encoded");
+        annotationInput = { document: { dataUrl, mimeType: doc.mimeType, fileName: doc.name }, pageCount: doc.pageCount ?? state.ocr?.text.pagesProcessed ?? null };
+      }
     }
 
     if (kind === "translate" || kind === "both") {
       if (!sourceText?.trim()) throw new Error("OCR returned no text to translate.");
-      const result = await translateText(ctx, sourceText);
+      const result = await translateText(ctx, sourceText, annotationInput ? { document: annotationInput.document, pageCount: annotationInput.pageCount } : {});
       controller.signal.throwIfAborted();
       rt.dispatch({
         type: "translation/set",
@@ -316,6 +328,8 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
           targetLanguage: state.settings.targetLanguage,
           completedAt: Date.now(),
           sourceChars: sourceText.length,
+          annotation: result.annotation,
+          annotationNote: result.annotationNote,
         },
       });
     }
@@ -369,6 +383,7 @@ function toPipelineSettings(settings: Settings): PipelineSettings | { error: Non
     temperature: settings.temperature,
     reasoningEffort: info.supportsReasoningEffort ? settings.reasoningEffort : undefined,
     maxOutputTokens: settings.maxOutputTokens ?? undefined,
+    annotateWithOcr: settings.annotateWithOcr,
     targetLanguage: settings.targetLanguage,
     sourceLanguage: settings.sourceLanguage,
     domainHint: settings.domainHint,

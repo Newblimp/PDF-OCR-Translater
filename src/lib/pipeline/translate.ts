@@ -25,6 +25,8 @@ export interface TranslateOptions extends PromptContext {
   maxOutputTokens?: number | undefined;
   /** Stream tokens to report progress (default true). */
   streaming?: boolean | undefined;
+  /** Source-language extraction by Mistral OCR for the same schema, if available. */
+  annotationJson?: string | undefined;
   signal?: AbortSignal | undefined;
   onProgress?: ProgressListener | undefined;
 }
@@ -44,7 +46,7 @@ export async function translateStructured(provider: ChatProvider, documentText: 
   const { onProgress } = options;
   const schemaJson = JSON.stringify(options.schema, null, 2);
   const system = translationSystemPrompt(options);
-  const user = translationUserPrompt(documentText, schemaJson);
+  const user = translationUserPrompt(documentText, schemaJson, options.annotationJson);
 
   emit(onProgress, "translate", "start", `Translating with ${options.model} (${provider.label}) into ${options.targetLanguage}`);
 

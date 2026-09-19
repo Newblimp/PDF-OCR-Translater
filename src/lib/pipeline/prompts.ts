@@ -78,16 +78,22 @@ export function translationSystemPrompt(ctx: PromptContext): string {
   ].join("\n");
 }
 
-export function translationUserPrompt(documentText: string, schemaJson: string): string {
-  return [
-    "JSON Schema of the expected output:",
-    "```json",
-    schemaJson,
-    "```",
-    "",
-    "Document to translate (OCR text, Markdown):",
-    "<document>",
-    documentText,
-    "</document>",
-  ].join("\n");
+export function translationUserPrompt(documentText: string, schemaJson: string, annotationJson?: string): string {
+  const parts = ["JSON Schema of the expected output:", "```json", schemaJson, "```", ""];
+  if (annotationJson) {
+    parts.push(
+      "The OCR model already extracted the document into this same JSON Schema in the source language (it had the page images, so its field assignment is a strong hint). Translate its values into the target language, and use the full document text below to complete, correct or extend any field it left empty or truncated:",
+      "```json",
+      annotationJson,
+      "```",
+      "",
+    );
+  }
+  parts.push("Document to translate (OCR text, Markdown):", "<document>", documentText, "</document>");
+  return parts.join("\n");
+}
+
+/** Prompt passed to Mistral OCR alongside the schema (document annotation). */
+export function annotationPrompt(ctx: PromptContext): string {
+  return `Extract the content of this document into the JSON schema. Document family: ${ctx.domainHint} Keep the original language; copy identifiers, dates and numbers verbatim; put every passage of the body into the most relevant field; leave fields empty only when the document has no such content.`;
 }

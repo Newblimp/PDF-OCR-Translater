@@ -1,11 +1,12 @@
 /** Progress reporting shared by all pipeline steps. */
 
-export type StageId = "prepare" | "ocr" | "infer_schema" | "translate";
+export type StageId = "prepare" | "ocr" | "infer_schema" | "annotate" | "translate";
 
 export const STAGE_LABELS: Record<StageId, string> = {
   prepare: "Preparing document",
   ocr: "OCR (Mistral Document AI)",
   infer_schema: "Inferring JSON format",
+  annotate: "Mistral OCR annotation with the JSON format",
   translate: "Translating",
 };
 

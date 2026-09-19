@@ -116,7 +116,20 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
     }
 
     if (url.endsWith("/v1/ocr")) {
+      const annotate = !!body?.["document_annotation_format"];
       return json(route, 200, {
+        ...(annotate
+          ? {
+              document_annotation: JSON.stringify({
+                document_type: "第一次审查意见通知书",
+                application_number: "CN202310000001.2",
+                summary: "审查员认为权利要求1不具备创造性。",
+                body_sections: [{ heading: "创造性", content: "权利要求1不具备创造性。" }],
+                cited_references: [{ label: "D1", identifier: "CN123456A" }],
+                notes_for_reader: "",
+              }),
+            }
+          : {}),
         model: "mistral-ocr-latest",
         pages: [
           {

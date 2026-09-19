@@ -88,6 +88,21 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
   expect(ocr!.body).toMatchObject({ model: "mistral-ocr-latest", include_image_base64: false, extract_header: true, extract_footer: true });
   expect(String((ocr!.body!["document"] as { document_url: string }).document_url)).toMatch(/^data:application\/pdf;base64,/);
 
+  // The inferred JSON format was sent back to Mistral OCR as document annotation (second OCR call, strict schema).
+  const ocrCalls = recorded.filter((r) => r.url.endsWith("/v1/ocr"));
+  expect(ocrCalls).toHaveLength(2);
+  expect(ocrCalls[0]!.body).not.toHaveProperty("document_annotation_format");
+  const annotationFormat = ocrCalls[1]!.body!["document_annotation_format"] as { type: string; json_schema: { strict: boolean; schema: { properties: Record<string, unknown> } } };
+  expect(annotationFormat.type).toBe("json_schema");
+  expect(annotationFormat.json_schema.strict).toBe(true);
+  expect(Object.keys(annotationFormat.json_schema.schema.properties)).toContain("application_number");
+  expect(typeof ocrCalls[1]!.body!["document_annotation_prompt"]).toBe("string");
+  // ...and the UI says so, with the source-language extraction browsable in its own tab.
+  await page.getByRole("tab", { name: "Translation" }).click();
+  await expect(page.locator(".pipeline-strip")).toContainText("JSON format sent to Mistral OCR: fields extracted from 1 page(s)");
+  await page.getByRole("tab", { name: "Mistral OCR annotation" }).click();
+  await expect(page.getByText("第一次审查意见通知书")).toBeVisible();
+
   // Chat: schema inference (json_object) then translation (strict json_schema, streamed) both on OpenAI.
   const chats = recorded.filter((r) => r.url.endsWith("/v1/chat/completions"));
   expect(chats.map((c) => c.host)).toEqual(["api.openai.com", "api.openai.com"]);
@@ -103,6 +118,7 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
   expect(translate).not.toHaveProperty("temperature");
   const userMessage = (translate["messages"] as Array<{ role: string; content: string }>)[1]!.content;
   expect(userMessage).toContain("权利要求1不具备创造性");
+  expect(userMessage).toContain("The OCR model already extracted the document"); // annotation handed to the translator
   expect(userMessage).not.toContain("img-0.jpeg");
   expect(userMessage).not.toContain("国家知识产权局");
   expect(userMessage).not.toContain("第 1 页");
@@ -147,6 +163,9 @@ test("German toggle changes the target language of the next translation", async 
   await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("Erster Prüfungsbescheid")).toBeVisible();
   await expect(page.locator(".toolbar")).toContainText("→ German");
+  // Pasted text: nothing to send to Mistral OCR, and the UI says so.
+  await expect(page.locator(".pipeline-strip")).toContainText("JSON format not sent to Mistral OCR");
+  await expect(page.getByRole("tab", { name: "Mistral OCR annotation" })).toHaveCount(0);
 
   const translate = recorded.filter((r) => r.url.endsWith("/v1/chat/completions")).at(-1)!.body!;
   const system = (translate["messages"] as Array<{ role: string; content: string }>)[0]!.content;

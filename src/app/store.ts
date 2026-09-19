@@ -16,7 +16,7 @@ import type { FileKind } from "@/lib/files/fileKind";
 import type { Settings } from "@/lib/storage/settings";
 
 export type JobKind = "ocr" | "translate" | "both";
-export type ResultTab = "translation" | "ocr" | "schema" | "json";
+export type ResultTab = "translation" | "annotation" | "ocr" | "schema" | "json";
 
 export type KeyStatus = "missing" | "unverified" | "checking" | "valid" | "invalid";
 
@@ -69,6 +69,9 @@ export interface TranslationState {
   completedAt: number;
   /** Characters of source text that were translated. */
   sourceChars: number;
+  /** Mistral OCR's extraction into the same schema (source language), if the stage ran. */
+  annotation: { data: unknown; raw: string; pagesAnnotated: number; model: string } | null;
+  annotationNote: string | null;
 }
 
 export interface JobState {

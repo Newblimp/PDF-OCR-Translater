@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import type { AppState, ResultTab } from "@/app/store";
+import type { AppState, ResultTab, TranslationState } from "@/app/store";
 import { prettyJson } from "@/lib/util/json";
 import { estimateTokens, formatNumber } from "@/lib/util/text";
 import { PROVIDERS } from "@/lib/llm/registry";
@@ -39,6 +39,7 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
   const { translation, ocr } = state;
   const tabs: Array<{ id: ResultTab; label: string; available: boolean }> = [
     { id: "translation", label: "Translation", available: !!translation },
+    { id: "annotation", label: "Mistral OCR annotation", available: !!translation?.annotation },
     { id: "ocr", label: "OCR text", available: !!ocr },
     { id: "schema", label: "JSON format", available: !!translation },
     { id: "json", label: "Raw JSON", available: !!translation },
@@ -103,6 +104,7 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
               </button>
             </div>
           </div>
+          <PipelineStrip translation={translation} onTab={onTab} />
           {(translation.violations.length > 0 || translation.finishReason === "length" || translation.finishReason === "model_length") && (
             <div class="banner banner-warn">
               {translation.finishReason === "length" || translation.finishReason === "model_length" ? (
@@ -117,6 +119,30 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
             </div>
           )}
           <JsonBrowser data={translation.data} schema={translation.schema} />
+        </div>
+      )}
+
+      {active === "annotation" && translation?.annotation && (
+        <div class="tab-panel">
+          <div class="toolbar">
+            <span class="muted small">
+              Extracted by {translation.annotation.model} from the page images using the JSON format ({translation.annotation.pagesAnnotated} page(s)),
+              in the source language. This was given to the translation model together with the full OCR text.
+            </span>
+            <div class="btn-row">
+              <button type="button" class="btn btn-ghost small" onClick={() => void copy(prettyJson(translation.annotation?.data))}>
+                Copy JSON
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost small"
+                onClick={() => download(`${baseName(state)}.ocr-annotation.json`, prettyJson(translation.annotation?.data), "application/json")}
+              >
+                Download JSON
+              </button>
+            </div>
+          </div>
+          <JsonBrowser data={translation.annotation.data} schema={translation.schema} />
         </div>
       )}
 
@@ -173,6 +199,42 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
         </div>
       )}
     </div>
+  );
+}
+
+/** Shows which model did what, so it is clear where the JSON format was used. */
+function PipelineStrip({ translation, onTab }: { translation: TranslationState; onTab: (tab: ResultTab) => void }) {
+  const chat = `${PROVIDERS[translation.provider].label} · ${translation.model}`;
+  const schemaStep =
+    translation.schemaSource === "inferred"
+      ? `JSON format inferred by ${chat}`
+      : translation.schemaSource === "builtin"
+        ? "Built-in JSON format"
+        : "Custom JSON format";
+  return (
+    <ol class="pipeline-strip" aria-label="Processing steps">
+      <li class="step step-done">Mistral OCR read the document</li>
+      <li class="step step-done">
+        <button type="button" class="btn btn-link small" onClick={() => onTab("schema")}>
+          {schemaStep}
+        </button>
+      </li>
+      {translation.annotation ? (
+        <li class="step step-done">
+          <button type="button" class="btn btn-link small" onClick={() => onTab("annotation")}>
+            JSON format sent to Mistral OCR: fields extracted from {translation.annotation.pagesAnnotated} page(s)
+          </button>
+        </li>
+      ) : (
+        <li class="step step-skipped" title={translation.annotationNote ?? undefined}>
+          JSON format not sent to Mistral OCR{translation.annotationNote ? ` — ${translation.annotationNote}` : ""}
+        </li>
+      )}
+      <li class="step step-done">
+        Translated into {translation.targetLanguage} by {chat}
+        {translation.annotation ? " (from the OCR extraction and the full text)" : " (from the full text)"}
+      </li>
+    </ol>
   );
 }
 

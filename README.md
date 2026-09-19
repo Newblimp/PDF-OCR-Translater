@@ -34,13 +34,20 @@ anywhere else.
    JSON Schema for *this* document — the API-side counterpart of Mistral's
    playground option "infer a JSON format from the document". You can instead
    pick the built-in *patent office communication* schema or paste your own.
-5. **Translation** calls the provider's `/v1/chat/completions` with
+5. **Mistral OCR annotation** (on by default) sends that JSON format back to
+   Mistral OCR as `document_annotation_format`, so the OCR model itself fills
+   the fields from the page images, in the source language. This is a second
+   OCR pass (the format is only known after the first read) and the API
+   annotates at most the first 8 pages. The result is shown in its own tab
+   and handed to the translation model together with the full text. The
+   "Translation" tab shows a step strip that states whether this happened.
+6. **Translation** calls the provider's `/v1/chat/completions` with
    `response_format: { type: "json_schema", strict: true }`, so the API only
    returns well-formed JSON that matches the schema. Tokens are streamed to
    show progress. If the API rejects the request, the app falls back
    step by step (non-streaming, then `json_object` mode).
    Target language is a toggle: **English** or **German**.
-6. **Browse the result**: an outline of the fields, one collapsible card per
+7. **Browse the result**: an outline of the fields, one collapsible card per
    field (expand/collapse all), long text collapsible and rendered as
    Markdown (tables, lists), arrays as lists or grids, full-text search
    across fields, copy/download of the JSON, and tabs for the OCR text and
@@ -104,6 +111,7 @@ All defaults live in code so they can be changed in one place:
 | Translation model | `gpt-5.6-luna` (OpenAI) / `mistral-large-latest` (Mistral); any model from `/v1/models` selectable | `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
 | Reasoning effort (OpenAI) | `none` | Settings panel |
 | Max output tokens | provider default | Settings panel |
+| Mistral OCR annotation | on (PDF/image input only, first 8 pages) | Settings panel |
 | Target / source language | English or German toggle / auto-detect | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`) |
 | JSON format | inferred from document; built-in `patent_communication`; custom | `src/lib/pipeline/schemas/` |
 | Prompts | schema inference and translation | `src/lib/pipeline/prompts.ts` |
@@ -124,9 +132,8 @@ All defaults live in code so they can be changed in one place:
   be raised in Settings.
 - The API keys live in `localStorage` of this origin, as requested. Anyone
   with access to the browser profile can read them.
-- Mistral's OCR *document annotation* (`document_annotation_format`) is wired
-  in `runOcr.ts` as an extension point but not used by the default flows,
-  because the API limits it to 8 pages and the inferred schema is applied by
-  the translation step instead.
+- Mistral's OCR *document annotation* covers at most 8 pages per the API;
+  longer documents are annotated on their first 8 pages and the translation
+  model fills the rest from the full text. "OCR only" never annotates.
 
 See [AGENTS.md](AGENTS.md) for the code map and conventions.

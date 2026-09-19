@@ -35,6 +35,8 @@ export interface Settings {
   theme: ThemeSetting;
   /** Optional ceiling for generated tokens per translation; null = provider default (model maximum). */
   maxOutputTokens: number | null;
+  /** Send the JSON format to Mistral OCR (document annotation) before translating. */
+  annotateWithOcr: boolean;
 }
 
 const VERSION = 2;
@@ -58,6 +60,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cacheOcr: true,
   theme: "system",
   maxOutputTokens: null,
+  annotateWithOcr: true,
 };
 
 export function loadSettings(): Settings {

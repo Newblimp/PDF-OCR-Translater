@@ -2,7 +2,8 @@
  * Step 1: send the document to Mistral OCR and clean the result.
  */
 import type { MistralClient } from "../mistral/client";
-import type { OcrRequest, OcrResponse } from "../mistral/types";
+import type { JsonSchemaObject, OcrRequest, OcrResponse } from "../mistral/types";
+import { parseModelJson } from "../util/json";
 import { emit, type ProgressListener } from "./events";
 import { buildOcrText, type OcrText } from "./ocrText";
 
@@ -35,6 +36,68 @@ export interface OcrOutcome {
   /** Raw API response minus image payloads (kept small for caching). */
   response: OcrResponse;
   text: OcrText;
+}
+
+export interface AnnotationOutcome {
+  /** Parsed `document_annotation` (source language, shaped by the schema). */
+  data: unknown;
+  raw: string;
+  /** Number of pages the annotation covered (the API caps this at OCR_ANNOTATION_MAX_PAGES). */
+  pagesAnnotated: number;
+  model: string;
+}
+
+export interface AnnotateOptions {
+  model: string;
+  schema: JsonSchemaObject;
+  /** Total pages of the document, if known; longer documents are annotated on their first pages only. */
+  pageCount?: number | null | undefined;
+  prompt?: string | undefined;
+  signal?: AbortSignal | undefined;
+  onProgress?: ProgressListener | undefined;
+}
+
+/**
+ * Ask Mistral OCR to extract the document into the given JSON Schema
+ * ("document annotation"): the OCR model itself fills the fields, in the
+ * source language, page images in hand. This is a second OCR call because
+ * an inferred schema is only known after the text has been read once.
+ */
+export async function annotateWithOcr(client: MistralClient, input: OcrInput, options: AnnotateOptions): Promise<AnnotationOutcome> {
+  const { onProgress } = options;
+  const limited = (options.pageCount ?? 0) > OCR_ANNOTATION_MAX_PAGES;
+  emit(
+    onProgress,
+    "annotate",
+    "start",
+    `Sending the JSON format to ${options.model} as document annotation${limited ? ` (first ${OCR_ANNOTATION_MAX_PAGES} of ${options.pageCount} pages)` : ""}`,
+  );
+  const request: OcrRequest = {
+    model: options.model,
+    document: isImageMime(input.mimeType)
+      ? { type: "image_url", image_url: input.dataUrl }
+      : { type: "document_url", document_url: input.dataUrl, document_name: input.fileName },
+    include_image_base64: false,
+    extract_header: true,
+    extract_footer: true,
+    table_format: "markdown",
+    document_annotation_format: {
+      type: "json_schema",
+      json_schema: { name: "document_annotation", schema: options.schema, strict: true },
+    },
+    document_annotation_prompt: options.prompt ?? null,
+  };
+  if (limited) request.pages = Array.from({ length: OCR_ANNOTATION_MAX_PAGES }, (_, i) => i);
+
+  const response = await client.ocr(request, options.signal);
+  const raw = response.document_annotation ?? "";
+  const parsed = parseModelJson(raw);
+  if (!parsed.ok) throw new Error(`Mistral OCR returned no usable document annotation: ${parsed.error}`);
+  const pagesAnnotated = response.usage_info?.pages_processed ?? response.pages.length;
+  emit(onProgress, "annotate", "done", `Mistral OCR filled the JSON format from ${pagesAnnotated} page(s)`, {
+    detail: limited ? `Only the first ${OCR_ANNOTATION_MAX_PAGES} pages can be annotated by the API` : undefined,
+  });
+  return { data: parsed.value, raw, pagesAnnotated, model: response.model };
 }
 
 export function isImageMime(mime: string): boolean {
