@@ -21,8 +21,8 @@ export interface OcrInput {
 
 export interface RunOcrOptions {
   model: string;
-  signal?: AbortSignal;
-  onProgress?: ProgressListener;
+  signal?: AbortSignal | undefined;
+  onProgress?: ProgressListener | undefined;
   /**
    * Optional structured extraction performed by the OCR model itself
    * (Mistral "document annotation"). Unused by the default flows; kept as an

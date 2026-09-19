@@ -4,15 +4,18 @@ A browser-only tool that turns a scanned or digital PDF (for example a
 communication from the China National Intellectual Property Administration,
 CNIPA) into a translated, structured JSON document using
 [Mistral Document AI](https://docs.mistral.ai/capabilities/document_ai/basic_ocr)
-for OCR and a Mistral chat model with
-[structured outputs](https://docs.mistral.ai/capabilities/structured-output/custom_structured_output)
-for translation.
+for OCR and OpenAI's GPT Luna
+([`gpt-5.6-luna`](https://developers.openai.com/api/docs/models/gpt-5.6-luna))
+with JSON-schema structured outputs for translation. Mistral chat models
+remain available as an alternative translation provider.
 
 **Privacy model:** the site is a static bundle. The document is read in your
-browser, base64-encoded there and sent **only** to `https://api.mistral.ai`.
-Nothing is uploaded to GitHub, Cloudflare, or any other server. A
-Content-Security-Policy header (`public/_headers`) enforces this in
-production: the page cannot connect anywhere else.
+browser, base64-encoded there and sent **only** to `https://api.mistral.ai`
+(OCR). The extracted text is then sent **only** to the translation provider
+(`https://api.openai.com` by default). Nothing is uploaded to GitHub,
+Cloudflare, or any other server. A Content-Security-Policy header
+(`public/_headers`) enforces this in production: the page cannot connect
+anywhere else.
 
 ## What it does
 
@@ -27,25 +30,29 @@ production: the page cannot connect anywhere else.
 3. **OCR** runs on `mistral-ocr-latest` with `extract_header` /
    `extract_footer` on and images disabled, so headers, footers and images
    never reach the translation step.
-4. **JSON format inference** (default) asks the chat model to design a JSON
-   Schema for *this* document — the API-side counterpart of the playground's
-   "infer a JSON format from the document" option. You can instead pick the
-   built-in *patent office communication* schema or paste your own.
-5. **Translation** calls `/v1/chat/completions` with
+4. **JSON format inference** (default) asks the translation model to design a
+   JSON Schema for *this* document — the API-side counterpart of Mistral's
+   playground option "infer a JSON format from the document". You can instead
+   pick the built-in *patent office communication* schema or paste your own.
+5. **Translation** calls the provider's `/v1/chat/completions` with
    `response_format: { type: "json_schema", strict: true }`, so the API only
    returns well-formed JSON that matches the schema. Tokens are streamed to
-   show progress. If the API rejects a schema, the app falls back once to
-   `json_object` mode.
-6. **Browse the result**: an outline of the fields, one card per field, long
-   text collapsible and rendered as Markdown (tables, lists), arrays as lists
-   or grids, full-text search across fields, copy/download of the JSON, and
-   tabs for the OCR text and the schema that was used.
+   show progress. If the API rejects the request, the app falls back
+   step by step (non-streaming, then `json_object` mode).
+   Target language is a toggle: **English** or **German**.
+6. **Browse the result**: an outline of the fields, one collapsible card per
+   field (expand/collapse all), long text collapsible and rendered as
+   Markdown (tables, lists), arrays as lists or grids, full-text search
+   across fields, copy/download of the JSON, and tabs for the OCR text and
+   the schema that was used.
 
-The API key is requested on first use, verified against `GET /v1/models`, and
-cached in this browser's `localStorage` only. "Forget" in the header removes it.
+Two API keys are requested on first use (Mistral for OCR, OpenAI for
+translation), verified against each provider's `GET /v1/models`, and cached
+in this browser's `localStorage` only. "Forget" in the header removes them.
 OCR results are cached in the browser's IndexedDB (keyed by a SHA-256 of the
 file) so re-running "Translate only" on the same file costs no OCR credits.
-Both can be cleared from the UI.
+Both caches can be cleared from the UI. The header also offers a
+light / dark / system theme switch.
 
 ## Development
 
@@ -91,24 +98,29 @@ All defaults live in code so they can be changed in one place:
 | Setting | Default | Where |
 | --- | --- | --- |
 | OCR model | `mistral-ocr-latest` | `src/lib/mistral/models.ts` |
-| Translation model | `mistral-large-latest` (any chat model from `/v1/models` selectable) | `src/lib/mistral/models.ts` |
-| Target / source language | English / auto-detect | Settings panel, persisted |
+| Translation provider | OpenAI (GPT Luna); Mistral selectable | `src/lib/llm/registry.ts` |
+| Translation model | `gpt-5.6-luna` (OpenAI) / `mistral-large-latest` (Mistral); any model from `/v1/models` selectable | `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
+| Reasoning effort (OpenAI) | `none` | Settings panel |
+| Target / source language | English or German toggle / auto-detect | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`) |
 | JSON format | inferred from document; built-in `patent_communication`; custom | `src/lib/pipeline/schemas/` |
 | Prompts | schema inference and translation | `src/lib/pipeline/prompts.ts` |
 | Temperature | 0.2 | Settings panel |
 | API limits (50 MB, 1000 pages) | checked client-side | `src/lib/pipeline/runOcr.ts` |
-| CSP / security headers | `connect-src https://api.mistral.ai` | `public/_headers` |
+| CSP / security headers | `connect-src https://api.mistral.ai https://api.openai.com` | `public/_headers` |
 
 ## Limitations and notes
 
 - A single translation call must fit in the model's context window. Very
   long documents (hundreds of pages) would need a chunked strategy; the
   pipeline is structured so one can be added in `src/lib/pipeline/`.
-- The browser calls `api.mistral.ai` directly, which relies on the API's
-  CORS headers. If a browser ever blocks the call, the app reports it as a
-  network error with a hint.
-- The API key lives in `localStorage` of this origin, as requested. Anyone
-  with access to the browser profile can read it.
+- The browser calls `api.mistral.ai` and `api.openai.com` directly, which
+  relies on the APIs' CORS headers. If a browser ever blocks a call, the app
+  reports it as a network error with a hint.
+- GPT-5.x models do not accept a `temperature`; the app never sends one to
+  OpenAI. `reasoning_effort` defaults to `none` for speed and cost and can
+  be raised in Settings.
+- The API keys live in `localStorage` of this origin, as requested. Anyone
+  with access to the browser profile can read them.
 - Mistral's OCR *document annotation* (`document_annotation_format`) is wired
   in `runOcr.ts` as an extension point but not used by the default flows,
   because the API limits it to 8 pages and the inferred schema is applied by

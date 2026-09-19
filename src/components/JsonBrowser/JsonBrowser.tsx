@@ -21,16 +21,21 @@ interface TopField {
 
 /**
  * Browsable view of the translated document. Left: an outline of the
- * top-level fields (click to jump). Right: one card per field, long text
- * collapsible, arrays as lists or tables, nested objects as nested cards.
+ * top-level fields (click to jump and expand). Right: one collapsible card
+ * per field, long text collapsible and rendered as Markdown, arrays as lists
+ * or tables, nested objects as nested cards.
  */
 export function JsonBrowser({ data, schema }: Props) {
   const [query, setQuery] = useState("");
   const [markdown, setMarkdown] = useState(true);
   const [showEmpty, setShowEmpty] = useState(false);
+  const [bulk, setBulk] = useState<RenderOptions["bulk"]>({ mode: "expand", epoch: 0 });
+  const [reveal, setReveal] = useState<RenderOptions["reveal"]>(null);
 
   const fields = useMemo<TopField[]>(() => {
-    if (!isPlainObject(data)) return [{ key: "content", label: "Content", description: undefined, value: data, searchText: valueToSearchText(data), empty: isEmptyValue(data) }];
+    if (!isPlainObject(data)) {
+      return [{ key: "content", label: "Content", description: undefined, value: data, searchText: valueToSearchText(data), empty: isEmptyValue(data) }];
+    }
     const props = schema && isPlainObject(schema["properties"]) ? schema["properties"] : {};
     return Object.entries(data).map(([key, value]) => {
       const prop = props[key];
@@ -48,11 +53,13 @@ export function JsonBrowser({ data, schema }: Props) {
 
   const needle = query.trim().toLowerCase();
   const visible = fields.filter((f) => (showEmpty || !f.empty) && (!needle || f.searchText.includes(needle)));
-  const options: RenderOptions = { markdown, showEmpty };
+  const options: RenderOptions = { markdown, showEmpty, bulk, reveal };
   const emptyCount = fields.filter((f) => f.empty).length;
 
   const jumpTo = (key: string) => {
-    document.getElementById(pathId([key]))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setReveal({ path: key, epoch: (reveal?.epoch ?? 0) + 1 });
+    // Let the card expand before scrolling to it.
+    requestAnimationFrame(() => document.getElementById(pathId([key]))?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
 
   return (
@@ -66,6 +73,14 @@ export function JsonBrowser({ data, schema }: Props) {
           onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
           aria-label="Search fields"
         />
+        <div class="btn-row">
+          <button type="button" class="btn btn-ghost small" onClick={() => setBulk({ mode: "expand", epoch: bulk.epoch + 1 })}>
+            Expand all
+          </button>
+          <button type="button" class="btn btn-ghost small" onClick={() => setBulk({ mode: "collapse", epoch: bulk.epoch + 1 })}>
+            Collapse all
+          </button>
+        </div>
         <ul class="outline-list">
           {visible.map((f) => (
             <li key={f.key}>

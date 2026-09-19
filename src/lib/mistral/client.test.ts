@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { contentToText, MistralApiError, MistralClient } from "./client";
+import { ApiError } from "../http/apiError";
+import { contentToText, MistralClient } from "./client";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -35,11 +36,8 @@ describe("MistralClient", () => {
   });
 
   it("maps 401 to an auth error with the API message", async () => {
-    const client = new MistralClient({
-      apiKey: "bad",
-      fetchImpl: async () => jsonResponse({ message: "Unauthorized" }, 401),
-    });
-    await expect(client.listModels()).rejects.toMatchObject({ kind: "auth", status: 401 });
+    const client = new MistralClient({ apiKey: "bad", fetchImpl: async () => jsonResponse({ message: "Unauthorized" }, 401) });
+    await expect(client.listModels()).rejects.toMatchObject({ kind: "auth", status: 401, provider: "mistral" });
   });
 
   it("maps fetch failures to network errors", async () => {
@@ -50,8 +48,8 @@ describe("MistralClient", () => {
       },
     });
     const err = await client.listModels().catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(MistralApiError);
-    expect((err as MistralApiError).kind).toBe("network");
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).kind).toBe("network");
   });
 
   it("assembles streamed deltas", async () => {
@@ -62,10 +60,7 @@ describe("MistralClient", () => {
     ];
     const client = new MistralClient({ apiKey: "k", fetchImpl: async () => sseResponse(frames) });
     const deltas: string[] = [];
-    const result = await client.chatStream(
-      { model: "m", messages: [{ role: "user", content: "hi" }] },
-      { onDelta: (d) => deltas.push(d) },
-    );
+    const result = await client.chatStream({ model: "m", messages: [{ role: "user", content: "hi" }] }, { onDelta: (d) => deltas.push(d) });
     expect(result.content).toBe('{"a":1}');
     expect(result.finishReason).toBe("stop");
     expect(result.usage?.total_tokens).toBe(5);
@@ -74,9 +69,16 @@ describe("MistralClient", () => {
 });
 
 describe("contentToText", () => {
-  it("handles strings, chunk arrays and null", () => {
+  it("handles strings, chunk arrays (ignoring thinking) and null", () => {
     expect(contentToText("x")).toBe("x");
-    expect(contentToText([{ type: "text", text: "a" }, { type: "image_url", image_url: "u" }, { type: "text", text: "b" }])).toBe("ab");
+    expect(
+      contentToText([
+        { type: "thinking", thinking: [{ type: "text", text: "hmm" }] },
+        { type: "text", text: "a" },
+        { type: "image_url", image_url: "u" },
+        { type: "text", text: "b" },
+      ]),
+    ).toBe("ab");
     expect(contentToText(null)).toBe("");
   });
 });

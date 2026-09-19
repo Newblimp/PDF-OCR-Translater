@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { isPlainObject, prettyJson } from "@/lib/util/json";
 import { humanizeKey } from "@/lib/util/text";
 import { MarkdownText } from "../MarkdownText";
@@ -10,6 +10,13 @@ const COLLAPSE_CHARS = 1200;
 export interface RenderOptions {
   markdown: boolean;
   showEmpty: boolean;
+  /**
+   * Bulk expand/collapse request from the browser toolbar. Every card
+   * re-applies `mode` whenever `epoch` changes, then keeps its own state.
+   */
+  bulk: { mode: "expand" | "collapse"; epoch: number };
+  /** A path the user jumped to from the outline; cards on that path expand. */
+  reveal: { path: string; epoch: number } | null;
 }
 
 interface FieldProps {
@@ -29,19 +36,45 @@ async function copyText(text: string): Promise<void> {
   }
 }
 
-/** One field of the translated document: label, optional description, value. */
+/** One field of the translated document: collapsible label, optional description, value. */
 export function FieldCard({ path, label, description, value, options, depth }: FieldProps) {
+  const [collapsed, setCollapsed] = useState(options.bulk.mode === "collapse");
+  const id = pathId(path);
+  const joined = path.join("/");
+
+  useEffect(() => {
+    setCollapsed(options.bulk.mode === "collapse");
+  }, [options.bulk.epoch, options.bulk.mode]);
+
+  useEffect(() => {
+    if (options.reveal && (options.reveal.path === joined || options.reveal.path.startsWith(`${joined}/`))) {
+      setCollapsed(false);
+    }
+  }, [options.reveal, joined]);
+
   const empty = isEmptyValue(value);
   if (empty && !options.showEmpty) return null;
-  const id = pathId(path);
   const copyValue = () => copyText(typeof value === "string" ? value : prettyJson(value));
+  const contentId = `${id}-content`;
 
   return (
-    <section class={`field-card depth-${Math.min(depth, 3)}`} id={id} aria-labelledby={`${id}-label`}>
+    <section class={`field-card depth-${Math.min(depth, 3)}${collapsed ? " field-card-collapsed" : ""}`} id={id} aria-labelledby={`${id}-label`}>
       <header class="field-head">
-        <h3 id={`${id}-label`}>{label}</h3>
+        <button
+          type="button"
+          class="field-toggle"
+          aria-expanded={!collapsed}
+          aria-controls={contentId}
+          onClick={() => setCollapsed((c) => !c)}
+        >
+          <span class="chevron" aria-hidden="true">
+            {collapsed ? "▸" : "▾"}
+          </span>
+          <h3 id={`${id}-label`}>{label}</h3>
+        </button>
         <div class="field-tools">
           {typeof value === "string" && value.length > 0 && <span class="muted small">{value.length.toLocaleString()} chars</span>}
+          {Array.isArray(value) && value.length > 0 && <span class="muted small">{value.length} item(s)</span>}
           {!empty && (
             <button type="button" class="btn btn-ghost small" onClick={() => void copyValue()} title="Copy value">
               Copy
@@ -49,10 +82,38 @@ export function FieldCard({ path, label, description, value, options, depth }: F
           )}
         </div>
       </header>
-      {description && <p class="field-description muted small">{description}</p>}
-      <ValueView value={value} path={path} options={options} depth={depth} />
+      {!collapsed && (
+        <div id={contentId} class="field-body">
+          {description && <p class="field-description muted small">{description}</p>}
+          <ValueView value={value} path={path} options={options} depth={depth} />
+        </div>
+      )}
+      {collapsed && <p class="field-preview muted small">{preview(value)}</p>}
     </section>
   );
+}
+
+/** One-line summary shown while a card is collapsed. */
+function preview(value: unknown, depth = 0): string {
+  if (isEmptyValue(value)) return "— empty —";
+  if (typeof value === "string") {
+    const flat = value.replace(/\s+/g, " ").trim();
+    return flat.length > 140 ? `${flat.slice(0, 140)}…` : flat;
+  }
+  if (isPrimitive(value)) return String(value);
+  if (Array.isArray(value)) {
+    if (depth > 0) return `${value.length} item(s)`;
+    const head = value.slice(0, 3).map((item) => preview(item, depth + 1));
+    return value.length > 3 ? `${head.join(" · ")} · …` : head.join(" · ");
+  }
+  if (isPlainObject(value)) {
+    if (depth > 0) {
+      const firstText = Object.values(value).find((v) => typeof v === "string" && v.trim());
+      return typeof firstText === "string" ? preview(firstText, depth + 1) : Object.keys(value).map(humanizeKey).join(", ");
+    }
+    return Object.keys(value).map(humanizeKey).join(", ");
+  }
+  return "";
 }
 
 interface ValueProps {

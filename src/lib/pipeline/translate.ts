@@ -1,13 +1,15 @@
 /**
  * Step 3: translate the document into a JSON object that follows a schema.
  *
- * Uses Mistral structured outputs (`response_format.type = "json_schema"`,
- * `strict: true`) so the API only returns well-formed JSON matching the
- * schema. If the API rejects the schema (unsupported keyword, too complex),
- * we fall back once to `json_object` mode with the schema in the prompt.
+ * Uses the provider's structured output mode (`json_schema`, strict) so the
+ * API only returns well-formed JSON matching the schema. If the API rejects
+ * the request (unsupported schema keyword, streaming/format combination), we
+ * fall back step by step and finally to `json_object` mode with the schema
+ * in the prompt.
  */
-import { MistralApiError, type MistralClient } from "../mistral/client";
-import type { ChatCompletionRequest, JsonSchemaObject, UsageInfo } from "../mistral/types";
+import { ApiError } from "../http/apiError";
+import type { ChatProvider, JsonChatResult, ReasoningEffort, TokenUsage } from "../llm/provider";
+import type { JsonSchemaObject } from "../mistral/types";
 import { parseModelJson } from "../util/json";
 import { emit, type ProgressListener } from "./events";
 import { translationSystemPrompt, translationUserPrompt, type PromptContext } from "./prompts";
@@ -18,17 +20,19 @@ export type StructuredMode = "json_schema" | "json_object";
 export interface TranslateOptions extends PromptContext {
   model: string;
   schema: JsonSchemaObject;
-  temperature?: number;
+  temperature?: number | undefined;
+  reasoningEffort?: ReasoningEffort | undefined;
+  maxOutputTokens?: number | undefined;
   /** Stream tokens to report progress (default true). */
-  streaming?: boolean;
-  signal?: AbortSignal;
-  onProgress?: ProgressListener;
+  streaming?: boolean | undefined;
+  signal?: AbortSignal | undefined;
+  onProgress?: ProgressListener | undefined;
 }
 
 export interface TranslationOutcome {
   data: unknown;
   rawText: string;
-  usage: UsageInfo | null;
+  usage: TokenUsage | null;
   model: string;
   mode: StructuredMode;
   /** Gross mismatches between the output and the schema (should be empty). */
@@ -36,23 +40,16 @@ export interface TranslationOutcome {
   finishReason: string | null;
 }
 
-export async function translateStructured(
-  client: MistralClient,
-  documentText: string,
-  options: TranslateOptions,
-): Promise<TranslationOutcome> {
+export async function translateStructured(provider: ChatProvider, documentText: string, options: TranslateOptions): Promise<TranslationOutcome> {
   const { onProgress } = options;
   const schemaJson = JSON.stringify(options.schema, null, 2);
-  const messages: ChatCompletionRequest["messages"] = [
-    { role: "system", content: translationSystemPrompt(options) },
-    { role: "user", content: translationUserPrompt(documentText, schemaJson) },
-  ];
+  const system = translationSystemPrompt(options);
+  const user = translationUserPrompt(documentText, schemaJson);
 
-  emit(onProgress, "translate", "start", `Translating with ${options.model} into ${options.targetLanguage}`);
+  emit(onProgress, "translate", "start", `Translating with ${options.model} (${provider.label}) into ${options.targetLanguage}`);
 
-  // Attempts, in order. Each fallback only triggers on a 4xx "bad request"
-  // (typically an unsupported schema keyword or a streaming/format combination
-  // the model does not accept); every other error propagates immediately.
+  // Attempts, in order. Each fallback only triggers on a 4xx "bad request";
+  // every other error propagates immediately.
   const streaming = options.streaming !== false;
   const attempts: Array<{ mode: StructuredMode; stream: boolean }> = [
     { mode: "json_schema", stream: streaming },
@@ -60,17 +57,17 @@ export async function translateStructured(
     { mode: "json_object", stream: false },
   ];
 
-  let result: Awaited<ReturnType<typeof complete>> | null = null;
+  let result: JsonChatResult | null = null;
   let mode: StructuredMode = "json_schema";
   for (let i = 0; i < attempts.length; i++) {
     const attempt = attempts[i]!;
     try {
-      result = await complete(client, messages, options, attempt.mode, attempt.stream);
+      result = await complete(provider, system, user, options, attempt.mode, attempt.stream);
       mode = attempt.mode;
       break;
     } catch (err) {
       const next = attempts[i + 1];
-      if (!(err instanceof MistralApiError) || err.kind !== "request" || !next) throw err;
+      if (!(err instanceof ApiError) || err.kind !== "request" || !next) throw err;
       emit(
         onProgress,
         "translate",
@@ -87,9 +84,7 @@ export async function translateStructured(
   }
 
   const parsed = parseModelJson(result.content);
-  if (!parsed.ok) {
-    throw new Error(`Translation output could not be parsed: ${parsed.error}`);
-  }
+  if (!parsed.ok) throw new Error(`Translation output could not be parsed: ${parsed.error}`);
   const violations = findSchemaViolations(parsed.value, options.schema);
   emit(onProgress, "translate", "done", `Translation received (${result.content.length.toLocaleString()} characters)`, {
     detail: violations.length ? `${violations.length} schema deviation(s)` : undefined,
@@ -105,47 +100,36 @@ export async function translateStructured(
   };
 }
 
-async function complete(
-  client: MistralClient,
-  messages: ChatCompletionRequest["messages"],
-  options: TranslateOptions,
-  mode: StructuredMode,
-  stream: boolean,
-) {
-  const request: ChatCompletionRequest = {
+function complete(provider: ChatProvider, system: string, user: string, options: TranslateOptions, mode: StructuredMode, stream: boolean) {
+  let lastReport = 0;
+  return provider.completeJson({
     model: options.model,
-    temperature: options.temperature ?? 0.2,
-    messages,
-    response_format:
+    system,
+    user,
+    format:
       mode === "json_schema"
         ? {
             type: "json_schema",
-            json_schema: {
-              name: "translated_document",
-              description: "Translation of the document, one field per schema property.",
-              schema: options.schema,
-              strict: true,
-            },
+            name: "translated_document",
+            description: "Translation of the document, one field per schema property.",
+            schema: options.schema,
+            strict: true,
           }
         : { type: "json_object" },
-  };
-
-  if (!stream) {
-    return client.chat(request, options.signal);
-  }
-  let lastReport = 0;
-  const streamOptions: Parameters<MistralClient["chatStream"]>[1] = {
-    onDelta: (_delta, accumulated) => {
-      // Throttle UI updates to roughly 10/s.
-      const now = Date.now();
-      if (now - lastReport > 100) {
-        lastReport = now;
-        emit(options.onProgress, "translate", "progress", "Receiving translation…", {
-          receivedChars: accumulated.length,
-        });
-      }
-    },
-  };
-  if (options.signal) streamOptions.signal = options.signal;
-  return client.chatStream(request, streamOptions);
+    stream,
+    temperature: options.temperature ?? 0.2,
+    reasoningEffort: options.reasoningEffort,
+    maxOutputTokens: options.maxOutputTokens,
+    signal: options.signal,
+    onDelta: stream
+      ? (_delta, accumulated) => {
+          // Throttle UI updates to roughly 10/s.
+          const now = Date.now();
+          if (now - lastReport > 100) {
+            lastReport = now;
+            emit(options.onProgress, "translate", "progress", "Receiving translation…", { receivedChars: accumulated.length });
+          }
+        }
+      : undefined,
+  });
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef } from "preact/hooks";
-import { loadApiKey } from "@/lib/storage/apiKey";
+import { loadApiKey } from "@/lib/storage/apiKeys";
 import { loadSettings } from "@/lib/storage/settings";
+import type { ProviderId } from "@/lib/llm/provider";
 import { ActionBar } from "@/components/ActionBar";
 import { ApiKeyDialog } from "@/components/ApiKeyDialog";
 import { DocumentCard } from "@/components/DocumentCard";
@@ -11,21 +12,35 @@ import { JobStatus } from "@/components/JobStatus";
 import { PasteBox } from "@/components/PasteBox";
 import { ResultsPanel } from "@/components/ResultsPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
-import { cancelJob, clearDocument, forgetApiKey, loadDocument, runJob, updateSettings, verifyAndSaveApiKey, type Runtime } from "./runner";
-import { canRunOcr, initialState, reducer, selectSourceText, type AppState } from "./store";
+import {
+  cancelJob,
+  clearDocument,
+  forgetApiKeys,
+  loadDocument,
+  runJob,
+  submitApiKeys,
+  updateSettings,
+  verifyAndSaveApiKey,
+  type Runtime,
+} from "./runner";
+import { canRunOcr, initialState, missingKeys, reducer, requiredProviders, selectSourceText, type AppState } from "./store";
 
 export function App() {
-  const [state, dispatch] = useReducer(reducer, null, () => initialState(loadApiKey(), loadSettings()));
+  const [state, dispatch] = useReducer(reducer, null, () =>
+    initialState({ mistral: loadApiKey("mistral"), openai: loadApiKey("openai") }, loadSettings()),
+  );
 
   // A stable runtime object lets async operations read the latest state.
   const stateRef = useRef<AppState>(state);
   stateRef.current = state;
   const rt = useMemo<Runtime>(() => ({ getState: () => stateRef.current, dispatch }), [dispatch]);
 
-  // Verify a cached key in the background on first load (also fetches the model list).
+  // Verify cached keys in the background on first load (also fetches the model lists).
   useEffect(() => {
-    const key = stateRef.current.apiKey;
-    if (key) void verifyAndSaveApiKey(rt, key);
+    for (const provider of Object.keys(stateRef.current.keys) as ProviderId[]) {
+      const key = stateRef.current.keys[provider].value;
+      if (key) void verifyAndSaveApiKey(rt, provider, key);
+    }
   }, [rt]);
 
   const sourceText = selectSourceText(state);
@@ -34,10 +49,12 @@ export function App() {
   return (
     <div class="app">
       <Header
-        keyStatus={state.keyStatus}
-        apiKey={state.apiKey}
-        onChangeKey={() => dispatch({ type: "key/dialog", open: true })}
-        onForgetKey={() => forgetApiKey(rt)}
+        keys={state.keys}
+        activeProvider={state.settings.provider}
+        theme={state.settings.theme}
+        onChangeKeys={() => dispatch({ type: "key/dialog", open: true })}
+        onForgetKeys={() => forgetApiKeys(rt)}
+        onTheme={(theme) => updateSettings(rt, { theme })}
       />
 
       <main class="layout">
@@ -96,10 +113,10 @@ export function App() {
 
       {state.keyDialogOpen && (
         <ApiKeyDialog
-          status={state.keyStatus}
-          canClose={!!state.apiKey}
-          errorMessage={state.keyError}
-          onSubmit={(key) => verifyAndSaveApiKey(rt, key)}
+          keys={state.keys}
+          required={requiredProviders(state.settings)}
+          canClose={missingKeys(state).length === 0}
+          onSubmit={(keys) => submitApiKeys(rt, keys)}
           onClose={() => dispatch({ type: "key/dialog", open: false })}
         />
       )}

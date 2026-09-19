@@ -1,10 +1,12 @@
 /**
  * Side-effectful operations that drive the store: loading a document,
- * verifying the API key, running the pipeline. Components call these and
+ * verifying API keys, running the pipeline. Components call these and
  * render whatever ends up in the state.
  */
-import { MistralApiError, MistralClient } from "@/lib/mistral/client";
-import { chatModelOptions, FALLBACK_CHAT_MODELS } from "@/lib/mistral/models";
+import { ApiError } from "@/lib/http/apiError";
+import { createProvider, PROVIDERS } from "@/lib/llm/registry";
+import type { ProviderId } from "@/lib/llm/provider";
+import { MistralClient } from "@/lib/mistral/client";
 import { classifyFile } from "@/lib/files/fileKind";
 import { fileToDataUrl } from "@/lib/files/dataUrl";
 import { sha256Hex } from "@/lib/files/hash";
@@ -13,11 +15,12 @@ import { emit } from "@/lib/pipeline/events";
 import { ocrOnly, translateText, type PipelineContext, type PipelineSettings, type SchemaMode } from "@/lib/pipeline/pipeline";
 import { buildOcrText } from "@/lib/pipeline/ocrText";
 import { OCR_MAX_FILE_BYTES } from "@/lib/pipeline/runOcr";
-import { saveApiKey, clearApiKey } from "@/lib/storage/apiKey";
+import { clearApiKey, saveApiKey } from "@/lib/storage/apiKeys";
 import { getCachedOcr, ocrCacheKey, putCachedOcr } from "@/lib/storage/ocrCache";
 import { saveSettings, type Settings } from "@/lib/storage/settings";
+import { applyTheme } from "@/lib/storage/theme";
 import { formatBytes } from "@/lib/util/text";
-import { canRunOcr, selectSourceText, type Action, type AppState, type DocState, type JobKind } from "./store";
+import { canRunOcr, missingKeys, selectSourceText, type Action, type AppState, type DocState, type JobKind } from "./store";
 
 export interface Runtime {
   getState(): AppState;
@@ -28,48 +31,74 @@ export interface Runtime {
 const PREVIEW_PAGES = 4;
 const PREVIEW_WIDTH_PX = 260;
 
-// --------------------------------------------------------------------- key
+// -------------------------------------------------------------------- keys
 
-export async function verifyAndSaveApiKey(rt: Runtime, key: string): Promise<boolean> {
+/**
+ * Store a key and verify it against the provider's model list (which also
+ * fills the model dropdown). Returns true when the key was accepted.
+ */
+export async function verifyAndSaveApiKey(rt: Runtime, provider: ProviderId, key: string): Promise<boolean> {
   const trimmed = key.trim();
-  if (!trimmed) return false;
-  rt.dispatch({ type: "key/set", key: trimmed });
-  rt.dispatch({ type: "key/status", status: "checking" });
+  if (!trimmed) {
+    clearApiKey(provider);
+    rt.dispatch({ type: "key/set", provider, key: null });
+    return false;
+  }
+  rt.dispatch({ type: "key/set", provider, key: trimmed });
+  rt.dispatch({ type: "key/status", provider, status: "checking" });
   try {
-    const client = new MistralClient({ apiKey: trimmed });
-    const cards = await client.listModels();
-    const options = chatModelOptions(cards);
-    rt.dispatch({ type: "models/set", models: options.length ? options : [...FALLBACK_CHAT_MODELS] });
-    rt.dispatch({ type: "key/status", status: "valid" });
-    saveApiKey(trimmed);
-    rt.dispatch({ type: "key/dialog", open: false });
-    rt.dispatch({ type: "error/set", error: null });
+    const options = await createProvider(provider, trimmed).listModels();
+    rt.dispatch({ type: "models/set", provider, models: options.length ? options : [...PROVIDERS[provider].fallbackModels] });
+    rt.dispatch({ type: "key/status", provider, status: "valid" });
+    saveApiKey(provider, trimmed);
     return true;
   } catch (err) {
-    if (err instanceof MistralApiError && err.kind === "auth") {
-      rt.dispatch({ type: "key/status", status: "invalid", error: `The Mistral API rejected this key (${err.message}).` });
+    if (err instanceof ApiError && err.kind === "auth") {
+      rt.dispatch({ type: "key/status", provider, status: "invalid", error: `${PROVIDERS[provider].label} rejected this key (${err.message}).` });
       return false;
     }
     // Network trouble: keep the key so the user can retry later.
-    saveApiKey(trimmed);
-    rt.dispatch({ type: "models/set", models: [...FALLBACK_CHAT_MODELS] });
-    rt.dispatch({ type: "key/status", status: "unverified" });
-    rt.dispatch({ type: "key/dialog", open: false });
-    rt.dispatch({ type: "error/set", error: toAppError(err, "Could not verify the API key") });
+    saveApiKey(provider, trimmed);
+    rt.dispatch({ type: "models/set", provider, models: [...PROVIDERS[provider].fallbackModels] });
+    rt.dispatch({
+      type: "key/status",
+      provider,
+      status: "unverified",
+      error: `Could not verify the ${PROVIDERS[provider].label} key: ${err instanceof Error ? err.message : String(err)}. It was saved anyway.`,
+    });
     return false;
   }
 }
 
-export function forgetApiKey(rt: Runtime): void {
-  clearApiKey();
-  rt.dispatch({ type: "key/set", key: null });
-  rt.dispatch({ type: "models/set", models: [] });
+/** Verify every key entered in the dialog; closes it when all required keys are accepted. */
+export async function submitApiKeys(rt: Runtime, keys: Partial<Record<ProviderId, string>>): Promise<void> {
+  await Promise.all(
+    (Object.entries(keys) as Array<[ProviderId, string]>).map(([provider, key]) => {
+      const current = rt.getState().keys[provider];
+      if (key.trim() === (current.value ?? "") && current.status === "valid") return Promise.resolve(true);
+      return verifyAndSaveApiKey(rt, provider, key);
+    }),
+  );
+  const state = rt.getState();
+  const blocking = missingKeys(state).length > 0 || Object.values(state.keys).some((k) => k.status === "invalid" && k.value);
+  if (!blocking) rt.dispatch({ type: "key/dialog", open: false });
+}
+
+export function forgetApiKeys(rt: Runtime): void {
+  for (const provider of Object.keys(PROVIDERS) as ProviderId[]) {
+    clearApiKey(provider);
+    rt.dispatch({ type: "key/set", provider, key: null });
+    rt.dispatch({ type: "models/set", provider, models: [] });
+  }
   rt.dispatch({ type: "key/dialog", open: true });
 }
 
 export function updateSettings(rt: Runtime, patch: Partial<Settings>): void {
   rt.dispatch({ type: "settings/update", patch });
-  saveSettings({ ...rt.getState().settings, ...patch });
+  const settings = { ...rt.getState().settings, ...patch };
+  saveSettings(settings);
+  if (patch.theme) applyTheme(patch.theme);
+  if (patch.provider && missingKeys(rt.getState()).length > 0) rt.dispatch({ type: "key/dialog", open: true });
 }
 
 // ---------------------------------------------------------------- document
@@ -79,10 +108,7 @@ export async function loadDocument(rt: Runtime, file: File): Promise<void> {
   if (!classified) {
     rt.dispatch({
       type: "error/set",
-      error: {
-        title: "Unsupported file",
-        message: `"${file.name}" is not a PDF, image (PNG/JPEG/WebP) or text file.`,
-      },
+      error: { title: "Unsupported file", message: `"${file.name}" is not a PDF, image (PNG/JPEG/WebP) or text file.` },
     });
     return;
   }
@@ -188,7 +214,11 @@ export function cancelJob(rt: Runtime): void {
 export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
   const state = rt.getState();
   if (state.job) return;
-  if (!state.apiKey) {
+
+  const needsChat = kind !== "ocr";
+  const mistralKey = state.keys.mistral.value;
+  const chatKey = state.keys[state.settings.provider].value;
+  if (!mistralKey || (needsChat && !chatKey)) {
     rt.dispatch({ type: "key/dialog", open: true });
     return;
   }
@@ -206,7 +236,8 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
   });
   const onProgress: PipelineContext["onProgress"] = (event) => rt.dispatch({ type: "job/event", event });
   const ctx: PipelineContext = {
-    client: new MistralClient({ apiKey: state.apiKey }),
+    ocr: new MistralClient({ apiKey: mistralKey }),
+    chat: createProvider(state.settings.provider, chatKey ?? mistralKey),
     settings: pipelineSettings,
     signal: controller.signal,
     onProgress,
@@ -261,6 +292,7 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
           schemaWarnings: result.schema.warnings,
           usage: result.translation.usage,
           inferUsage: result.schema.inferred?.usage ?? null,
+          provider: state.settings.provider,
           model: result.translation.model,
           mode: result.translation.mode,
           violations: result.translation.violations,
@@ -272,7 +304,7 @@ export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
       });
     }
   } catch (err) {
-    if (controller.signal.aborted || (err instanceof MistralApiError && err.kind === "aborted")) {
+    if (controller.signal.aborted || (err instanceof ApiError && err.kind === "aborted")) {
       // Cancelled by the user: nothing to report.
     } else {
       rt.dispatch({ type: "error/set", error: toAppError(err, jobTitle(kind)) });
@@ -286,7 +318,7 @@ function jobTitle(kind: JobKind): string {
   return kind === "ocr" ? "OCR failed" : kind === "translate" ? "Translation failed" : "OCR + translation failed";
 }
 
-function toPipelineSettings(settings: Settings): PipelineSettings | { error: AppState["error"] & object } {
+function toPipelineSettings(settings: Settings): PipelineSettings | { error: NonNullable<AppState["error"]> } {
   let schemaMode: SchemaMode;
   switch (settings.schemaMode.kind) {
     case "infer":
@@ -312,20 +344,22 @@ function toPipelineSettings(settings: Settings): PipelineSettings | { error: App
       break;
     }
   }
+  const info = PROVIDERS[settings.provider];
   return {
     ocrModel: settings.ocrModel,
-    chatModel: settings.chatModel,
+    chatModel: settings.chatModels[settings.provider] || info.defaultModel,
     schemaMode,
     streaming: settings.streaming,
     temperature: settings.temperature,
-    targetLanguage: settings.targetLanguage.trim() || "English",
+    reasoningEffort: info.supportsReasoningEffort ? settings.reasoningEffort : undefined,
+    targetLanguage: settings.targetLanguage,
     sourceLanguage: settings.sourceLanguage,
     domainHint: settings.domainHint,
   };
 }
 
 export function toAppError(err: unknown, title: string): NonNullable<AppState["error"]> {
-  if (err instanceof MistralApiError) {
+  if (err instanceof ApiError) {
     const error: NonNullable<AppState["error"]> = { title, message: err.message, hint: err.hint };
     if (err.body !== undefined && err.body !== null) {
       error.details = typeof err.body === "string" ? err.body : JSON.stringify(err.body, null, 2);

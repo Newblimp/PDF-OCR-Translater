@@ -1,22 +1,35 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { AppState } from "@/app/store";
+import type { ProviderId } from "@/lib/llm/provider";
+import { PROVIDERS } from "@/lib/llm/registry";
+import type { KeyState } from "@/app/store";
 
 interface Props {
-  status: AppState["keyStatus"];
+  keys: Record<ProviderId, KeyState>;
+  /** Providers whose key is needed for the current settings. */
+  required: ProviderId[];
   canClose: boolean;
-  errorMessage: string | null;
-  onSubmit: (key: string) => Promise<boolean>;
+  onSubmit: (keys: Partial<Record<ProviderId, string>>) => Promise<void>;
   onClose: () => void;
 }
 
-export function ApiKeyDialog({ status, canClose, errorMessage, onSubmit, onClose }: Props) {
-  const [value, setValue] = useState("");
+const PURPOSE: Record<ProviderId, string> = {
+  mistral: "used for OCR (Mistral Document AI)",
+  openai: "used for translation (GPT Luna)",
+};
+
+export function ApiKeyDialog({ keys, required, canClose, onSubmit, onClose }: Props) {
+  const providers: ProviderId[] = ["mistral", "openai"];
+  const [values, setValues] = useState<Record<ProviderId, string>>({
+    mistral: keys.mistral.value ?? "",
+    openai: keys.openai.value ?? "",
+  });
   const [show, setShow] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const busy = status === "checking";
+  const firstRef = useRef<HTMLInputElement>(null);
+  const busy = providers.some((p) => keys[p].status === "checking");
+  const complete = required.every((p) => values[p].trim());
 
   useEffect(() => {
-    inputRef.current?.focus();
+    firstRef.current?.focus();
   }, []);
 
   useEffect(() => {
@@ -30,48 +43,61 @@ export function ApiKeyDialog({ status, canClose, errorMessage, onSubmit, onClose
 
   const submit = (e: Event) => {
     e.preventDefault();
-    if (!value.trim() || busy) return;
-    void onSubmit(value);
+    if (busy || !complete) return;
+    const entered: Partial<Record<ProviderId, string>> = {};
+    for (const p of providers) {
+      if (values[p].trim() || keys[p].value) entered[p] = values[p];
+    }
+    void onSubmit(entered);
   };
 
   return (
     <div class="modal-backdrop" role="presentation">
       <form class="modal" role="dialog" aria-modal="true" aria-labelledby="key-title" onSubmit={submit}>
-        <h2 id="key-title">Mistral API key</h2>
+        <h2 id="key-title">API keys</h2>
         <p>
-          This app calls the Mistral API directly from your browser. The key is cached in this browser's local
-          storage only and is never sent anywhere else. Create one at{" "}
-          <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer">
-            console.mistral.ai/api-keys
-          </a>
-          .
+          This app calls the providers' APIs directly from your browser. Keys are cached in this browser's local storage only
+          and are never sent anywhere else.
         </p>
-        <label class="field">
-          <span>API key</span>
-          <div class="input-row">
-            <input
-              ref={inputRef}
-              type={show ? "text" : "password"}
-              autocomplete="off"
-              spellcheck={false}
-              value={value}
-              disabled={busy}
-              placeholder="Paste your key"
-              onInput={(e) => setValue((e.target as HTMLInputElement).value)}
-            />
-            <button type="button" class="btn btn-ghost" onClick={() => setShow((s) => !s)} aria-pressed={show}>
-              {show ? "Hide" : "Show"}
-            </button>
-          </div>
+        {providers.map((p, i) => {
+          const info = PROVIDERS[p];
+          const isRequired = required.includes(p);
+          return (
+            <label class="field" key={p}>
+              <span>
+                {info.keyLabel} <span class="muted">— {PURPOSE[p]}{isRequired ? "" : " (optional)"}</span>
+              </span>
+              <div class="input-row">
+                <input
+                  {...(i === 0 ? { ref: firstRef } : {})}
+                  type={show ? "text" : "password"}
+                  autocomplete="off"
+                  spellcheck={false}
+                  value={values[p]}
+                  disabled={busy}
+                  placeholder={`Paste your ${info.label} key`}
+                  aria-invalid={keys[p].status === "invalid"}
+                  onInput={(e) => setValues((v) => ({ ...v, [p]: (e.target as HTMLInputElement).value }))}
+                />
+                <a href={info.keyUrl} target="_blank" rel="noopener noreferrer" class="btn btn-ghost small">
+                  Get key
+                </a>
+              </div>
+              {keys[p].error && <span class="error-text small">{keys[p].error}</span>}
+            </label>
+          );
+        })}
+        <label class="checkbox small">
+          <input type="checkbox" checked={show} onChange={(e) => setShow((e.target as HTMLInputElement).checked)} />
+          <span>Show keys</span>
         </label>
-        {errorMessage && <p class="error-text">{errorMessage}</p>}
         <div class="modal-actions">
           {canClose && (
             <button type="button" class="btn btn-ghost" onClick={onClose} disabled={busy}>
               Cancel
             </button>
           )}
-          <button type="submit" class="btn btn-primary" disabled={busy || !value.trim()}>
+          <button type="submit" class="btn btn-primary" disabled={busy || !complete}>
             {busy ? "Verifying…" : "Save and verify"}
           </button>
         </div>

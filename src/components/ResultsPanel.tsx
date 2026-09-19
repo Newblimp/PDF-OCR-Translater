@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 import type { AppState, ResultTab } from "@/app/store";
 import { prettyJson } from "@/lib/util/json";
 import { estimateTokens, formatNumber } from "@/lib/util/text";
+import { PROVIDERS } from "@/lib/llm/registry";
 import { JsonBrowser } from "./JsonBrowser/JsonBrowser";
 import { MarkdownText } from "./MarkdownText";
 
@@ -54,7 +55,8 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
           <li>Browse the translated fields, the OCR text, and the inferred JSON format.</li>
         </ol>
         <p class="muted small">
-          The file is encoded in your browser and sent only to api.mistral.ai. Nothing is uploaded to this site's host.
+          The file is encoded in your browser and sent to api.mistral.ai for OCR; the OCR text goes to the translation provider. Nothing is
+          uploaded to this site's host.
         </p>
       </div>
     );
@@ -83,8 +85,10 @@ export function ResultsPanel({ state, onTab, onUseSchema }: Props) {
         <div class="tab-panel">
           <div class="toolbar">
             <span class="muted small">
-              {translation.model} · → {translation.targetLanguage} · {translation.mode === "json_schema" ? "strict JSON schema" : "JSON mode"} ·{" "}
-              {formatNumber(translation.usage?.prompt_tokens)} in / {formatNumber(translation.usage?.completion_tokens)} out tokens
+              {PROVIDERS[translation.provider].label} · {translation.model} · → {translation.targetLanguage} ·{" "}
+              {translation.mode === "json_schema" ? "strict JSON schema" : "JSON mode"} · {formatNumber(translation.usage?.prompt_tokens)} in /{" "}
+              {formatNumber(translation.usage?.completion_tokens)} out tokens
+              {translation.usage?.reasoning_tokens ? ` (${formatNumber(translation.usage.reasoning_tokens)} reasoning)` : ""}
             </span>
             <div class="btn-row">
               <button type="button" class="btn btn-ghost small" onClick={() => void copy(prettyJson(translation.data))}>

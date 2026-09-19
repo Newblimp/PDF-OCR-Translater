@@ -1,41 +1,57 @@
-import { maskApiKey } from "@/lib/storage/apiKey";
-import type { AppState } from "@/app/store";
+import { maskApiKey } from "@/lib/storage/apiKeys";
+import { PROVIDERS } from "@/lib/llm/registry";
+import type { ProviderId } from "@/lib/llm/provider";
+import type { ThemeSetting } from "@/lib/storage/settings";
+import type { KeyState } from "@/app/store";
+import { ThemeSwitch } from "./ThemeSwitch";
 
 interface Props {
-  keyStatus: AppState["keyStatus"];
-  apiKey: string | null;
-  onChangeKey: () => void;
-  onForgetKey: () => void;
+  keys: Record<ProviderId, KeyState>;
+  activeProvider: ProviderId;
+  theme: ThemeSetting;
+  onChangeKeys: () => void;
+  onForgetKeys: () => void;
+  onTheme: (theme: ThemeSetting) => void;
 }
 
-const STATUS_LABEL: Record<AppState["keyStatus"], string> = {
-  missing: "No API key",
-  unverified: "Key saved (not verified)",
-  checking: "Verifying key…",
-  valid: "Key verified",
-  invalid: "Key rejected",
+const STATUS_LABEL: Record<KeyState["status"], string> = {
+  missing: "missing",
+  unverified: "not verified",
+  checking: "verifying…",
+  valid: "verified",
+  invalid: "rejected",
 };
 
-export function Header({ keyStatus, apiKey, onChangeKey, onForgetKey }: Props) {
+const SHORT: Record<ProviderId, string> = { mistral: "Mistral", openai: "OpenAI" };
+
+export function Header({ keys, activeProvider, theme, onChangeKeys, onForgetKeys, onTheme }: Props) {
+  const shown: ProviderId[] = activeProvider === "mistral" ? ["mistral"] : ["mistral", activeProvider];
+  const anyKey = shown.some((p) => keys[p].value);
   return (
     <header class="header">
       <div class="header-title">
         <h1>PDF OCR Translator</h1>
-        <p class="muted">Mistral Document AI, entirely in your browser. Documents go only to api.mistral.ai.</p>
+        <p class="muted">
+          OCR by Mistral, translation by {PROVIDERS[activeProvider].label}. Runs in your browser; documents go only to{" "}
+          {shown.map((p) => PROVIDERS[p].host).join(" and ")}.
+        </p>
       </div>
       <div class="header-key">
-        <span class={`pill pill-${keyStatus}`} title={STATUS_LABEL[keyStatus]}>
-          {STATUS_LABEL[keyStatus]}
-          {apiKey && keyStatus !== "missing" ? ` · ${maskApiKey(apiKey)}` : ""}
-        </span>
-        <button type="button" class="btn btn-ghost" onClick={onChangeKey}>
-          {apiKey ? "Change key" : "Enter key"}
+        {shown.map((p) => (
+          <span key={p} class={`pill pill-${keys[p].status}`} title={`${PROVIDERS[p].keyLabel}: ${STATUS_LABEL[keys[p].status]}`}>
+            {SHORT[p]} key {STATUS_LABEL[keys[p].status]}
+            {keys[p].value ? ` · ${maskApiKey(keys[p].value)}` : ""}
+          </span>
+        ))}
+        <button type="button" class="btn btn-ghost" onClick={onChangeKeys}>
+          {anyKey ? "Keys" : "Enter keys"}
         </button>
-        {apiKey && (
-          <button type="button" class="btn btn-ghost" onClick={onForgetKey} title="Remove the key from this browser">
+        {anyKey && (
+          <button type="button" class="btn btn-ghost" onClick={onForgetKeys} title="Remove all keys from this browser">
             Forget
           </button>
         )}
+        <ThemeSwitch value={theme} onChange={onTheme} />
       </div>
     </header>
   );

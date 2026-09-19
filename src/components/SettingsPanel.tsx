@@ -1,83 +1,138 @@
+import type { ProviderId, ReasoningEffort } from "@/lib/llm/provider";
+import { PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
 import type { ModelOption } from "@/lib/mistral/models";
 import { BUILTIN_SCHEMAS } from "@/lib/pipeline/schemas";
 import { clearOcrCache } from "@/lib/storage/ocrCache";
-import { DEFAULT_SETTINGS, type Settings } from "@/lib/storage/settings";
+import { DEFAULT_SETTINGS, TARGET_LANGUAGES, type Settings, type TargetLanguage } from "@/lib/storage/settings";
 import { prettyJson } from "@/lib/util/json";
 
 interface Props {
   settings: Settings;
-  models: ModelOption[];
+  models: Record<ProviderId, ModelOption[]>;
   open: boolean;
   onToggle: (open: boolean) => void;
   onChange: (patch: Partial<Settings>) => void;
 }
 
-const LANGUAGES = ["English", "German", "French", "Spanish", "Italian", "Japanese", "Korean", "Chinese (Simplified)", "Chinese (Traditional)"];
+const EFFORTS: ReasoningEffort[] = ["none", "low", "medium", "high"];
 
 export function SettingsPanel({ settings, models, open, onToggle, onChange }: Props) {
-  const modelInList = models.some((m) => m.id === settings.chatModel);
+  const provider = PROVIDERS[settings.provider];
+  const chatModel = settings.chatModels[settings.provider];
+  const options = models[settings.provider].length ? models[settings.provider] : provider.fallbackModels;
+  const modelInList = options.some((m) => m.id === chatModel);
   const schemaKind = settings.schemaMode.kind;
+  const setChatModel = (id: string) => onChange({ chatModels: { ...settings.chatModels, [settings.provider]: id } });
 
   return (
     <details class="card settings" open={open} onToggle={(e) => onToggle((e.target as HTMLDetailsElement).open)}>
       <summary>
         <span>Settings</span>
         <span class="muted small">
-          {settings.chatModel} · → {settings.targetLanguage} ·{" "}
+          {chatModel} · → {settings.targetLanguage} ·{" "}
           {schemaKind === "infer" ? "inferred JSON format" : schemaKind === "builtin" ? "built-in schema" : "custom schema"}
         </span>
       </summary>
 
       <div class="settings-grid">
+        <div class="field field-wide">
+          <span>Target language</span>
+          <div class="segmented" role="radiogroup" aria-label="Target language">
+            {TARGET_LANGUAGES.map((lang) => (
+              <button
+                key={lang}
+                type="button"
+                role="radio"
+                aria-checked={settings.targetLanguage === lang}
+                class={`segment${settings.targetLanguage === lang ? " segment-active" : ""}`}
+                onClick={() => onChange({ targetLanguage: lang as TargetLanguage })}
+              >
+                {lang}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Translation provider</span>
+          <select value={settings.provider} onChange={(e) => onChange({ provider: (e.target as HTMLSelectElement).value as ProviderId })}>
+            {PROVIDER_IDS.map((id) => (
+              <option key={id} value={id}>
+                {PROVIDERS[id].label}
+              </option>
+            ))}
+          </select>
+          <span class="muted small">OCR always uses Mistral.</span>
+        </label>
+
         <label class="field">
           <span>Translation model</span>
           <select
-            value={modelInList ? settings.chatModel : "__custom"}
+            value={modelInList ? chatModel : "__custom"}
             onChange={(e) => {
               const v = (e.target as HTMLSelectElement).value;
-              if (v !== "__custom") onChange({ chatModel: v });
+              if (v !== "__custom") setChatModel(v);
             }}
           >
-            {models.map((m) => (
+            {options.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.label}
                 {m.contextLength ? ` · ${Math.round(m.contextLength / 1000)}k ctx` : ""}
               </option>
             ))}
-            {!modelInList && <option value="__custom">{settings.chatModel} (custom)</option>}
+            {!modelInList && <option value="__custom">{chatModel} (custom)</option>}
           </select>
           <input
             type="text"
-            value={settings.chatModel}
+            value={chatModel}
             spellcheck={false}
             aria-label="Translation model id"
-            onChange={(e) => onChange({ chatModel: (e.target as HTMLInputElement).value.trim() })}
+            onChange={(e) => setChatModel((e.target as HTMLInputElement).value.trim() || provider.defaultModel)}
           />
         </label>
 
+        {provider.supportsReasoningEffort && (
+          <label class="field">
+            <span>Reasoning effort</span>
+            <select
+              value={settings.reasoningEffort}
+              onChange={(e) => onChange({ reasoningEffort: (e.target as HTMLSelectElement).value as ReasoningEffort })}
+            >
+              {EFFORTS.map((e) => (
+                <option key={e} value={e}>
+                  {e}
+                </option>
+              ))}
+            </select>
+            <span class="muted small">“none” is fastest and cheapest; higher values spend reasoning tokens before answering.</span>
+          </label>
+        )}
+
+        {provider.supportsTemperature && (
+          <label class="field">
+            <span>Temperature</span>
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.1}
+              value={settings.temperature}
+              onChange={(e) => {
+                const n = Number((e.target as HTMLInputElement).value);
+                onChange({ temperature: Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : DEFAULT_SETTINGS.temperature });
+              }}
+            />
+          </label>
+        )}
+
         <label class="field">
-          <span>OCR model</span>
+          <span>OCR model (Mistral)</span>
           <input
             type="text"
             value={settings.ocrModel}
             spellcheck={false}
             onChange={(e) => onChange({ ocrModel: (e.target as HTMLInputElement).value.trim() || DEFAULT_SETTINGS.ocrModel })}
           />
-        </label>
-
-        <label class="field">
-          <span>Target language</span>
-          <input
-            type="text"
-            list="target-languages"
-            value={settings.targetLanguage}
-            onChange={(e) => onChange({ targetLanguage: (e.target as HTMLInputElement).value })}
-          />
-          <datalist id="target-languages">
-            {LANGUAGES.map((l) => (
-              <option key={l} value={l} />
-            ))}
-          </datalist>
         </label>
 
         <label class="field">
@@ -96,7 +151,7 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
           <label class="radio">
             <input type="radio" name="schema" checked={schemaKind === "infer"} onChange={() => onChange({ schemaMode: { kind: "infer" } })} />
             <span>
-              Infer from the document <span class="muted small">(one extra model call designs the fields, like the playground's auto-schema)</span>
+              Infer from the document <span class="muted small">(one extra model call designs the fields)</span>
             </span>
           </label>
           <label class="radio">
@@ -150,21 +205,6 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
           )}
         </fieldset>
 
-        <label class="field">
-          <span>Temperature</span>
-          <input
-            type="number"
-            min={0}
-            max={1}
-            step={0.1}
-            value={settings.temperature}
-            onChange={(e) => {
-              const n = Number((e.target as HTMLInputElement).value);
-              onChange({ temperature: Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : DEFAULT_SETTINGS.temperature });
-            }}
-          />
-        </label>
-
         <div class="field field-wide">
           <span>Behaviour</span>
           <label class="checkbox">
@@ -179,7 +219,7 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
             <button type="button" class="btn btn-ghost small" onClick={() => void clearOcrCache()}>
               Clear local OCR cache
             </button>
-            <button type="button" class="btn btn-ghost small" onClick={() => onChange({ ...DEFAULT_SETTINGS })}>
+            <button type="button" class="btn btn-ghost small" onClick={() => onChange({ ...structuredClone(DEFAULT_SETTINGS), theme: settings.theme })}>
               Reset to defaults
             </button>
           </div>

@@ -24,8 +24,10 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
+/* Dark tokens apply when the OS prefers dark (unless the user forced light)
+   or when the user forced dark via the header switch (data-theme). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0f1216;
     --surface: #171b21;
     --surface-2: #1f242c;
@@ -43,6 +45,28 @@
     --danger-soft: #3d1a18;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1216;
+  --surface: #171b21;
+  --surface-2: #1f242c;
+  --border: #2d343e;
+  --text: #e6e9ee;
+  --muted: #9aa4b2;
+  --accent: #6ea1ef;
+  --accent-contrast: #0b1220;
+  --accent-soft: #1b2a44;
+  --ok: #55c284;
+  --ok-soft: #14301f;
+  --warn: #e0b34a;
+  --warn-soft: #3a2e10;
+  --danger: #ef7a72;
+  --danger-soft: #3d1a18;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 /* --------------------------------------------------------------------- base */
@@ -130,6 +154,12 @@ pre {
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+@media (max-width: 960px) {
+  /* On small screens the header is tall; do not pin it. */
+  .header {
+    position: static;
+  }
 }
 
 .layout {
@@ -238,6 +268,8 @@ pre {
   font: inherit;
   font-weight: 500;
   cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
   transition:
     background 0.12s,
     border-color 0.12s,
@@ -289,6 +321,41 @@ pre {
 }
 .action-bar .btn-row .btn {
   flex: 1 1 auto;
+}
+
+/* -------------------------------------------------------------- segmented */
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.segment {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+}
+.segment:last-child {
+  border-right: none;
+}
+.segment:hover {
+  background: var(--surface-2);
+}
+.segment-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.segment:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 /* ----------------------------------------------------------------- dropzone */
@@ -737,8 +804,49 @@ textarea:focus-visible,
 .field-head {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5rem;
+}
+.field-toggle {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0.1rem 0.2rem 0.1rem 0;
+  margin-left: -0.2rem;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 6px;
+  min-width: 0;
+}
+.field-toggle:hover {
+  background: var(--surface-2);
+}
+.field-toggle h3 {
+  overflow-wrap: anywhere;
+}
+.chevron {
+  color: var(--muted);
+  width: 1rem;
+  flex: 0 0 auto;
+}
+.field-preview {
+  margin: 0.2rem 0 0 1.4rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.field-body {
+  padding-left: 1.4rem;
+}
+@media (max-width: 520px) {
+  .field-body {
+    padding-left: 0;
+  }
 }
 .field-tools {
   display: flex;

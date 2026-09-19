@@ -5,8 +5,9 @@
  * makes the flows easy to follow and to extend: add a field to `AppState`,
  * an action, and a `case` below.
  */
+import type { ProviderId, TokenUsage } from "@/lib/llm/provider";
 import type { ModelOption } from "@/lib/mistral/models";
-import type { JsonSchemaObject, OcrResponse, UsageInfo } from "@/lib/mistral/types";
+import type { JsonSchemaObject, OcrResponse } from "@/lib/mistral/types";
 import type { ProgressEvent, StageId } from "@/lib/pipeline/events";
 import type { OcrText } from "@/lib/pipeline/ocrText";
 import type { StructuredMode } from "@/lib/pipeline/translate";
@@ -15,6 +16,15 @@ import type { Settings } from "@/lib/storage/settings";
 
 export type JobKind = "ocr" | "translate" | "both";
 export type ResultTab = "translation" | "ocr" | "schema" | "json";
+
+export type KeyStatus = "missing" | "unverified" | "checking" | "valid" | "invalid";
+
+export interface KeyState {
+  value: string | null;
+  status: KeyStatus;
+  /** Message shown inside the key dialog when verification fails. */
+  error: string | null;
+}
 
 export interface DocState {
   id: string;
@@ -47,8 +57,9 @@ export interface TranslationState {
   schema: JsonSchemaObject;
   schemaSource: "inferred" | "builtin" | "custom";
   schemaWarnings: string[];
-  usage: UsageInfo | null;
-  inferUsage: UsageInfo | null;
+  usage: TokenUsage | null;
+  inferUsage: TokenUsage | null;
+  provider: ProviderId;
   model: string;
   mode: StructuredMode;
   violations: string[];
@@ -76,12 +87,9 @@ export interface AppError {
 }
 
 export interface AppState {
-  apiKey: string | null;
-  keyStatus: "missing" | "unverified" | "checking" | "valid" | "invalid";
-  /** Message shown inside the key dialog when verification fails. */
-  keyError: string | null;
+  keys: Record<ProviderId, KeyState>;
   keyDialogOpen: boolean;
-  models: ModelOption[];
+  models: Record<ProviderId, ModelOption[]>;
   settings: Settings;
   settingsOpen: boolean;
   doc: DocState | null;
@@ -96,10 +104,10 @@ export interface AppState {
 }
 
 export type Action =
-  | { type: "key/set"; key: string | null }
-  | { type: "key/status"; status: AppState["keyStatus"]; error?: string | null }
+  | { type: "key/set"; provider: ProviderId; key: string | null }
+  | { type: "key/status"; provider: ProviderId; status: KeyStatus; error?: string | null }
   | { type: "key/dialog"; open: boolean }
-  | { type: "models/set"; models: ModelOption[] }
+  | { type: "models/set"; provider: ProviderId; models: ModelOption[] }
   | { type: "settings/update"; patch: Partial<Settings> }
   | { type: "settings/toggle"; open?: boolean }
   | { type: "doc/set"; doc: DocState }
@@ -115,13 +123,25 @@ export type Action =
   | { type: "error/set"; error: AppError | null }
   | { type: "tab/set"; tab: ResultTab };
 
-export function initialState(apiKey: string | null, settings: Settings): AppState {
-  return {
-    apiKey,
-    keyStatus: apiKey ? "unverified" : "missing",
-    keyError: null,
-    keyDialogOpen: !apiKey,
-    models: [],
+function keyState(value: string | null): KeyState {
+  return { value, status: value ? "unverified" : "missing", error: null };
+}
+
+/** Providers whose key is required for the current settings. */
+export function requiredProviders(settings: Settings): ProviderId[] {
+  return settings.provider === "mistral" ? ["mistral"] : ["mistral", settings.provider];
+}
+
+export function missingKeys(state: AppState): ProviderId[] {
+  return requiredProviders(state.settings).filter((p) => !state.keys[p].value);
+}
+
+export function initialState(keys: Record<ProviderId, string | null>, settings: Settings): AppState {
+  const keyStates = { mistral: keyState(keys.mistral), openai: keyState(keys.openai) };
+  const state: AppState = {
+    keys: keyStates,
+    keyDialogOpen: false,
+    models: { mistral: [], openai: [] },
     settings,
     settingsOpen: false,
     doc: null,
@@ -133,32 +153,29 @@ export function initialState(apiKey: string | null, settings: Settings): AppStat
     error: null,
     activeTab: "translation",
   };
+  state.keyDialogOpen = missingKeys(state).length > 0;
+  return state;
 }
 
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "key/set":
-      return { ...state, apiKey: action.key, keyStatus: action.key ? "unverified" : "missing", keyError: null };
+      return { ...state, keys: { ...state.keys, [action.provider]: keyState(action.key) } };
     case "key/status":
-      return { ...state, keyStatus: action.status, keyError: action.error ?? null };
+      return {
+        ...state,
+        keys: { ...state.keys, [action.provider]: { ...state.keys[action.provider], status: action.status, error: action.error ?? null } },
+      };
     case "key/dialog":
       return { ...state, keyDialogOpen: action.open };
     case "models/set":
-      return { ...state, models: action.models };
+      return { ...state, models: { ...state.models, [action.provider]: action.models } };
     case "settings/update":
       return { ...state, settings: { ...state.settings, ...action.patch } };
     case "settings/toggle":
       return { ...state, settingsOpen: action.open ?? !state.settingsOpen };
     case "doc/set":
-      return {
-        ...state,
-        doc: action.doc,
-        pasteMode: false,
-        ocr: null,
-        translation: null,
-        error: null,
-        activeTab: "translation",
-      };
+      return { ...state, doc: action.doc, pasteMode: false, ocr: null, translation: null, error: null, activeTab: "translation" };
     case "doc/patch":
       if (!state.doc || state.doc.id !== action.id) return state;
       return { ...state, doc: { ...state.doc, ...action.patch } };
@@ -177,8 +194,9 @@ export function reducer(state: AppState, action: Action): AppState {
     case "job/event": {
       if (!state.job) return state;
       const ev = action.event;
+      const last = state.job.events.at(-1);
       const events =
-        ev.status === "progress" && state.job.events.at(-1)?.status === "progress" && state.job.events.at(-1)?.stage === ev.stage
+        ev.status === "progress" && last?.status === "progress" && last.stage === ev.stage
           ? [...state.job.events.slice(0, -1), ev]
           : [...state.job.events, ev];
       return {

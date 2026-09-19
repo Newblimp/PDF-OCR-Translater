@@ -1,12 +1,13 @@
 /**
  * Orchestrates the three user-facing operations:
- *   - "OCR only"           : document → OCR text
- *   - "Translate only"     : text → (schema) → JSON translation
- *   - "OCR and translate"  : document → OCR text → (schema) → JSON translation
+ *   - "OCR only"           : document → OCR text                 (Mistral OCR)
+ *   - "Translate only"     : text → (schema) → JSON translation  (chat provider)
+ *   - "OCR and translate"  : both
  *
  * The functions are plain async operations with progress callbacks; the UI
  * store decides what to display and what to cache.
  */
+import type { ChatProvider, ReasoningEffort } from "../llm/provider";
 import type { MistralClient } from "../mistral/client";
 import type { JsonSchemaObject } from "../mistral/types";
 import { emit, type ProgressListener } from "./events";
@@ -29,13 +30,18 @@ export interface PipelineSettings extends PromptContext {
   schemaMode: SchemaMode;
   streaming: boolean;
   temperature: number;
+  reasoningEffort?: ReasoningEffort | undefined;
+  maxOutputTokens?: number | undefined;
 }
 
 export interface PipelineContext {
-  client: MistralClient;
+  /** Mistral client used for OCR. */
+  ocr: MistralClient;
+  /** Chat provider used for schema inference and translation. */
+  chat: ChatProvider;
   settings: PipelineSettings;
-  signal?: AbortSignal;
-  onProgress?: ProgressListener;
+  signal?: AbortSignal | undefined;
+  onProgress?: ProgressListener | undefined;
 }
 
 export interface SchemaResolution {
@@ -51,11 +57,7 @@ export interface TranslateTextResult {
 }
 
 export async function ocrOnly(ctx: PipelineContext, input: OcrInput): Promise<OcrOutcome> {
-  return runOcr(ctx.client, input, {
-    model: ctx.settings.ocrModel,
-    ...(ctx.signal ? { signal: ctx.signal } : {}),
-    ...(ctx.onProgress ? { onProgress: ctx.onProgress } : {}),
-  });
+  return runOcr(ctx.ocr, input, { model: ctx.settings.ocrModel, signal: ctx.signal, onProgress: ctx.onProgress });
 }
 
 /** Resolve the output schema according to the selected mode. */
@@ -63,13 +65,14 @@ export async function resolveSchema(ctx: PipelineContext, documentText: string):
   const { settings } = ctx;
   const mode = settings.schemaMode;
   if (mode.kind === "infer") {
-    const inferred = await inferSchema(ctx.client, documentText, {
+    const inferred = await inferSchema(ctx.chat, documentText, {
       model: settings.chatModel,
       targetLanguage: settings.targetLanguage,
       sourceLanguage: settings.sourceLanguage,
       domainHint: settings.domainHint,
-      ...(ctx.signal ? { signal: ctx.signal } : {}),
-      ...(ctx.onProgress ? { onProgress: ctx.onProgress } : {}),
+      reasoningEffort: settings.reasoningEffort,
+      signal: ctx.signal,
+      onProgress: ctx.onProgress,
     });
     return { schema: inferred.schema, source: "inferred", inferred, warnings: inferred.warnings };
   }
@@ -88,16 +91,18 @@ export async function resolveSchema(ctx: PipelineContext, documentText: string):
 
 export async function translateText(ctx: PipelineContext, documentText: string): Promise<TranslateTextResult> {
   const schema = await resolveSchema(ctx, documentText);
-  const translation = await translateStructured(ctx.client, documentText, {
+  const translation = await translateStructured(ctx.chat, documentText, {
     model: ctx.settings.chatModel,
     schema: schema.schema,
     temperature: ctx.settings.temperature,
+    reasoningEffort: ctx.settings.reasoningEffort,
+    maxOutputTokens: ctx.settings.maxOutputTokens,
     streaming: ctx.settings.streaming,
     targetLanguage: ctx.settings.targetLanguage,
     sourceLanguage: ctx.settings.sourceLanguage,
     domainHint: ctx.settings.domainHint,
-    ...(ctx.signal ? { signal: ctx.signal } : {}),
-    ...(ctx.onProgress ? { onProgress: ctx.onProgress } : {}),
+    signal: ctx.signal,
+    onProgress: ctx.onProgress,
   });
   return { schema, translation };
 }

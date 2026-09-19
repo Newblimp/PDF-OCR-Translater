@@ -1,5 +1,5 @@
 import { test } from "@playwright/test";
-import { makePdf, mockMistral } from "./helpers";
+import { makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY } from "./helpers";
 
 // Not a real test: produces screenshots for a visual check. Run with
 //   npx playwright test e2e/screenshots.spec.ts
@@ -12,12 +12,13 @@ for (const [name, width] of [
   test(`screenshots ${name}`, async ({ page }) => {
     const out = process.env["SCREENSHOTS_DIR"] ?? "test-results/screenshots";
     await page.setViewportSize({ width, height: 900 });
-    await mockMistral(page, []);
+    await mockApis(page, []);
     await page.goto("/");
     await page.screenshot({ path: `${out}/${name}-1-key.png`, fullPage: true });
-    await page.getByRole("dialog").getByPlaceholder("Paste your key").fill("sk-test-key");
+    await page.getByRole("dialog").getByPlaceholder("Paste your Mistral key").fill(MISTRAL_KEY);
+    await page.getByRole("dialog").getByPlaceholder("Paste your OpenAI (GPT Luna) key").fill(OPENAI_KEY);
     await page.getByRole("dialog").getByRole("button", { name: "Save and verify" }).click();
-    await page.getByText("Key verified").waitFor();
+    await page.getByText("OpenAI key verified").waitFor();
     await page.screenshot({ path: `${out}/${name}-2-empty.png`, fullPage: true });
     await page.locator('input[type="file"]').first().setInputFiles({ name: "office-action.pdf", mimeType: "application/pdf", buffer: makePdf("Hello patent office") });
     await page.locator(".preview-page img").first().waitFor();
@@ -31,5 +32,8 @@ for (const [name, width] of [
     await page.getByRole("tab", { name: "Translation" }).click();
     await page.locator(".settings > summary").click();
     await page.screenshot({ path: `${out}/${name}-6-settings.png`, fullPage: true });
+    await page.getByRole("radio", { name: "Dark theme" }).click();
+    await page.getByRole("button", { name: "Collapse all" }).click();
+    await page.screenshot({ path: `${out}/${name}-7-dark-collapsed.png`, fullPage: true });
   });
 }

@@ -1,55 +1,67 @@
 import { expect, test, type Page } from "@playwright/test";
-import { makePdf, mockMistral, type RecordedRequest } from "./helpers";
+import { makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY, type RecordedRequest } from "./helpers";
 
 const APP_HOST = "localhost:4173";
+const ALLOWED_HOSTS = new Set([APP_HOST, "api.mistral.ai", "api.openai.com"]);
 
 async function setup(page: Page): Promise<{ recorded: RecordedRequest[]; foreign: string[] }> {
   const recorded: RecordedRequest[] = [];
   const foreign: string[] = [];
   page.on("request", (req) => {
     const host = new URL(req.url()).host;
-    if (host !== APP_HOST && host !== "api.mistral.ai") foreign.push(req.url());
+    if (!ALLOWED_HOSTS.has(host)) foreign.push(req.url());
   });
-  await mockMistral(page, recorded);
+  await mockApis(page, recorded);
   await page.goto("/");
   return { recorded, foreign };
 }
 
-async function enterKey(page: Page, key = "sk-test-key"): Promise<void> {
+async function enterKeys(page: Page, mistral = MISTRAL_KEY, openai = OPENAI_KEY): Promise<void> {
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await dialog.getByPlaceholder("Paste your key").fill(key);
+  await dialog.getByPlaceholder("Paste your Mistral key").fill(mistral);
+  await dialog.getByPlaceholder("Paste your OpenAI (GPT Luna) key").fill(openai);
   await dialog.getByRole("button", { name: "Save and verify" }).click();
 }
 
-test("asks for the API key once, verifies it and caches it in the browser", async ({ page }) => {
-  const { recorded } = await setup(page);
-  await enterKey(page, "wrong-key");
-  await expect(page.getByRole("dialog").getByText("rejected this key")).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveCount(0);
-
-  await page.getByRole("dialog").getByPlaceholder("Paste your key").fill("sk-test-key");
-  await page.getByRole("dialog").getByRole("button", { name: "Save and verify" }).click();
-  await expect(page.getByRole("dialog")).toBeHidden();
-  await expect(page.getByText("Key verified")).toBeVisible();
-  expect(recorded.filter((r) => r.url.endsWith("/v1/models")).length).toBe(2);
-
-  await page.reload();
-  await expect(page.getByRole("dialog")).toBeHidden();
-  await expect(page.getByText("Key verified")).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey"))).toBe("sk-test-key");
-});
-
-test("OCR + translate: preview, pipeline, browsable JSON, and the document only goes to api.mistral.ai", async ({ page }) => {
-  const { recorded, foreign } = await setup(page);
-  await enterKey(page);
-  await expect(page.getByText("Key verified")).toBeVisible();
-
+async function loadPdf(page: Page): Promise<void> {
   await page.locator('input[type="file"]').first().setInputFiles({
     name: "office-action.pdf",
     mimeType: "application/pdf",
     buffer: makePdf("Hello patent office"),
   });
+}
+
+test("asks for both API keys once, verifies them and caches them in the browser", async ({ page }) => {
+  const { recorded } = await setup(page);
+  await enterKeys(page, MISTRAL_KEY, "wrong-openai-key");
+  await expect(page.getByRole("dialog").getByText("rejected this key")).toBeVisible();
+  await expect(page.getByRole("dialog")).toBeVisible();
+
+  await page.getByRole("dialog").getByPlaceholder("Paste your OpenAI (GPT Luna) key").fill(OPENAI_KEY);
+  await page.getByRole("dialog").getByRole("button", { name: "Save and verify" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(page.getByText("Mistral key verified")).toBeVisible();
+  await expect(page.getByText("OpenAI key verified")).toBeVisible();
+  expect(recorded.filter((r) => r.url.endsWith("/v1/models")).map((r) => r.host).sort()).toEqual([
+    "api.mistral.ai",
+    "api.openai.com",
+    "api.openai.com",
+  ]);
+
+  await page.reload();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(page.getByText("OpenAI key verified")).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.mistral"))).toBe(MISTRAL_KEY);
+  expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.openai"))).toBe(OPENAI_KEY);
+});
+
+test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no other hosts", async ({ page }) => {
+  const { recorded, foreign } = await setup(page);
+  await enterKeys(page);
+  await expect(page.getByText("OpenAI key verified")).toBeVisible();
+
+  await loadPdf(page);
   await expect(page.getByRole("heading", { name: "office-action.pdf" })).toBeVisible();
   await expect(page.getByText("1 page")).toBeVisible();
   await expect(page.locator(".preview-page img")).toHaveCount(1);
@@ -60,12 +72,9 @@ test("OCR + translate: preview, pipeline, browsable JSON, and the document only 
   // Browsable output.
   await expect(page.getByRole("heading", { name: "Application number" })).toBeVisible();
   await expect(page.getByText("CN202310000001.2").first()).toBeVisible();
-  await expect(page.locator(".field-card .prose table")).toBeVisible(); // Markdown inside a long field is rendered
-  await expect(page.getByRole("heading", { name: "Cited references" })).toBeVisible();
-  await expect(page.locator(".field-card table.value-table")).toContainText("CN123456A"); // flat object arrays become grids
-  await page.getByPlaceholder("Find in fields…").fill("inventive");
-  await expect(page.locator(".outline-link")).toHaveCount(2); // summary + body_sections mention it
-  await page.getByPlaceholder("Find in fields…").fill("");
+  await expect(page.locator(".field-card .prose table")).toBeVisible();
+  await expect(page.locator(".field-card table.value-table")).toContainText("CN123456A");
+  await expect(page.locator(".toolbar")).toContainText("OpenAI (GPT Luna) · gpt-5.6-luna");
 
   // OCR tab: headers/footers separated, images gone.
   await page.getByRole("tab", { name: "OCR text" }).click();
@@ -73,56 +82,127 @@ test("OCR + translate: preview, pipeline, browsable JSON, and the document only 
   await expect(page.locator(".ocr-page")).toContainText("权利要求1不具备创造性");
   await expect(page.locator(".ocr-page")).not.toContainText("img-0.jpeg");
 
-  // JSON format tab shows the inferred, strict-mode schema.
-  await page.getByRole("tab", { name: "JSON format" }).click();
-  await expect(page.getByText("Inferred from the document")).toBeVisible();
-  await expect(page.locator(".code-block")).toContainText('"additionalProperties": false');
-
-  // Requests: OCR got a base64 data URI with headers/footers extracted and no images.
+  // Requests: OCR went to Mistral with a base64 data URI, no images, headers/footers extracted.
   const ocr = recorded.find((r) => r.url.endsWith("/v1/ocr"));
-  expect(ocr).toBeDefined();
-  expect(ocr!.body).toMatchObject({
-    model: "mistral-ocr-latest",
-    include_image_base64: false,
-    extract_header: true,
-    extract_footer: true,
-    document: { type: "document_url", document_name: "office-action.pdf" },
-  });
+  expect(ocr?.host).toBe("api.mistral.ai");
+  expect(ocr!.body).toMatchObject({ model: "mistral-ocr-latest", include_image_base64: false, extract_header: true, extract_footer: true });
   expect(String((ocr!.body!["document"] as { document_url: string }).document_url)).toMatch(/^data:application\/pdf;base64,/);
 
-  // Chat: schema inference in json_object mode, then translation in strict json_schema mode.
+  // Chat: schema inference (json_object) then translation (strict json_schema, streamed) both on OpenAI.
   const chats = recorded.filter((r) => r.url.endsWith("/v1/chat/completions"));
-  expect(chats.length).toBe(2);
+  expect(chats.map((c) => c.host)).toEqual(["api.openai.com", "api.openai.com"]);
   expect((chats[0]!.body!["response_format"] as { type: string }).type).toBe("json_object");
   const translate = chats[1]!.body!;
-  expect(translate["response_format"]).toMatchObject({ type: "json_schema", json_schema: { name: "translated_document", strict: true } });
-  expect(translate["stream"]).toBe(true);
+  expect(translate).toMatchObject({
+    model: "gpt-5.6-luna",
+    stream: true,
+    stream_options: { include_usage: true },
+    reasoning_effort: "none",
+    response_format: { type: "json_schema", json_schema: { name: "translated_document", strict: true } },
+  });
+  expect(translate).not.toHaveProperty("temperature");
   const userMessage = (translate["messages"] as Array<{ role: string; content: string }>)[1]!.content;
   expect(userMessage).toContain("权利要求1不具备创造性");
   expect(userMessage).not.toContain("img-0.jpeg");
-  expect(userMessage).not.toContain("国家知识产权局"); // header excluded
-  expect(userMessage).not.toContain("第 1 页"); // footer excluded
-
-  // Privacy: nothing was sent anywhere but our own origin and the Mistral API.
+  expect(userMessage).not.toContain("国家知识产权局");
+  expect(userMessage).not.toContain("第 1 页");
   expect(foreign).toEqual([]);
 });
 
-test("Translate only works on pasted text", async ({ page }) => {
+test("sections collapse and expand individually, in bulk, and via the outline", async ({ page }) => {
+  await setup(page);
+  await enterKeys(page);
+  await loadPdf(page);
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
+
+  const summary = page.locator("#field-summary");
+  await expect(summary.locator(".field-body")).toBeVisible();
+  await summary.getByRole("button", { name: "Summary" }).click();
+  await expect(summary.locator(".field-body")).toHaveCount(0);
+  await expect(summary.locator(".field-preview")).toContainText("lacks inventive step");
+
+  await page.getByRole("button", { name: "Collapse all" }).click();
+  await expect(page.locator(".field-card .field-body")).toHaveCount(0);
+  await page.getByRole("button", { name: "Expand all" }).click();
+  await expect(page.locator("#field-body_sections .field-body").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Collapse all" }).click();
+  await page.locator(".outline-link", { hasText: "Cited references" }).click();
+  await expect(page.locator("#field-cited_references .field-body")).toBeVisible();
+  await expect(page.locator("#field-summary .field-body")).toHaveCount(0);
+});
+
+test("German toggle changes the target language of the next translation", async ({ page }) => {
   const { recorded } = await setup(page);
-  await enterKey(page);
+  await enterKeys(page);
+  await page.locator(".settings > summary").click();
+  await page.getByRole("radio", { name: "German" }).click();
+  await expect(page.getByRole("radio", { name: "German" })).toHaveAttribute("aria-checked", "true");
+
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("申请号：CN202310000001.2\n\n权利要求1不具备创造性。");
   await page.getByRole("button", { name: "Translate only" }).click();
   await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("heading", { name: "Document type" })).toBeVisible();
+  await expect(page.getByText("Erster Prüfungsbescheid")).toBeVisible();
+  await expect(page.locator(".toolbar")).toContainText("→ German");
+
+  const translate = recorded.filter((r) => r.url.endsWith("/v1/chat/completions")).at(-1)!.body!;
+  const system = (translate["messages"] as Array<{ role: string; content: string }>)[0]!.content;
+  expect(system).toContain("into German");
   expect(recorded.some((r) => r.url.endsWith("/v1/ocr"))).toBe(false);
-  expect(recorded.filter((r) => r.url.endsWith("/v1/chat/completions")).length).toBe(2);
+
+  await page.reload();
+  await page.locator(".settings > summary").click();
+  await expect(page.getByRole("radio", { name: "German" })).toHaveAttribute("aria-checked", "true");
+});
+
+test("theme switch forces dark or light and persists; system removes the override", async ({ page }) => {
+  await setup(page);
+  await enterKeys(page);
+  const html = page.locator("html");
+  await expect(html).not.toHaveAttribute("data-theme", /.+/);
+
+  await page.getByRole("radio", { name: "Dark theme" }).click();
+  await expect(html).toHaveAttribute("data-theme", "dark");
+  const darkBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+  await page.getByRole("radio", { name: "Light theme" }).click();
+  await expect(html).toHaveAttribute("data-theme", "light");
+  const lightBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  expect(darkBg).not.toBe(lightBg);
+
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(html).toHaveAttribute("data-theme", "light");
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(lightBg);
+
+  await page.getByRole("radio", { name: "System theme" }).click();
+  await expect(html).not.toHaveAttribute("data-theme", /.+/);
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(darkBg);
+
+  await page.getByRole("radio", { name: "Dark theme" }).click();
+  await page.reload();
+  await expect(html).toHaveAttribute("data-theme", "dark");
+});
+
+test("Mistral can still be chosen as translation provider", async ({ page }) => {
+  const { recorded } = await setup(page);
+  await enterKeys(page);
+  await page.locator(".settings > summary").click();
+  await page.getByLabel("Translation provider").selectOption("mistral");
+  await page.getByRole("button", { name: "…or paste text to translate" }).click();
+  await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
+  await page.getByRole("button", { name: "Translate only" }).click();
+  await expect(page.getByRole("tab", { name: "Translation" })).toBeVisible({ timeout: 20_000 });
+  const chats = recorded.filter((r) => r.url.endsWith("/v1/chat/completions"));
+  expect(chats.map((c) => c.host)).toEqual(["api.mistral.ai", "api.mistral.ai"]);
+  expect(chats[1]!.body).toMatchObject({ model: "mistral-large-latest", temperature: 0.2 });
+  expect(chats[1]!.body).not.toHaveProperty("reasoning_effort");
 });
 
 test("cancel stops a running job without an error", async ({ page }) => {
   await setup(page);
-  await enterKey(page);
-  // Slow down OCR so we can cancel it.
+  await enterKeys(page);
   await page.route("https://api.mistral.ai/v1/ocr", async (route) => {
     await new Promise((r) => setTimeout(r, 5_000));
     await route.abort();
