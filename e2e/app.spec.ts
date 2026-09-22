@@ -84,7 +84,7 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
   await expect(page.getByText("CN202310000001.2").first()).toBeVisible();
   await expect(page.locator(".field-card .prose table")).toBeVisible();
   await expect(page.locator(".field-card table.value-table")).toContainText("CN123456A");
-  await expect(page.locator(".toolbar")).toContainText("OpenAI (GPT Luna) · gpt-5.6-luna");
+  await expect(page.locator(".toolbar")).toContainText("OpenAI (GPT Luna) · gpt-6-luna");
 
   // OCR tab: headers/footers separated, images gone, and the shared "Show translation" switch.
   await page.getByRole("tab", { name: "OCR text" }).click();
@@ -131,7 +131,7 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
   expect(bboxContent.some((p) => p.type === "image_url")).toBe(true);
   const translate = chats.find((c) => schemaName(c) === "translated_document")!.body!;
   expect(translate).toMatchObject({
-    model: "gpt-5.6-luna",
+    model: "gpt-6-luna",
     stream: true,
     stream_options: { include_usage: true },
     reasoning_effort: "none",

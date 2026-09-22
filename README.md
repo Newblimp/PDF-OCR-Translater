@@ -5,7 +5,7 @@ communication from the China National Intellectual Property Administration,
 CNIPA) into a translated, structured JSON document using
 [Mistral Document AI](https://docs.mistral.ai/capabilities/document_ai/basic_ocr)
 for OCR and OpenAI's GPT Luna
-([`gpt-5.6-luna`](https://developers.openai.com/api/docs/models/gpt-5.6-luna))
+([`gpt-6-luna`](https://developers.openai.com/api/docs/models/gpt-6-luna))
 with JSON-schema structured outputs for translation. Mistral chat models
 remain available as an alternative translation provider.
 
@@ -135,7 +135,7 @@ All defaults live in code so they can be changed in one place:
 | --- | --- | --- |
 | OCR model | `mistral-ocr-latest` (dropdown of `OCR_MODELS`) | `src/lib/mistral/models.ts` |
 | Translation provider | OpenAI (GPT Luna); Mistral selectable | `src/lib/llm/registry.ts` |
-| Translation model | `gpt-5.6-luna` (OpenAI) / `mistral-large-latest` (Mistral); dropdown of the models from `/v1/models` | `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
+| Translation model | `gpt-6-luna` (OpenAI) / `mistral-large-latest` (Mistral); dropdown of the models from `/v1/models` | `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
 | Reasoning effort (OpenAI) | `none` | Settings panel |
 | Max output tokens | provider default | Settings panel |
 | Document annotation with images | on (first 8 boxes, `DOCUMENT_ANNOTATION_MAX_IMAGES`) | Settings panel, `src/lib/pipeline/runOcr.ts` |

@@ -9,7 +9,7 @@ describe("settings persistence", () => {
   it("returns defaults when nothing is stored", () => {
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
     expect(loadSettings().provider).toBe("openai");
-    expect(loadSettings().chatModels.openai).toBe("gpt-5.6-luna");
+    expect(loadSettings().chatModels.openai).toBe("gpt-6-luna");
     expect(loadSettings()).toMatchObject({ sendImages: true, bboxAnnotations: true, maxBboxAnnotations: 20, blockTranslations: true });
   });
 

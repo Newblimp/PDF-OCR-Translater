@@ -7,6 +7,7 @@ describe("openaiModelOptions", () => {
       [
         "gpt-5.6-terra",
         "gpt-5.6-luna",
+        "gpt-6-luna",
         "gpt-5-chat-latest",
         "gpt-5.2-pro",
         "gpt-5.2-pro-2025-12-11",
@@ -18,7 +19,7 @@ describe("openaiModelOptions", () => {
         "gpt-5.5-2026-04-23",
       ].map((id) => ({ id, object: "model" })),
     ).map((m) => m.id);
-    expect(ids[0]).toBe("gpt-5.6-luna");
+    expect(ids.slice(0, 2)).toEqual(["gpt-6-luna", "gpt-5.6-luna"]);
     expect(ids).toContain("gpt-5.6-terra");
     expect(ids).toContain("gpt-5.4-mini");
     expect(ids).not.toContain("gpt-5-chat-latest");
