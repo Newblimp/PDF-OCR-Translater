@@ -6,12 +6,14 @@ import type { ModelOption } from "../mistral/models";
 import type { ModelObject } from "./types";
 
 /**
- * GPT-5.6 Luna: OpenAI's fast, low-cost GPT-5.6 tier (released 2026-07-09),
- * 1M-token context, up to 128k output tokens, structured outputs supported.
+ * GPT-6 Luna: OpenAI's most efficient GPT-6 tier for focused, high-volume
+ * tasks; 1.05M-token context, up to 128k output tokens, text and image input,
+ * structured outputs supported.
  */
-export const DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
+export const DEFAULT_OPENAI_MODEL = "gpt-6-luna";
 
 export const FALLBACK_OPENAI_MODELS: ReadonlyArray<ModelOption> = [
+  { id: "gpt-6-luna", label: "GPT-6 Luna (gpt-6-luna)" },
   { id: "gpt-5.6-luna", label: "GPT-5.6 Luna (gpt-5.6-luna)" },
   { id: "gpt-5.6-luna-pro", label: "GPT-5.6 Luna Pro (gpt-5.6-luna-pro)" },
   { id: "gpt-5.6-terra", label: "GPT-5.6 Terra (gpt-5.6-terra)" },

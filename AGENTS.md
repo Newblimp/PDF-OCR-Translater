@@ -154,6 +154,9 @@ into `store.ts` and rendered by the components.
   `/v1/models` returns (fallback list when it has not answered); the OCR-model
   dropdown lists `OCR_MODELS`. Both are dropdowns only — no free-text model
   ids — so a model id stored earlier appears as a "(custom)" entry.
+  When the default changes, append the old default to
+  `MODEL_DEFAULT_MIGRATIONS` in `src/lib/storage/settings.ts` so saved
+  choices move over once.
 - **More target languages**: extend `TARGET_LANGUAGES` in
   `src/lib/storage/settings.ts`; the toggle renders from it.
 - **Theme / visual style**: shared with github.com/Newblimp/refcheck (Gruvbox

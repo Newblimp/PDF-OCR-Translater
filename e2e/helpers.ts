@@ -193,6 +193,7 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
       return json(route, 200, {
         object: "list",
         data: [
+          { id: "gpt-6-luna", object: "model", owned_by: "openai" },
           { id: "gpt-5.6-luna", object: "model", owned_by: "openai" },
           { id: "gpt-5.6-luna-pro", object: "model", owned_by: "openai" },
           { id: "gpt-5.6-terra", object: "model", owned_by: "openai" },
@@ -200,7 +201,7 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
         ],
       });
     }
-    if (url.endsWith("/v1/chat/completions")) return chatCompletion(route, body, "gpt-5.6-luna", true);
+    if (url.endsWith("/v1/chat/completions")) return chatCompletion(route, body, "gpt-6-luna", true);
     return json(route, 404, { error: { message: "not mocked" } });
   });
 }
@@ -321,7 +322,7 @@ export async function installStreamingTranslationMock(page: Page, delayMs = 150,
             const size = Math.ceil(text.length / chunks);
             const encoder = new TextEncoder();
             const frame = (content: string, finish: string | null) =>
-              `data: ${JSON.stringify({ id: "s", object: "chat.completion.chunk", model: "gpt-5.6-luna", created: 0, choices: [{ index: 0, delta: { content }, finish_reason: finish }] })}\n\n`;
+              `data: ${JSON.stringify({ id: "s", object: "chat.completion.chunk", model: "gpt-6-luna", created: 0, choices: [{ index: 0, delta: { content }, finish_reason: finish }] })}\n\n`;
             const signal = init.signal ?? null;
             const stream = new ReadableStream<Uint8Array>({
               async start(controller) {
