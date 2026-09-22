@@ -21,6 +21,26 @@ describe("settings persistence", () => {
   });
 });
 
+describe("model default migration", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("moves a saved gpt-5.6-luna choice to the new default once", () => {
+    localStorage.setItem(
+      "pdf-ocr-translater.settings.v2",
+      JSON.stringify({ chatModels: { openai: "gpt-5.6-luna", mistral: "mistral-medium-latest" } }),
+    );
+    const migrated = loadSettings();
+    expect(migrated.chatModels).toEqual({ openai: "gpt-6-luna", mistral: "mistral-medium-latest" });
+    saveSettings({ ...migrated, chatModels: { ...migrated.chatModels, openai: "gpt-5.6-luna" } });
+    expect(loadSettings().chatModels.openai).toBe("gpt-5.6-luna"); // choosing it again sticks
+  });
+
+  it("leaves other saved models alone", () => {
+    localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ chatModels: { openai: "gpt-5.6-terra" } }));
+    expect(loadSettings().chatModels.openai).toBe("gpt-5.6-terra");
+  });
+});
+
 describe("settings v1 migration", () => {
   beforeEach(() => localStorage.clear());
 

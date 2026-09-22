@@ -45,7 +45,18 @@ export interface Settings {
   blockTranslations: boolean;
   /** Also fill the JSON format with the document's own wording, so "Structured text" can show the original. */
   structureOriginal: boolean;
+  /** Last model-default migration applied (see MODEL_DEFAULT_MIGRATIONS); runs each one once. */
+  modelDefaultsRevision: number;
 }
+
+/**
+ * Stored models that were the default until a newer one replaced it. Each
+ * entry moves a saved choice over once; picking the old model again later
+ * sticks. Append entries; the revision is the entry's 1-based position.
+ */
+const MODEL_DEFAULT_MIGRATIONS: ReadonlyArray<{ provider: ProviderId; from: string; to: string }> = [
+  { provider: "openai", from: "gpt-5.6-luna", to: PROVIDERS.openai.defaultModel },
+];
 
 const VERSION = 2;
 const STORAGE_KEY = `pdf-ocr-translater.settings.v${VERSION}`;
@@ -73,6 +84,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxBboxAnnotations: 20,
   blockTranslations: true,
   structureOriginal: true,
+  modelDefaultsRevision: MODEL_DEFAULT_MIGRATIONS.length,
 };
 
 export function loadSettings(): Settings {
@@ -97,6 +109,11 @@ function normalise(parsed: Partial<Settings>): Settings {
   if (!["system", "light", "dark"].includes(merged.theme)) merged.theme = DEFAULT_SETTINGS.theme;
   if (!["none", "low", "medium", "high"].includes(merged.reasoningEffort)) merged.reasoningEffort = DEFAULT_SETTINGS.reasoningEffort;
   if (typeof merged.maxOutputTokens !== "number" || !Number.isFinite(merged.maxOutputTokens) || merged.maxOutputTokens <= 0) merged.maxOutputTokens = null;
+  const revision = typeof parsed.modelDefaultsRevision === "number" ? parsed.modelDefaultsRevision : 0;
+  MODEL_DEFAULT_MIGRATIONS.slice(revision).forEach(({ provider, from, to }) => {
+    if (merged.chatModels[provider] === from) merged.chatModels[provider] = to;
+  });
+  merged.modelDefaultsRevision = MODEL_DEFAULT_MIGRATIONS.length;
   if (!Number.isInteger(merged.maxBboxAnnotations) || merged.maxBboxAnnotations < 0) merged.maxBboxAnnotations = DEFAULT_SETTINGS.maxBboxAnnotations;
   return merged;
 }
