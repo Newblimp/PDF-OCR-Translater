@@ -152,12 +152,18 @@ test("OCR + translate: Mistral OCR, Claude Haiku 5.5 translation, browsable JSON
   expect(translate).not.toHaveProperty("temperature");
   expect(translate).not.toHaveProperty("thinking");
   expect(typeof translate["system"]).toBe("string");
-  // Document annotation input: text part + the bounding-box images, ids referenced in the text.
+  // Document annotation input: the document first, then the bounding-box images (ids referenced in the text), then the task.
   const messages = translate["messages"] as Array<{ role: string; content: unknown }>;
   expect(messages.map((m) => m.role)).toEqual(["user"]);
-  const userContent = messages[0]!.content as Array<{ type: string; text?: string; source?: { type: string; media_type: string; data: string } }>;
+  const userContent = messages[0]!.content as Array<{ type: string; text?: string; source?: { type: string; media_type: string; data: string }; cache_control?: unknown }>;
   expect(Array.isArray(userContent)).toBe(true);
   const userMessage = userContent[0]!.text!;
+  expect(userContent.at(-1)!.text).toMatch(/^Task: /);
+  // Prompt caching: the breakpoint sits on the last image, the end of the prefix shared with the original-language structure.
+  expect(userContent.filter((p) => p.cache_control)).toEqual([expect.objectContaining({ type: "image", cache_control: { type: "ephemeral" } })]);
+  const original = chats.find((c) => step(c) === "original_document")!.body!;
+  expect(original["system"]).toBe(translate["system"]);
+  expect((original["messages"] as Array<{ content: unknown[] }>)[0]!.content.slice(0, -1)).toEqual(userContent.slice(0, -1));
   expect(userMessage).toContain("权利要求1不具备创造性");
   expect(userMessage).toContain("[Image: img-0.jpeg]");
   expect(userMessage).toContain('"img-0.jpeg", "img-1.jpeg"');
@@ -212,7 +218,7 @@ test("German toggle changes the target language of the next translation", async 
   await expect(page.getByRole("tab", { name: "Bounding boxes" })).toHaveCount(0);
 
   const translate = chatRequests(recorded).find((r) => step(r) === "translated_document")!.body!;
-  expect(systemPrompt(translate)).toContain("into German");
+  expect(systemPrompt(translate)).toContain("Target language of the translation: German");
   expect(recorded.some((r) => r.url.endsWith("/v1/ocr"))).toBe(false);
 
   await page.reload();

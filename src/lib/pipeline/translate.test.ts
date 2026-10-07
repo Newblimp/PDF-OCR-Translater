@@ -36,8 +36,13 @@ describe("translateStructured", () => {
     expect(seen[0]?.format).toMatchObject({ type: "json_schema", strict: true, name: "translated_document" });
     expect(seen[0]?.stream).toBe(true);
     expect(seen[0]?.reasoningEffort).toBe("none");
-    expect(seen[0]?.user).toContain("你好");
+    // The document goes in the shared, cached context; the task (and schema) last.
+    expect(seen[0]?.context).toContain("你好");
+    expect(seen[0]?.user).toMatch(/^Task: /);
+    expect(seen[0]?.user).toContain('"title"');
+    expect(seen[0]?.cachePrefix).toBe(true);
     expect(out.violations).toEqual([]);
+    expect(out.partial).toBe(false);
   });
 
   it("keeps the source language and its own stage with target \"original\"", async () => {
@@ -57,8 +62,8 @@ describe("translateStructured", () => {
     expect(out.data).toEqual({ title: "你好" });
     expect(seen[0]?.format).toMatchObject({ type: "json_schema", strict: true, name: "original_document" });
     expect(seen[0]?.stream).toBe(false);
-    expect(seen[0]?.system).toContain("Do NOT translate");
-    expect(seen[0]?.user).toContain("untranslated");
+    expect(seen[0]?.user).toContain("Do NOT translate");
+    expect(seen[0]?.context).toContain("你好");
     expect(events.every((e) => e.stage === "structure_original")).toBe(true);
   });
 
@@ -107,7 +112,7 @@ describe("translateStructured", () => {
     ];
     const out = await translateStructured(provider, "text", { ...base, images, streaming: false });
     expect(seen[0]?.images).toHaveLength(2);
-    expect(seen[0]?.user).toContain('"img-0.jpeg", "img-1.jpeg"');
+    expect(seen[0]?.context).toContain('"img-0.jpeg", "img-1.jpeg"');
     expect(seen[1]?.images).toBeUndefined();
     expect(out.imagesSent).toBe(0);
     expect(out.mode).toBe("json_schema");
@@ -153,6 +158,43 @@ describe("translateStructured", () => {
       throw new ApiError("nope", "auth", "openai", 401);
     });
     await expect(translateStructured(provider, "text", { ...base })).rejects.toMatchObject({ kind: "auth" });
+  });
+
+  it("shares one system prompt and document context between the translation and the original-language structure", async () => {
+    const seen: JsonChatRequest[] = [];
+    const provider = fakeProvider((req) => {
+      seen.push(req);
+      return ok('{"title":"x"}');
+    });
+    const images = [{ id: "img-0.jpeg", dataUrl: "data:image/png;base64,AA" }];
+    await translateStructured(provider, "文本", { ...base, images, glossary: "审查员 = examiner" });
+    await translateStructured(provider, "文本", { ...base, images, glossary: "审查员 = examiner", target: "original", streaming: false });
+    expect(seen[0]?.system).toBe(seen[1]?.system);
+    expect(seen[0]?.context).toBe(seen[1]?.context);
+    expect(seen[0]?.system).toContain("审查员 → examiner");
+    expect(seen[0]?.user).not.toBe(seen[1]?.user);
+  });
+
+  it("labels the part of a long document in the context", async () => {
+    const seen: JsonChatRequest[] = [];
+    const provider = fakeProvider((req) => {
+      seen.push(req);
+      return ok('{"title":"x"}');
+    });
+    await translateStructured(provider, "text", { ...base, part: { index: 1, count: 3, label: "pages 4-6" } });
+    expect(seen[0]?.context).toMatch(/^This is part 2 of 3 of a longer document \(pages 4-6\)/);
+  });
+
+  it("keeps the fields received before the output limit cut the JSON off", async () => {
+    const events: ProgressEvent[] = [];
+    const provider = fakeProvider(() => ({ content: '{"title":"Complete","body":"Half a sent', finishReason: "length", usage: null, model: "m" }));
+    const out = await translateStructured(provider, "text", { ...base, streaming: false, onProgress: (e) => events.push(e) });
+    expect(out.partial).toBe(true);
+    expect(out.data).toEqual({ title: "Complete", body: "Half a sent" });
+    expect(events.some((e) => e.status === "warning" && /Kept the 2 field/.test(e.message))).toBe(true);
+    // Without a cut-off, unparsable output is still an error.
+    const broken = fakeProvider(() => ({ content: '{"title":"x"', finishReason: "stop", usage: null, model: "m" }));
+    await expect(translateStructured(broken, "text", { ...base, streaming: false })).rejects.toThrow(/could not be parsed/);
   });
 
   it("reports schema deviations and truncation", async () => {

@@ -16,13 +16,15 @@
 import { ApiError, isImageRejection, isPermanentRejection } from "../http/apiError";
 import type { AttachedImage, ChatProvider, JsonChatResult, ReasoningEffort, TokenUsage } from "../llm/provider";
 import type { JsonSchemaObject } from "../mistral/types";
-import { parseModelJson } from "../util/json";
+import { isPlainObject, parseModelJson } from "../util/json";
+import { parsePartialJson } from "../util/partialJson";
 import { emit, type ProgressListener, type StageId } from "./events";
 import {
-  originalStructureSystemPrompt,
-  originalStructureUserPrompt,
-  translationSystemPrompt,
-  translationUserPrompt,
+  documentContext,
+  documentSystemPrompt,
+  originalStructureInstruction,
+  translationInstruction,
+  type DocumentPart,
   type PromptContext,
 } from "./prompts";
 import { findSchemaViolations } from "./schema";
@@ -50,6 +52,10 @@ export interface TranslateOptions extends PromptContext {
   target?: StructureTarget | undefined;
   /** Stage the progress events belong to (default "translate"). */
   stage?: StageId | undefined;
+  /** This call handles one part of a longer document. */
+  part?: DocumentPart | undefined;
+  /** Mark the system prompt, document and images for prompt caching (default true). */
+  cachePrefix?: boolean | undefined;
   signal?: AbortSignal | undefined;
   onProgress?: ProgressListener | undefined;
 }
@@ -65,6 +71,8 @@ export interface TranslationOutcome {
   /** Gross mismatches between the output and the schema (should be empty). */
   violations: string[];
   finishReason: string | null;
+  /** The output stopped early and only the fields received before the cut-off were kept. */
+  partial: boolean;
 }
 
 interface Attempt {
@@ -79,15 +87,16 @@ export async function translateStructured(provider: ChatProvider, documentText: 
   const schemaJson = JSON.stringify(options.schema, null, 2);
   const target = options.target ?? "translated";
   const stage = options.stage ?? "translate";
-  const system = target === "original" ? originalStructureSystemPrompt(options) : translationSystemPrompt(options);
+  const system = documentSystemPrompt(options);
+  const partNote = options.part && options.part.count > 1 ? ` (part ${options.part.index + 1} of ${options.part.count})` : "";
 
   emit(
     onProgress,
     stage,
     "start",
     target === "original"
-      ? `Structuring the original text with ${options.model} (${provider.label})${images.length ? `, with ${images.length} bounding-box image(s)` : ""}`
-      : `Translating with ${options.model} (${provider.label}) into ${options.targetLanguage}${images.length ? `, with ${images.length} bounding-box image(s)` : ""}`,
+      ? `Structuring the original text${partNote} with ${options.model} (${provider.label})${images.length ? `, with ${images.length} bounding-box image(s)` : ""}`
+      : `Translating${partNote} with ${options.model} (${provider.label}) into ${options.targetLanguage}${images.length ? `, with ${images.length} bounding-box image(s)` : ""}`,
   );
 
   // Fallback ladder. A retry only happens on a 4xx "bad request" that a
@@ -123,26 +132,37 @@ export async function translateStructured(provider: ChatProvider, documentText: 
   }
   if (!result) throw new Error("Translation did not run.");
 
-  if (result.finishReason === "length" || result.finishReason === "model_length") {
-    emit(onProgress, stage, "warning", "The model hit its output limit; the output may be truncated.");
-  }
+  const truncated = result.finishReason === "length" || result.finishReason === "model_length";
+  const filtered = result.finishReason === "content_filter";
+  if (truncated) emit(onProgress, stage, "warning", "The model hit its output limit; the output may be truncated.");
 
+  let data: unknown;
+  let partial = false;
   const parsed = parseModelJson(result.content);
-  if (!parsed.ok) {
-    if (result.finishReason === "content_filter") {
-      throw new Error("The provider's content filter stopped the output before any JSON was produced. Try another model or split the document.");
+  if (parsed.ok) {
+    data = parsed.value;
+  } else {
+    // Output cut off mid-JSON: keep the fields that did arrive rather than discarding a paid answer.
+    const salvaged = truncated || filtered ? salvagePartialJson(result.content) : undefined;
+    if (salvaged === undefined) {
+      if (filtered) {
+        throw new Error("The provider's content filter stopped the output before any JSON was produced. Try another model or split the document.");
+      }
+      throw new Error(`Translation output could not be parsed: ${parsed.error}`);
     }
-    throw new Error(`Translation output could not be parsed: ${parsed.error}`);
+    data = salvaged;
+    partial = true;
+    emit(onProgress, stage, "warning", `Kept the ${Object.keys(salvaged).length} field(s) received before the output stopped.`);
   }
-  if (result.finishReason === "content_filter") {
+  if (filtered) {
     emit(onProgress, stage, "warning", "The provider's content filter stopped the output early; the output may be incomplete.");
   }
-  const violations = findSchemaViolations(parsed.value, options.schema);
+  const violations = findSchemaViolations(data, options.schema);
   emit(onProgress, stage, "done", `${target === "original" ? "Structured original text" : "Translation"} received (${result.content.length.toLocaleString()} characters)`, {
     detail: violations.length ? `${violations.length} schema deviation(s)` : undefined,
   });
   return {
-    data: parsed.value,
+    data,
     rawText: result.content,
     usage: result.usage,
     model: result.model,
@@ -150,7 +170,18 @@ export async function translateStructured(provider: ChatProvider, documentText: 
     imagesSent: used.images ? images.length : 0,
     violations,
     finishReason: result.finishReason,
+    partial,
   };
+}
+
+/** The fields of a truncated JSON object, or undefined when nothing usable arrived. */
+function salvagePartialJson(text: string): Record<string, unknown> | undefined {
+  try {
+    const value = parsePartialJson(text);
+    return isPlainObject(value) && Object.keys(value).length > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function describe(a: Attempt): string {
@@ -178,12 +209,14 @@ function complete(
   stage: StageId,
 ) {
   let lastReport = 0;
-  const userPrompt = target === "original" ? originalStructureUserPrompt : translationUserPrompt;
+  const instruction = target === "original" ? originalStructureInstruction : translationInstruction;
   return provider.completeJson({
     model: options.model,
     system,
-    user: userPrompt(documentText, schemaJson, images.map((i) => i.id)),
+    context: documentContext(documentText, images.map((i) => i.id), options.part),
+    user: instruction(options, schemaJson),
     images: images.length ? images : undefined,
+    cachePrefix: options.cachePrefix !== false,
     format:
       attempt.mode === "json_schema"
         ? {

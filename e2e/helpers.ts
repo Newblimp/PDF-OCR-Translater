@@ -251,7 +251,12 @@ export function chatStep(body: Record<string, unknown> | null): ChatStep {
   const properties = format.schema?.properties ?? {};
   if ("translations" in properties) return "block_translations";
   if ("image_type" in properties) return "bbox_annotation";
-  return /Do NOT translate/.test(systemPrompt(body)) ? "original_document" : "translated_document";
+  return /Do NOT translate/.test(requestText(body)) ? "original_document" : "translated_document";
+}
+
+/** Everything a request says (system prompt, document context and task), for matching phrases wherever the prompt puts them. */
+export function requestText(body: Record<string, unknown> | null): string {
+  return JSON.stringify(body ?? {});
 }
 
 /** System prompt of an OpenAI/Mistral (system message) or Anthropic (top-level `system`) request. */
@@ -265,7 +270,7 @@ export function systemPrompt(body: Record<string, unknown> | null): string {
 /** The JSON the model "returns" for each step, plus mock token counts. */
 function stepAnswer(body: Record<string, unknown> | null): { step: ChatStep; text: string; input: number; output: number } {
   const step = chatStep(body);
-  const german = /into German/.test(systemPrompt(body));
+  const german = /into German/.test(requestText(body));
   switch (step) {
     case "block_translations": {
       const messages = (body?.["messages"] as Array<{ role: string; content: string | unknown[] }> | undefined) ?? [];
@@ -375,10 +380,10 @@ export async function installStreamingTranslationMock(page: Page, delayMs = 150,
       window.fetch = async (input, init) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         if (url.includes("api.anthropic.com/v1/messages") && init?.body) {
-          const body = JSON.parse(String(init.body)) as { stream?: boolean; system?: string; output_config?: { format?: { schema?: { properties?: Record<string, unknown> } } } };
+          const body = JSON.parse(String(init.body)) as { stream?: boolean; output_config?: { format?: { schema?: { properties?: Record<string, unknown> } } } };
           const properties = body.output_config?.format?.schema?.properties;
           // The streamed translated_document call (see chatStep in this file).
-          if (body.stream && properties && !("translations" in properties) && !("image_type" in properties) && !/Do NOT translate/.test(body.system ?? "")) {
+          if (body.stream && properties && !("translations" in properties) && !("image_type" in properties) && !/Do NOT translate/.test(String(init.body))) {
             const text = JSON.stringify(translation);
             const size = Math.ceil(text.length / chunks);
             const encoder = new TextEncoder();
