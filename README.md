@@ -32,6 +32,12 @@ anywhere else.
    - **OCR only** — get the Markdown text of the document.
    - **Translate only** — translate the OCR text of the loaded file (this
      session's result or the local cache), a dropped text file, or pasted text.
+
+   Below the buttons, a rough **token and cost estimate** of the translation
+   is shown (cost for Claude models, whose prices the app knows; OCR is billed
+   by Mistral per page on top). "OCR + Translate" reuses an OCR result that
+   is already loaded for the same file, model and pages instead of paying for
+   OCR again.
 3. **OCR** runs on `mistral-ocr-latest` with `extract_header` /
    `extract_footer` on, `include_image_base64` (the extracted bounding boxes
    with their cropped images) and `include_blocks` (paragraph-level boxes).
@@ -52,14 +58,33 @@ anywhere else.
    returns well-formed JSON that matches the schema. Tokens are streamed and
    the partial JSON is rendered live. If the API rejects the request, the app
    falls back step by step (without images, non-streaming, then
-   `json_object` mode). Target language is a toggle: **English** or **German**.
-   The "Structured text" tab starts with a step strip that states which model
-   did what, including how many images were sent.
-7. **Structured text in the original language** (on by default, one extra
-   model call): the same JSON format is filled a second time without
-   translating, so the structured fields can be read in the document's own
-   wording. Together with the per-block translations of the OCR text, this is
-   what the **Show translation** switch turns on and off.
+   `json_object` mode). If the output limit cuts the JSON off, the fields
+   received up to that point are kept and the result says so. Target language:
+   **English** or **German** in one click, eight more (French, Spanish,
+   Italian, Portuguese, Dutch, Japanese, Korean, Chinese) from a dropdown. An
+   optional **glossary** (`source = target`, one per line) is sent with every
+   translation call. The "Structured text" tab starts with a step strip that
+   states which model did what, including how many images were sent.
+
+   The bbox annotation runs at the same time as the translation, and the
+   follow-ups (block translations, original-language structure) run side by
+   side once it is done. Long documents (over ~40k tokens of text) are
+   translated in parts along page boundaries, each with its own images, and
+   merged field by field: each request stays well below the output limit and
+   below Claude Haiku 5.5's 100k-token price step. The document and its images
+   come first in every request and are identical across the calls of a run,
+   so the providers' prompt caches serve them again at a fraction of the
+   price (an explicit cache breakpoint on Anthropic; automatic on OpenAI).
+7. **Structured text in the original language** (on demand by default): the
+   same JSON format is filled without translating, so the structured fields
+   can be read in the document's own wording. It is produced the first time
+   the structured text is viewed with **Show translation** switched off (one
+   extra model call; "after every translation" and "never" are the other
+   choices in Settings). Together with the per-block translations of the OCR
+   text, this is what the **Show translation** switch turns on and off. If a
+   follow-up step fails (block translations, box descriptions, this one), the
+   translation stays and a warning names the step; failed boxes and
+   untranslated blocks can be retried with one click.
 8. **Browse the result** in five tabs, left to right:
    - **Bounding boxes** (the default): the OCR boxes (figures and paragraph
      blocks) drawn over the rendered page, with the cropped image and the
@@ -80,15 +105,26 @@ anywhere else.
    toolbars flips all three between the translation and the document's own
    language; it is one shared setting, not one per tab. The document card
    takes a page selection (e.g. `1-3, 7`) to OCR only part of a PDF.
+   **Download bilingual HTML** saves one self-contained page with the
+   translation next to the original, field by field and block by block; it
+   prints to PDF and opens in Word.
+9. **Recent translations**: finished translations are kept in this browser
+   (IndexedDB, last 30). They can be reopened from the list (with their OCR
+   result while the OCR cache still has it), and loading a document that was
+   translated before shows its last translation right away.
 
 Two API keys are requested on first use (Mistral for OCR, Anthropic for
-translation), verified against each provider's `GET /v1/models`, and cached
-in this browser's `localStorage` only. The key dialog also lets you pick
+translation), verified against each provider's `GET /v1/models`, and kept in
+this browser's `localStorage`, or only for the tab's session when "Remember
+keys" is switched off in the key dialog. The key dialog also lets you pick
 OpenAI or Mistral as the translation provider; with Mistral only the Mistral
 key is needed. "Forget" in the header removes all keys.
 OCR results are cached in the browser's IndexedDB (keyed by a SHA-256 of the
-file) so re-running "Translate only" on the same file costs no OCR credits.
-Both caches can be cleared from the UI. The header also offers a
+file, the OCR model and the pages) so translating the same file again costs
+no OCR credits. The OCR cache and the saved translations can be cleared from
+the UI. Mistral and OpenAI requests that hit a rate limit (429), a server
+error (5xx) or a dropped connection are retried twice with backoff, as the
+Anthropic SDK does for Anthropic. The header also offers a
 light / system / dark theme switch; the look (Gruvbox dark by default) is
 shared with [refcheck](https://github.com/Newblimp/refcheck).
 
@@ -100,6 +136,7 @@ Requires Node.js 22.13+ (see `.node-version`).
 npm install
 npm run dev          # http://localhost:5173, with the production CSP applied
 npm run typecheck    # strict TypeScript
+npm run lint         # ESLint (typescript-eslint, React hooks rules)
 npm test             # unit tests (Vitest)
 npm run e2e          # Playwright end-to-end tests against mocked Mistral, Anthropic and OpenAI APIs
 npm run build        # typecheck + production build into dist/
@@ -144,9 +181,14 @@ All defaults live in code so they can be changed in one place:
 | Document annotation with images | on (first 8 boxes, `DOCUMENT_ANNOTATION_MAX_IMAGES`) | Settings panel, `src/lib/pipeline/runOcr.ts` |
 | BBox annotation | on, up to 20 boxes per run | Settings panel; format in `src/lib/pipeline/schemas/bboxAnnotation.ts` |
 | Block translations | on | Settings panel; `src/lib/pipeline/blockTranslate.ts` |
-| Structured text in the original language | on (one extra model call) | Settings panel; `src/lib/pipeline/translate.ts` (`target: "original"`) |
+| Structured text in the original language | on demand (when viewed with "Show translation" off); always; never | Settings panel; `src/lib/pipeline/pipeline.ts` (`structureOriginal()`) |
+| Glossary | empty | Settings panel; `src/lib/pipeline/prompts.ts` (`parseGlossary()`) |
+| Long documents | split above ~40k estimated tokens (`TRANSLATION_CHUNK_TOKENS`) | `src/lib/pipeline/chunks.ts` |
+| Saved translations | on, last 30 | Settings panel; `src/lib/storage/history.ts` |
+| Mistral / OpenAI retries | 2 with backoff, honouring `retry-after` | `src/lib/http/apiFetch.ts` |
+| Model prices for the estimate | Claude Haiku/Sonnet/Opus 5.5 | `src/lib/llm/pricing.ts` |
 | Pages to OCR | all | Document card (`src/lib/util/pageSelection.ts`) |
-| Target / source language | English or German toggle / auto-detect | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`) |
+| Target / source language | English or German in one click, eight more in a dropdown / auto-detect | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`) |
 | JSON format | inferred from document; built-in `patent_communication`; custom | `src/lib/pipeline/schemas/` |
 | Prompts | schema inference and translation | `src/lib/pipeline/prompts.ts` |
 | Temperature (Mistral only) | 0.2 | Settings panel |
@@ -155,9 +197,9 @@ All defaults live in code so they can be changed in one place:
 
 ## Limitations and notes
 
-- A single translation call must fit in the model's context window. Very
-  long documents (hundreds of pages) would need a chunked strategy; the
-  pipeline is structured so one can be added in `src/lib/pipeline/`.
+- Long documents are translated in parts and merged: arrays are concatenated
+  and text fields joined, so a field such as `summary` holds one paragraph per
+  part. Schema inference sees the first 60,000 characters only.
 - The browser calls `api.mistral.ai`, `api.anthropic.com` and
   `api.openai.com` directly, which relies on the APIs' CORS headers. If a
   browser ever blocks a call, the app reports it as a network error with a
@@ -185,8 +227,11 @@ All defaults live in code so they can be changed in one place:
   offered in the model dropdown.
 - Settings saved by an earlier version keep their translation provider, so a
   browser that already used OpenAI keeps it until you switch in Settings.
-- The API keys live in `localStorage` of this origin, as requested. Anyone
-  with access to the browser profile can read them.
+- The API keys live in `localStorage` of this origin (or `sessionStorage`
+  with "Remember keys" off). Anyone with access to the browser profile can
+  read them.
+- Saved translations and the OCR cache stay in this browser's IndexedDB until
+  cleared; they contain the document's text.
 - The vision steps need a model with image input (Claude Haiku 5.5 and GPT
   Luna have it; for the Mistral provider pick a multimodal model). If the model rejects images, the
   translation is retried text-only and the step strip says so.

@@ -262,7 +262,13 @@ export function reducer(state: AppState, action: Action): AppState {
       // A fresh OCR result invalidates a translation made from the previous one.
       return { ...state, ocr: action.ocr, translation: action.ocr?.source === "api" ? null : state.translation };
     case "translation/set":
-      return { ...state, translation: action.translation, activeTab: action.translation ? "structured" : state.activeTab };
+      return {
+        ...state,
+        translation: action.translation,
+        activeTab: action.translation ? "structured" : state.activeTab,
+        // The finished translation replaces the live stream view while follow-ups run.
+        job: state.job && action.translation ? { ...state.job, streamText: "" } : state.job,
+      };
     case "translation/patch":
       return state.translation ? { ...state, translation: { ...state.translation, ...action.patch } } : state;
     case "job/start":
@@ -271,13 +277,15 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!state.job) return state;
       const ev = action.event;
       // The live stream lives in the Structured text tab: switch to it when streaming starts.
-      const activeTab: ResultTab = ev.streamText && !state.job.streamText ? "structured" : state.activeTab;
+      const activeTab: ResultTab = ev.streamText && !state.job.streamText && !state.translation ? "structured" : state.activeTab;
       // Stages run concurrently: a progress event replaces the previous event of its stage when that was progress too.
       const events = [...state.job.events];
       let previous = events.length - 1;
       while (previous >= 0 && events[previous]!.stage !== ev.stage) previous--;
       if (ev.status === "progress" && previous >= 0 && events[previous]!.status === "progress") events.splice(previous, 1);
-      events.push(ev);
+      // The stream text lives in `job.streamText`; events keep only the message.
+      const { streamText: _streamText, ...stored } = ev;
+      events.push(stored);
       return {
         ...state,
         activeTab,

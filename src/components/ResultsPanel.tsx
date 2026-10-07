@@ -1,5 +1,5 @@
 import { memo } from "preact/compat";
-import { useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import type { AppState, JobKind, OcrState, ResultTab, TranslationState } from "@/app/store";
 import { bilingualHtml } from "@/lib/export/bilingual";
 import type { TokenUsage } from "@/lib/llm/provider";
@@ -20,7 +20,9 @@ export interface ResultActions {
   setTab: (tab: ResultTab) => void;
   /** "Show translation", shared by the OCR text, Structured text and Raw JSON tabs. */
   setShowTranslation: (show: boolean) => void;
-  /** Produce the structured text in the original language now. */
+  /** The structured text in the original language is on screen but missing: produce it (once per translation). */
+  requestOriginal: () => void;
+  /** Produce the structured text in the original language now (the user asked). */
   produceOriginal: () => void;
   /** Run the bounding boxes or text blocks that failed again. */
   retry: (what: "bboxes" | "blocks") => void;
@@ -155,7 +157,16 @@ export function ResultsPanel({ state, actions }: Props) {
 
       {active === "schema" && translation && <SchemaView translation={translation} actions={actions} />}
 
-      {active === "json" && translation && <RawJsonView translation={translation} showTranslation={state.showTranslation} baseName={name} actions={actions} />}
+      {active === "json" && translation && (
+        <RawJsonView
+          translation={translation}
+          showTranslation={state.showTranslation}
+          jobKind={jobKind}
+          structureMode={state.settings.structureOriginal}
+          baseName={name}
+          actions={actions}
+        />
+      )}
     </div>
   );
 }
@@ -223,6 +234,18 @@ function TranslationToggle({
   );
 }
 
+/**
+ * With "Show translation" off, a view of the structured text needs it in the
+ * original language: ask for it once (on-demand mode), rather than on every
+ * flip of the switch in the OCR tab, which does not need it.
+ */
+function useOriginalOnDemand(translation: TranslationState, wantTranslation: boolean, jobKind: JobKind | null, structureMode: StructureOriginalMode, actions: ResultActions): void {
+  const missing = !hasOriginal(translation);
+  useEffect(() => {
+    if (!wantTranslation && missing && !jobKind && structureMode !== "never") actions.requestOriginal();
+  }, [wantTranslation, missing, jobKind, structureMode, actions, translation.id]);
+}
+
 /** Bilingual HTML: the translation next to the original, field by field and block by block. */
 async function downloadBilingual(translation: TranslationState, ocr: OcrState | null, name: string): Promise<void> {
   const render = await loadMarkdownRenderer().catch(() => null);
@@ -261,6 +284,7 @@ const StructuredView = memo(function StructuredView({
   baseName: string;
   actions: ResultActions;
 }) {
+  useOriginalOnDemand(translation, wantTranslation, jobKind, structureMode, actions);
   const original = hasOriginal(translation);
   const showTranslation = wantTranslation || !original;
   const data = showTranslation ? translation.data : translation.originalData;
@@ -348,14 +372,19 @@ const StructuredView = memo(function StructuredView({
 const RawJsonView = memo(function RawJsonView({
   translation,
   showTranslation: wantTranslation,
+  jobKind,
+  structureMode,
   baseName: name,
   actions,
 }: {
   translation: TranslationState;
   showTranslation: boolean;
+  jobKind: JobKind | null;
+  structureMode: StructureOriginalMode;
   baseName: string;
   actions: ResultActions;
 }) {
+  useOriginalOnDemand(translation, wantTranslation, jobKind, structureMode, actions);
   const original = hasOriginal(translation);
   const showTranslation = wantTranslation || !original;
   const data = showTranslation ? translation.data : translation.originalData;
@@ -447,7 +476,7 @@ function PipelineStrip({
         <li class="step step-done">Structured text in the original language: filled by {chat} without translating</li>
       ) : (
         <li class="step step-skipped">
-          Structured text in the original language {structureMode === "never" ? "turned off" : "not produced yet (switch off “Show translation” to produce it)"}
+          Structured text in the original language {structureMode === "never" ? "turned off" : "not produced yet (switch off “Show translation” here to produce it)"}
         </li>
       )}
     </ol>

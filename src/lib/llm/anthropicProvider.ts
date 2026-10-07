@@ -15,6 +15,9 @@ import { ApiError } from "../http/apiError";
  *    has no `json_object` mode, so that mode relies on the prompt alone.
  *  - A safety refusal (`stop_reason: "refusal"`) without output is an error;
  *    with partial output it is reported like a content filter.
+ *  - With `cachePrefix`, a `cache_control` breakpoint on the last block of the
+ *    shared prefix (system, document, images) lets the next call of the run
+ *    read it from the prompt cache; usage reports the cached tokens.
  *  - Every SDK error is mapped onto `ApiError` by `toAnthropicApiError()`.
  */
 const EFFORT: Record<ReasoningEffort, NonNullable<Anthropic.OutputConfig["effort"]>> = { none: "low", low: "low", medium: "medium", high: "high" };

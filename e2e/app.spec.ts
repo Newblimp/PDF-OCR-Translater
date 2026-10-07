@@ -127,16 +127,25 @@ test("OCR + translate: Mistral OCR, Claude Haiku 5.5 translation, browsable JSON
   await expect(page.locator(".pipeline-strip")).toContainText("Mistral OCR: 1 page(s), 2 bounding box(es)");
   await expect(page.locator(".pipeline-strip")).toContainText("BBox annotation: 2 of 2 box(es) described by the vision model");
   await expect(page.locator(".pipeline-strip")).toContainText("from the text + 2 bounding-box image(s)");
-  await expect(page.locator(".pipeline-strip")).toContainText("Structured text in the original language: filled by");
+  // The switch in the OCR tab does not need the original-language structure, so it was not requested.
+  await expect(page.locator(".pipeline-strip")).toContainText("Structured text in the original language not produced yet");
 
   // Chat on Anthropic: schema inference (no JSON Schema), one bbox annotation per box (structured outputs), the translation and
-  // the block translations; the original-language structure only once "Show translation" was switched off (on demand).
-  const chats = chatRequests(recorded);
+  // the block translations; the original-language structure only on demand.
+  let chats = chatRequests(recorded);
   expect(chats.every((c) => c.host === "api.anthropic.com" && path(c) === "/v1/messages")).toBe(true);
-  expect(chats).toHaveLength(6);
+  expect(chats).toHaveLength(5);
   expect(step(chats[0]!)).toBe("infer_schema");
   expect(chats[0]!.body!["output_config"]).toEqual({ effort: "low" });
-  expect(chats.map(step).sort()).toEqual(["bbox_annotation", "bbox_annotation", "block_translations", "infer_schema", "original_document", "translated_document"]);
+  expect(chats.map(step).sort()).toEqual(["bbox_annotation", "bbox_annotation", "block_translations", "infer_schema", "translated_document"]);
+
+  // Switched off here, the structured text in the original language is produced once.
+  await translationSwitch(page).uncheck();
+  await expect(page.locator(".pipeline-strip")).toContainText("Structured text in the original language: filled by", { timeout: 20_000 });
+  await translationSwitch(page).check();
+  await translationSwitch(page).uncheck();
+  chats = chatRequests(recorded);
+  expect(chats.map(step).filter((s) => s === "original_document")).toHaveLength(1);
   expect(step(chats.at(-1)!)).toBe("original_document");
   const bboxCalls = chats.filter((c) => step(c) === "bbox_annotation");
   expect(bboxCalls).toHaveLength(2);

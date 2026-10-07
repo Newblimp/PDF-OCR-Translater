@@ -615,32 +615,41 @@ async function runTranslation(rt: Runtime, job: Job, source: Source): Promise<vo
 
   // Follow-ups, side by side; each result shows up as soon as it is in.
   // The original-language structure reads the document prefix the translation just cached.
-  await Promise.all([
-    bboxes.then((b) => b && patch({ bboxAnnotations: b.annotations, bboxUsage: b.usage })),
-    ctx.settings.structureOriginal === "always"
-      ? followUp("structure_original", "Structured text in the original language", structureOriginal(ctx, source.text, schema.schema, source.ocr)).then(
-          (o) => o && patch({ originalData: o.data, originalRawText: o.rawText, originalUsage: o.usage, originalViolations: o.violations }),
-        )
-      : null,
-    source.ocr
-      ? followUp("block_translate", "Block translations", blockTranslations(ctx, source.ocr)).then(
-          (b) => b && patch({ blockTranslations: b.translations, blockUsage: b.usage }),
-        )
-      : emit(ctx.onProgress, "block_translate", "skipped", "No text blocks (text input)"),
-  ]);
-  controller.signal.throwIfAborted();
-  if (warnings.length) patch({ warnings });
-  await saveTranslation(rt);
+  try {
+    await Promise.all([
+      bboxes.then((b) => b && patch({ bboxAnnotations: b.annotations, bboxUsage: b.usage })),
+      ctx.settings.structureOriginal === "always"
+        ? followUp("structure_original", "Structured text in the original language", structureOriginal(ctx, source.text, schema.schema, source.ocr)).then(
+            (o) => o && patch({ originalData: o.data, originalRawText: o.rawText, originalUsage: o.usage, originalViolations: o.violations }),
+          )
+        : null,
+      source.ocr
+        ? followUp("block_translate", "Block translations", blockTranslations(ctx, source.ocr)).then(
+            (b) => b && patch({ blockTranslations: b.translations, blockUsage: b.usage }),
+          )
+        : emit(ctx.onProgress, "block_translate", "skipped", "No text blocks (text input)"),
+    ]);
+  } finally {
+    // Keep the translation even when the follow-ups were cancelled.
+    if (warnings.length) patch({ warnings });
+    await saveTranslation(rt);
+  }
 }
+
+/** Translations whose original-language structure was already requested automatically (a failure is not retried in a loop). */
+const originalRequested = new Set<string>();
 
 /**
  * Fill the JSON format in the document's own language for the translation on
- * screen ("Show translation" switched off, structure set to "on demand").
+ * screen: automatically once when the structured text is viewed with "Show
+ * translation" off, or when the user asks for it (`force`).
  */
-export async function ensureOriginalStructure(rt: Runtime): Promise<void> {
+export async function ensureOriginalStructure(rt: Runtime, force = false): Promise<void> {
   const state = rt.getState();
   const t = state.translation;
   if (!t || state.job || (t.originalData !== null && t.originalData !== undefined) || state.settings.structureOriginal === "never") return;
+  if (!force && originalRequested.has(t.id)) return;
+  originalRequested.add(t.id);
   const job = beginJob(rt, "original", ["structure_original"], true);
   if (!job) return;
   try {

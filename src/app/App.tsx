@@ -85,12 +85,9 @@ export function App() {
   const results = useMemo<ResultActions>(
     () => ({
       setTab: (tab: ResultTab) => dispatch({ type: "tab/set", tab }),
-      setShowTranslation: (show: boolean) => {
-        dispatch({ type: "view/translation", show });
-        // The original-language structure is produced when it is first asked for.
-        if (!show) void ensureOriginalStructure(rt);
-      },
-      produceOriginal: () => void ensureOriginalStructure(rt),
+      setShowTranslation: (show: boolean) => dispatch({ type: "view/translation", show }),
+      requestOriginal: () => void ensureOriginalStructure(rt),
+      produceOriginal: () => void ensureOriginalStructure(rt, true),
       retry: (what: "bboxes" | "blocks") => void retryFailed(rt, what),
       useSchema: (schemaText: string) => {
         updateSettings(rt, { schemaMode: { kind: "custom", schemaText } });
@@ -114,7 +111,7 @@ export function App() {
   const estimate = useMemo(
     () => estimateLabel(state, sourceText?.text ?? null),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- recomputed only when an input to the estimate changes
-    [sourceText?.text, state.doc?.pageCount, state.doc?.pageSelection, state.doc?.kind, state.ocr, state.settings],
+    [sourceText?.text, state.doc?.pageCount, state.doc?.pageSelection, state.doc?.kind, state.ocr, state.pasteMode, state.settings],
   );
   const busy = !!state.job;
 
