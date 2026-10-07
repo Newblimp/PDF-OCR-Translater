@@ -1,7 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { createAnthropicClient, toAnthropicApiError } from "../anthropic/client";
 import { ANTHROPIC_DEFAULT_MAX_TOKENS, anthropicModelOptions } from "../anthropic/models";
-import type { ChatProvider, JsonChatRequest, JsonChatResult, ReasoningEffort } from "./provider";
+import { plainUserText, userMessage } from "./content";
+import type { ChatProvider, JsonChatRequest, JsonChatResult, ReasoningEffort, TokenUsage } from "./provider";
 import { ApiError } from "../http/apiError";
 
 /**
@@ -18,15 +19,24 @@ import { ApiError } from "../http/apiError";
  */
 const EFFORT: Record<ReasoningEffort, NonNullable<Anthropic.OutputConfig["effort"]>> = { none: "low", low: "low", medium: "medium", high: "high" };
 
-/** Text first, then each image preceded by a short label carrying its id. */
+/**
+ * Context, images, then the task (see `userMessage()`). With `cachePrefix`, the
+ * last block of the shared prefix carries a cache breakpoint, so a later call
+ * with the same system prompt, context and images reads it from the cache.
+ */
 function userContent(request: JsonChatRequest): string | Anthropic.ContentBlockParam[] {
-  if (!request.images?.length) return request.user;
-  const blocks: Anthropic.ContentBlockParam[] = [{ type: "text", text: request.user }];
-  for (const image of request.images) {
-    blocks.push({ type: "text", text: `Image "${image.id}":` });
-    blocks.push({ type: "image", source: imageSource(image.dataUrl) });
+  const message = userMessage(request);
+  const cache = request.cachePrefix === true && message.prefixEnd >= 0;
+  if (!cache) {
+    const plain = plainUserText(message);
+    if (plain !== null) return plain;
   }
-  return blocks;
+  return message.parts.map((part, i): Anthropic.TextBlockParam | Anthropic.ImageBlockParam => {
+    const block: Anthropic.TextBlockParam | Anthropic.ImageBlockParam =
+      part.type === "text" ? { type: "text", text: part.text } : { type: "image", source: imageSource(part.dataUrl) };
+    if (cache && i === message.prefixEnd) block.cache_control = { type: "ephemeral" };
+    return block;
+  });
 }
 
 /** `data:image/png;base64,...` → base64 source; anything else is passed as a URL. */
@@ -63,6 +73,18 @@ async function streamMessage(client: Anthropic, body: Anthropic.MessageCreatePar
     });
   }
   return stream.finalMessage();
+}
+
+/** Prompt tokens include the cached ones (read and written), as the other providers report them. */
+function toUsage(usage: Anthropic.Usage | null | undefined): TokenUsage | null {
+  if (!usage) return null;
+  const cacheRead = usage.cache_read_input_tokens ?? 0;
+  const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+  const prompt = usage.input_tokens + cacheRead + cacheWrite;
+  const out: TokenUsage = { prompt_tokens: prompt, completion_tokens: usage.output_tokens, total_tokens: prompt + usage.output_tokens };
+  if (cacheRead) out.cache_read_tokens = cacheRead;
+  if (cacheWrite) out.cache_write_tokens = cacheWrite;
+  return out;
 }
 
 export class AnthropicProvider implements ChatProvider {
@@ -119,12 +141,10 @@ export class AnthropicProvider implements ChatProvider {
       const reason = message.stop_details?.explanation || message.stop_details?.category || "no reason given";
       throw new ApiError(`The model refused to answer: ${reason}`, "refusal", "anthropic");
     }
-    const { usage } = message;
-    const prompt = usage ? usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) : 0;
     return {
       content,
       finishReason: finishReason(message.stop_reason),
-      usage: usage ? { prompt_tokens: prompt, completion_tokens: usage.output_tokens, total_tokens: prompt + usage.output_tokens } : null,
+      usage: toUsage(message.usage),
       model: message.model,
     };
   }

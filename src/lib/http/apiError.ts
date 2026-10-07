@@ -23,6 +23,19 @@ export function kindForStatus(status: number): ApiErrorKind {
   return status >= 500 ? "server" : "request";
 }
 
+/** Messages of 4xx rejections that fail the same way whatever the request shape: unsupported parameters, unknown or inaccessible models. */
+const PERMANENT_REJECTION = /unsupported parameter|unsupported value|model_not_found|does not exist|do not have access|invalid model/i;
+
+/** A rejected request ("request" kind) that resending in another shape (no images, no streaming, json_object) cannot fix. */
+export function isPermanentRejection(err: ApiError): boolean {
+  return err.kind === "request" && PERMANENT_REJECTION.test(err.message);
+}
+
+/** The provider complained about the images themselves: no vision support, bad content type, payload too large. */
+export function isImageRejection(err: ApiError): boolean {
+  return err.status === 413 || /image|vision|content type|multimodal|too large|payload/i.test(err.message);
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,

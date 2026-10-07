@@ -222,14 +222,4 @@ export async function translateText(ctx: PipelineContext, documentText: string, 
   return { schema, translation, bboxes };
 }
 
-export interface OcrAndTranslateResult extends TranslateTextResult {
-  ocr: OcrOutcome;
-}
-
-export async function ocrAndTranslate(ctx: PipelineContext, input: OcrInput): Promise<OcrAndTranslateResult> {
-  const ocr = await ocrOnly(ctx, input);
-  const rest = await translateText(ctx, ocr.text.text, { ocr: ocr.text });
-  return { ocr, ...rest };
-}
-
 export type { OcrText, OcrOutcome, TranslationOutcome, InferredSchema, BboxAnnotateOutcome };

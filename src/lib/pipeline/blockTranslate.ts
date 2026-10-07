@@ -4,7 +4,9 @@
  * original text. Blocks are sent in batches as JSON and come back as JSON
  * keyed by block id, using the provider's strict structured output.
  */
-import type { ChatProvider, ReasoningEffort, TokenUsage } from "../llm/provider";
+import { ApiError } from "../http/apiError";
+import { addUsage, emptyUsage, type ChatProvider, type ReasoningEffort, type TokenUsage } from "../llm/provider";
+import { runPool } from "../util/pool";
 import type { JsonSchemaObject } from "../mistral/types";
 import { parseModelJson } from "../util/json";
 import { emit, type ProgressListener } from "./events";
@@ -15,6 +17,8 @@ export interface BlockTranslateOptions extends PromptContext {
   model: string;
   reasoningEffort?: ReasoningEffort | undefined;
   concurrency?: number | undefined;
+  /** Only translate these block ids (retrying the ones without a translation); every text block when undefined. */
+  onlyIds?: ReadonlySet<string> | undefined;
   signal?: AbortSignal | undefined;
   onProgress?: ProgressListener | undefined;
 }
@@ -86,10 +90,10 @@ export function translatedPageMarkdown(page: OcrCleanPage, translations: Record<
   return { text: parts.join("\n\n"), total: blocks.length, translated };
 }
 
-export function batchBlocks(ocr: OcrText): Array<Array<{ id: string; text: string }>> {
+export function batchBlocks(ocr: OcrText, onlyIds?: ReadonlySet<string>): Array<Array<{ id: string; text: string }>> {
   const items: Array<{ id: string; text: string }> = [];
   for (const page of ocr.pages) {
-    items.push(...textBlocks(page));
+    for (const block of textBlocks(page)) if (!onlyIds || onlyIds.has(block.id)) items.push(block);
   }
   const batches: Array<Array<{ id: string; text: string }>> = [];
   let batch: Array<{ id: string; text: string }> = [];
@@ -109,10 +113,10 @@ export function batchBlocks(ocr: OcrText): Array<Array<{ id: string; text: strin
 
 export async function translateBlocks(provider: ChatProvider, ocr: OcrText, options: BlockTranslateOptions): Promise<BlockTranslateOutcome> {
   const { onProgress } = options;
-  const batches = batchBlocks(ocr);
+  const batches = batchBlocks(ocr, options.onlyIds);
   const total = batches.reduce((n, b) => n + b.length, 0);
   const translations: Record<string, string> = {};
-  const usage: TokenUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  const usage = emptyUsage();
   if (total === 0) {
     emit(onProgress, "block_translate", "skipped", "No text blocks to translate");
     return { translations, usage, missing: 0 };
@@ -120,40 +124,36 @@ export async function translateBlocks(provider: ChatProvider, ocr: OcrText, opti
   emit(onProgress, "block_translate", "start", `Translating ${total} text block(s) in ${batches.length} batch(es) with ${options.model}`);
 
   let done = 0;
-  let next = 0;
   let failures = 0;
-  const worker = async () => {
-    while (next < batches.length) {
-      const batch = batches[next++]!;
-      try {
-        const result = await provider.completeJson({
-          model: options.model,
-          system: blockTranslationSystemPrompt(options),
-          user: blockTranslationUserPrompt(batch),
-          format: { type: "json_schema", name: "block_translations", schema: BLOCK_TRANSLATIONS_SCHEMA, strict: true },
-          stream: false,
-          reasoningEffort: options.reasoningEffort,
-          signal: options.signal,
-        });
-        const parsed = parseModelJson<{ translations?: Array<{ id?: unknown; text?: unknown }> }>(result.content);
-        if (parsed.ok && Array.isArray(parsed.value.translations)) {
-          for (const t of parsed.value.translations) {
-            if (typeof t.id === "string" && typeof t.text === "string") translations[t.id] = t.text;
-          }
+  const system = blockTranslationSystemPrompt(options);
+  await runPool(batches, options.concurrency ?? 3, async (batch) => {
+    try {
+      const result = await provider.completeJson({
+        model: options.model,
+        system,
+        user: blockTranslationUserPrompt(batch),
+        format: { type: "json_schema", name: "block_translations", schema: BLOCK_TRANSLATIONS_SCHEMA, strict: true },
+        stream: false,
+        reasoningEffort: options.reasoningEffort,
+        signal: options.signal,
+      });
+      const parsed = parseModelJson<{ translations?: Array<{ id?: unknown; text?: unknown }> }>(result.content);
+      if (parsed.ok && Array.isArray(parsed.value.translations)) {
+        const wanted = new Set(batch.map((b) => b.id));
+        for (const t of parsed.value.translations) {
+          if (typeof t.id === "string" && typeof t.text === "string" && wanted.has(t.id)) translations[t.id] = t.text;
         }
-        usage.prompt_tokens = (usage.prompt_tokens ?? 0) + (result.usage?.prompt_tokens ?? 0);
-        usage.completion_tokens = (usage.completion_tokens ?? 0) + (result.usage?.completion_tokens ?? 0);
-        usage.total_tokens = (usage.total_tokens ?? 0) + (result.usage?.total_tokens ?? 0);
-      } catch (err) {
-        if (options.signal?.aborted) throw err;
-        failures++;
-        emit(onProgress, "block_translate", "warning", `A batch of ${batch.length} block(s) failed`, { detail: err instanceof Error ? err.message : String(err) });
       }
-      done += batch.length;
-      emit(onProgress, "block_translate", "progress", `Translated ${Math.min(done, total)} of ${total} text block(s)`);
+      addUsage(usage, result.usage);
+    } catch (err) {
+      if (options.signal?.aborted) throw err;
+      if (err instanceof ApiError && err.kind === "auth") throw err; // a bad key fails every batch
+      failures++;
+      emit(onProgress, "block_translate", "warning", `A batch of ${batch.length} block(s) failed`, { detail: err instanceof Error ? err.message : String(err) });
     }
-  };
-  await Promise.all(Array.from({ length: Math.min(options.concurrency ?? 3, batches.length) }, worker));
+    done += batch.length;
+    emit(onProgress, "block_translate", "progress", `Translated ${Math.min(done, total)} of ${total} text block(s)`);
+  });
 
   const missing = total - Object.keys(translations).length;
   emit(onProgress, "block_translate", "done", `${total - missing} of ${total} text block(s) translated`, {

@@ -13,7 +13,7 @@
  * the request, we fall back step by step: without images (models without
  * vision), non-streaming, and finally `json_object` mode.
  */
-import { ApiError } from "../http/apiError";
+import { ApiError, isImageRejection, isPermanentRejection } from "../http/apiError";
 import type { AttachedImage, ChatProvider, JsonChatResult, ReasoningEffort, TokenUsage } from "../llm/provider";
 import type { JsonSchemaObject } from "../mistral/types";
 import { parseModelJson } from "../util/json";
@@ -153,11 +153,6 @@ export async function translateStructured(provider: ChatProvider, documentText: 
   };
 }
 
-/** The provider complained about the images themselves (no vision support, bad content type, payload too large). */
-function isImageRejection(err: ApiError): boolean {
-  return err.status === 413 || /image|vision|content type|multimodal|too large|payload/i.test(err.message);
-}
-
 function describe(a: Attempt): string {
   return `${a.mode}${a.stream ? ", streaming" : ""}${a.images ? ", with images" : ", text only"}`;
 }
@@ -168,8 +163,7 @@ function describe(a: Attempt): string {
  * unsupported parameters and unknown models fail the same way every time.
  */
 function isRetryableRejection(err: unknown): err is ApiError {
-  if (!(err instanceof ApiError) || err.kind !== "request") return false;
-  return !/unsupported parameter|unsupported value|model_not_found|does not exist|do not have access|invalid model/i.test(err.message);
+  return err instanceof ApiError && err.kind === "request" && !isPermanentRejection(err);
 }
 
 function complete(

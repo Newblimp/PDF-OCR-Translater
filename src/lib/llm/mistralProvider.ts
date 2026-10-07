@@ -1,16 +1,13 @@
 import { MistralClient } from "../mistral/client";
 import { chatModelOptions } from "../mistral/models";
+import { plainUserText, userMessage } from "./content";
 import type { ChatCompletionRequest, ContentChunk } from "../mistral/types";
 import type { ChatProvider, JsonChatRequest, JsonChatResult } from "./provider";
 
+/** Context, images, then the task (see `userMessage()`). */
 function userContent(request: JsonChatRequest): string | ContentChunk[] {
-  if (!request.images?.length) return request.user;
-  const chunks: ContentChunk[] = [{ type: "text", text: request.user }];
-  for (const image of request.images) {
-    chunks.push({ type: "text", text: `Image "${image.id}":` });
-    chunks.push({ type: "image_url", image_url: image.dataUrl });
-  }
-  return chunks;
+  const message = userMessage(request);
+  return plainUserText(message) ?? message.parts.map((part): ContentChunk => (part.type === "text" ? part : { type: "image_url", image_url: part.dataUrl }));
 }
 
 /** Mistral chat provider (kept as an alternative to Anthropic and OpenAI for translation). */
