@@ -608,7 +608,8 @@ input[aria-invalid="true"] {
 }
 
 /* ----------------------------------------------------------------- settings */
-.settings > summary {
+.settings > summary,
+.history > summary {
   cursor: pointer;
   display: flex;
   flex-wrap: wrap;
@@ -617,20 +618,24 @@ input[aria-invalid="true"] {
   list-style: none;
   user-select: none;
 }
-.settings > summary::-webkit-details-marker {
+.settings > summary::-webkit-details-marker,
+.history > summary::-webkit-details-marker {
   display: none;
 }
-.settings > summary > span:first-child {
+.settings > summary > span:first-child,
+.history > summary > span:first-child {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.settings > summary > span:first-child::before {
+.settings > summary > span:first-child::before,
+.history > summary > span:first-child::before {
   content: "▸ ";
 }
-.settings[open] > summary > span:first-child::before {
+.settings[open] > summary > span:first-child::before,
+.history[open] > summary > span:first-child::before {
   content: "▾ ";
 }
 .settings-grid {
@@ -913,6 +918,43 @@ input[aria-invalid="true"] {
   line-height: 1.5;
 }
 
+/* ------------------------------------------------------------------ history */
+.history-list {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.history-item-current {
+  border-color: var(--accent);
+}
+.history-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.history-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.estimate {
+  margin-top: 4px;
+}
+
 /* ---------------------------------------------------------- pipeline strip */
 .pipeline-strip {
   list-style: none;
@@ -942,6 +984,9 @@ input[aria-invalid="true"] {
 }
 .pipeline-strip .step-skipped {
   color: var(--text-dim);
+}
+.pipeline-strip .step-warning::before {
+  background: var(--warn);
 }
 .pipeline-strip .step-skipped::before {
   background: var(--border2);

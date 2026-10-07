@@ -1,10 +1,11 @@
+import { memo } from "preact/compat";
 interface Props {
   text: string;
   onChange: (text: string) => void;
   onClose: () => void;
 }
 
-export function PasteBox({ text, onChange, onClose }: Props) {
+export const PasteBox = memo(function PasteBox({ text, onChange, onClose }: Props) {
   return (
     <div class="card">
       <div class="card-head">
@@ -23,4 +24,4 @@ export function PasteBox({ text, onChange, onClose }: Props) {
       <p class="muted">{text.length.toLocaleString()} characters</p>
     </div>
   );
-}
+});

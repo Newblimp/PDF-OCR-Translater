@@ -1,22 +1,26 @@
 /**
  * Side-effectful operations that drive the store: loading a document,
- * verifying API keys, running the pipeline. Components call these and
- * render whatever ends up in the state.
+ * verifying API keys, running the pipeline, saving results in this browser.
+ * Components call these and render whatever ends up in the state.
  */
 import { ApiError } from "@/lib/http/apiError";
-import { createProvider, PROVIDERS } from "@/lib/llm/registry";
-import type { ProviderId } from "@/lib/llm/provider";
+import { addUsage, emptyUsage, type ProviderId } from "@/lib/llm/provider";
+import { createProvider, PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
 import { MistralClient } from "@/lib/mistral/client";
 import { classifyFile } from "@/lib/files/fileKind";
 import { fileToDataUrl } from "@/lib/files/dataUrl";
 import { sha256Hex } from "@/lib/files/hash";
+import { disposePageRenderer } from "@/lib/files/pageRenderCache";
 import { openPdfPreview } from "@/lib/files/pdfPreview";
-import { emit } from "@/lib/pipeline/events";
+import { textBlocks } from "@/lib/pipeline/blockTranslate";
+import { emit, type StageId } from "@/lib/pipeline/events";
 import {
   blockTranslations,
+  describeBboxes,
   ocrOnly,
+  resolveSchema,
   structureOriginal,
-  translateText,
+  translateDocument,
   type PipelineContext,
   type PipelineSettings,
   type SchemaMode,
@@ -24,12 +28,34 @@ import {
 import { parsePageSelection } from "@/lib/util/pageSelection";
 import { buildOcrText, type OcrText } from "@/lib/pipeline/ocrText";
 import { OCR_MAX_FILE_BYTES } from "@/lib/pipeline/runOcr";
-import { clearApiKey, saveApiKey } from "@/lib/storage/apiKeys";
+import { clearApiKey, loadApiKey, saveApiKey } from "@/lib/storage/apiKeys";
+import {
+  clearSavedTranslations,
+  deleteSavedTranslation,
+  findSavedTranslation,
+  getSavedTranslation,
+  HISTORY_VERSION,
+  listSavedTranslations,
+  putSavedTranslation,
+  type SourceKind,
+} from "@/lib/storage/history";
 import { getCachedOcr, OCR_CACHE_VERSION, ocrCacheKey, putCachedOcr } from "@/lib/storage/ocrCache";
 import { saveSettings, type Settings } from "@/lib/storage/settings";
 import { applyTheme } from "@/lib/storage/theme";
 import { formatBytes } from "@/lib/util/text";
-import { canRunOcr, missingKeys, selectSourceText, usableKey, type Action, type AppState, type DocState, type JobKind } from "./store";
+import {
+  canRunOcr,
+  missingKeys,
+  ocrRequestKey,
+  selectSourceText,
+  usableKey,
+  type Action,
+  type AppState,
+  type DocState,
+  type JobKind,
+  type OcrState,
+  type TranslationState,
+} from "./store";
 
 export interface Runtime {
   getState(): AppState;
@@ -64,12 +90,13 @@ export async function verifyAndSaveApiKey(rt: Runtime, provider: ProviderId, key
   rt.dispatch({ type: "key/set", provider, key: trimmed });
   rt.dispatch({ type: "key/status", provider, status: "checking" });
   const stillCurrent = () => !controller.signal.aborted && rt.getState().keys[provider].value === trimmed;
+  const remember = () => rt.getState().settings.rememberKeys;
   try {
     const options = await createProvider(provider, trimmed).listModels(controller.signal);
     if (!stillCurrent()) return false;
     rt.dispatch({ type: "models/set", provider, models: options.length ? options : [...PROVIDERS[provider].fallbackModels] });
     rt.dispatch({ type: "key/status", provider, status: "valid" });
-    saveApiKey(provider, trimmed);
+    saveApiKey(provider, trimmed, remember());
     return true;
   } catch (err) {
     if (!stillCurrent()) return false;
@@ -78,7 +105,7 @@ export async function verifyAndSaveApiKey(rt: Runtime, provider: ProviderId, key
       return false;
     }
     // Network trouble: keep the key so the user can retry later.
-    saveApiKey(provider, trimmed);
+    saveApiKey(provider, trimmed, remember());
     rt.dispatch({ type: "models/set", provider, models: [...PROVIDERS[provider].fallbackModels] });
     rt.dispatch({
       type: "key/status",
@@ -108,7 +135,7 @@ export async function submitApiKeys(rt: Runtime, keys: Partial<Record<ProviderId
 }
 
 export function forgetApiKeys(rt: Runtime): void {
-  for (const provider of Object.keys(PROVIDERS) as ProviderId[]) {
+  for (const provider of PROVIDER_IDS) {
     verifications.get(provider)?.abort();
     clearApiKey(provider);
     rt.dispatch({ type: "key/set", provider, key: null });
@@ -118,15 +145,31 @@ export function forgetApiKeys(rt: Runtime): void {
 }
 
 export function updateSettings(rt: Runtime, patch: Partial<Settings>): void {
+  const before = rt.getState().settings;
   rt.dispatch({ type: "settings/update", patch });
   const settings = rt.getState().settings;
   saveSettings(settings);
   if (patch.theme) applyTheme(patch.theme);
+  // "Remember keys" changed: move the stored keys between localStorage and sessionStorage.
+  if (patch.rememberKeys !== undefined && patch.rememberKeys !== before.rememberKeys) {
+    for (const provider of PROVIDER_IDS) {
+      const stored = loadApiKey(provider);
+      if (stored) saveApiKey(provider, stored, patch.rememberKeys);
+    }
+  }
   // Switching to a provider without a usable key: ask for it right away.
   if (patch.provider && missingKeys(rt.getState(), settings).length > 0) rt.dispatch({ type: "key/dialog", open: true });
 }
 
 // ---------------------------------------------------------------- document
+
+/** Free what the current document holds outside the store: preview object URLs and the open pdf.js document. */
+function releaseDocument(rt: Runtime): void {
+  for (const url of rt.getState().doc?.previews ?? []) {
+    if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+  }
+  disposePageRenderer();
+}
 
 export async function loadDocument(rt: Runtime, file: File): Promise<void> {
   const classified = classifyFile(file);
@@ -138,6 +181,7 @@ export async function loadDocument(rt: Runtime, file: File): Promise<void> {
     return;
   }
   rt.getState().job?.controller.abort();
+  releaseDocument(rt);
 
   const doc: DocState = {
     id: crypto.randomUUID(),
@@ -171,7 +215,10 @@ export async function loadDocument(rt: Runtime, file: File): Promise<void> {
   try {
     if (classified.kind === "text") {
       const text = await file.text();
-      if (stillCurrent()) patch({ textContent: text, previewStatus: "ready" });
+      if (stillCurrent()) {
+        patch({ textContent: text, previewStatus: "ready" });
+        void restoreSavedTranslation(rt, doc.id, await hashText(text), null);
+      }
       return;
     }
 
@@ -193,8 +240,12 @@ export async function loadDocument(rt: Runtime, file: File): Promise<void> {
         const pages = Math.min(PREVIEW_PAGES, preview.pageCount);
         const previews: string[] = [];
         for (let i = 1; i <= pages; i++) {
-          previews.push(await preview.renderPage(i, PREVIEW_WIDTH_PX));
-          if (!stillCurrent()) return;
+          const url = await preview.renderPage(i, PREVIEW_WIDTH_PX);
+          if (!stillCurrent()) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          previews.push(url);
           patch({ previews: [...previews], previewStatus: i === pages ? "ready" : "loading" });
         }
         if (pages === 0) patch({ previewStatus: "ready" });
@@ -229,22 +280,106 @@ function selectedPages(rt: Runtime): number[] | null {
 async function restoreCachedOcr(rt: Runtime, docId: string, hash: string): Promise<void> {
   const state = rt.getState();
   if (!state.settings.cacheOcr) return;
-  const entry = await getCachedOcr(ocrCacheKey(hash, state.settings.ocrModel, selectedPages(rt)));
+  const pages = selectedPages(rt);
+  const key = ocrCacheKey(hash, state.settings.ocrModel, pages);
+  const entry = await getCachedOcr(key);
   if (!entry) return;
   if (rt.getState().doc?.id !== docId || rt.getState().ocr) return;
   rt.dispatch({
     type: "ocr/set",
-    ocr: { source: "cache", model: entry.model, response: entry.response, text: buildOcrText(entry.response), docId },
+    ocr: {
+      source: "cache",
+      model: entry.model,
+      response: entry.response,
+      text: buildOcrText(entry.response),
+      docId,
+      requestKey: ocrRequestKey(state.settings.ocrModel, pages),
+      cacheKey: key,
+    },
   });
+  await restoreSavedTranslation(rt, docId, hash, key);
+}
+
+/** Show the newest saved translation of the same document (and OCR result) right away. */
+async function restoreSavedTranslation(rt: Runtime, docId: string, sourceHash: string, ocrKey: string | null): Promise<void> {
+  if (!rt.getState().settings.saveTranslations) return;
+  const saved = await findSavedTranslation<TranslationState>(sourceHash, ocrKey);
+  const state = rt.getState();
+  if (!saved || state.doc?.id !== docId || state.translation || state.job) return;
+  rt.dispatch({ type: "translation/set", translation: { ...saved.translation, restored: true } });
 }
 
 export function clearDocument(rt: Runtime): void {
-  const state = rt.getState();
-  state.job?.controller.abort();
-  for (const url of state.doc?.previews ?? []) {
-    if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-  }
+  rt.getState().job?.controller.abort();
+  releaseDocument(rt);
   rt.dispatch({ type: "doc/clear" });
+}
+
+async function hashText(text: string): Promise<string> {
+  return sha256Hex(new TextEncoder().encode(text).buffer as ArrayBuffer);
+}
+
+// --------------------------------------------------------------- history
+
+export async function refreshHistory(rt: Runtime): Promise<void> {
+  rt.dispatch({ type: "history/set", history: await listSavedTranslations() });
+}
+
+/** Reopen a saved translation (with its OCR result when the OCR cache still has it). */
+export async function openSavedTranslation(rt: Runtime, id: string): Promise<void> {
+  if (rt.getState().job) return;
+  const saved = await getSavedTranslation<TranslationState>(id);
+  if (!saved) {
+    rt.dispatch({ type: "error/set", error: { title: "Saved translation not found", message: "It may have been removed in another tab." } });
+    await refreshHistory(rt);
+    return;
+  }
+  let ocr: OcrState | null = null;
+  const cached = saved.ocrKey ? await getCachedOcr(saved.ocrKey) : null;
+  if (cached) {
+    ocr = {
+      source: "cache",
+      model: cached.model,
+      response: cached.response,
+      text: buildOcrText(cached.response),
+      docId: `saved:${saved.id}`,
+      requestKey: "",
+      cacheKey: saved.ocrKey,
+    };
+  }
+  if (rt.getState().job) return;
+  releaseDocument(rt);
+  const textSource = saved.sourceKind === "pasted" || saved.sourceKind === "text";
+  rt.dispatch({ type: "history/open", ocr, translation: { ...saved.translation, restored: true }, pastedText: textSource ? saved.translation.sourceText : null });
+}
+
+export async function deleteSaved(rt: Runtime, id: string): Promise<void> {
+  await deleteSavedTranslation(id);
+  await refreshHistory(rt);
+}
+
+export async function clearHistory(rt: Runtime): Promise<void> {
+  await clearSavedTranslations();
+  await refreshHistory(rt);
+}
+
+async function saveTranslation(rt: Runtime): Promise<void> {
+  const { translation, settings } = rt.getState();
+  if (!translation || !settings.saveTranslations) return;
+  await putSavedTranslation({
+    id: translation.id,
+    version: HISTORY_VERSION,
+    createdAt: translation.completedAt,
+    sourceName: translation.sourceName,
+    sourceKind: translation.sourceKind,
+    sourceHash: translation.sourceHash,
+    ocrKey: translation.ocrKey,
+    targetLanguage: translation.targetLanguage,
+    provider: translation.provider,
+    model: translation.model,
+    translation: { ...translation, restored: false },
+  });
+  await refreshHistory(rt);
 }
 
 // --------------------------------------------------------------------- jobs
@@ -253,151 +388,341 @@ export function cancelJob(rt: Runtime): void {
   rt.getState().job?.controller.abort();
 }
 
-export async function runJob(rt: Runtime, kind: JobKind): Promise<void> {
-  const state = rt.getState();
-  if (state.job) return;
+interface Job {
+  ctx: PipelineContext;
+  controller: AbortController;
+}
 
-  const needsChat = kind !== "ocr";
+/** Check keys and settings and start a job in the store; null when it cannot start (the reason is shown). */
+function beginJob(rt: Runtime, kind: JobKind, stages: StageId[], needsChat: boolean): Job | null {
+  const state = rt.getState();
+  if (state.job) return null;
   const mistralKey = usableKey(state.keys, "mistral");
   const chatKey = usableKey(state.keys, state.settings.provider);
-  if (!mistralKey || (needsChat && !chatKey)) {
+  const needsOcr = kind === "ocr" || kind === "both";
+  if ((needsOcr && !mistralKey) || (needsChat && !chatKey)) {
     rt.dispatch({ type: "key/dialog", open: true });
-    return;
+    return null;
   }
-
   const pipelineSettings = toPipelineSettings(state.settings);
   if ("error" in pipelineSettings) {
     rt.dispatch({ type: "error/set", error: pipelineSettings.error });
-    return;
+    return null;
   }
-
   const controller = new AbortController();
-  rt.dispatch({
-    type: "job/start",
-    job: { kind, startedAt: Date.now(), events: [], currentStage: "prepare", receivedChars: 0, streamText: "", controller },
-  });
-  const onProgress: PipelineContext["onProgress"] = (event) => rt.dispatch({ type: "job/event", event });
-  const ctx: PipelineContext = {
-    ocr: new MistralClient({ apiKey: mistralKey }),
-    chat: createProvider(state.settings.provider, chatKey ?? mistralKey),
-    settings: pipelineSettings,
-    signal: controller.signal,
-    onProgress,
+  rt.dispatch({ type: "job/start", job: { kind, startedAt: Date.now(), stages, events: [], receivedChars: {}, streamText: "", controller } });
+  return {
+    controller,
+    ctx: {
+      ocr: new MistralClient({ apiKey: mistralKey ?? "" }),
+      chat: createProvider(state.settings.provider, chatKey ?? mistralKey ?? ""),
+      settings: pipelineSettings,
+      signal: controller.signal,
+      onProgress: (event) => rt.dispatch({ type: "job/event", event }),
+    },
   };
+}
+
+/** Report a job's failure unless it was cancelled; always ends the job. */
+function endJob(rt: Runtime, job: Job, title: string, err?: unknown): void {
+  if (err !== undefined && !isCancellation(err, job)) {
+    rt.dispatch({ type: "error/set", error: toAppError(err, title) });
+    job.controller.abort(); // stop stages still running in the background
+  }
+  rt.dispatch({ type: "job/end" });
+}
+
+function isCancellation(err: unknown, job: Job): boolean {
+  return job.controller.signal.aborted || (err instanceof ApiError && err.kind === "aborted");
+}
+
+/** The stages a translation runs, for the job status card. */
+function translationStages(settings: Settings, withOcr: boolean, withBoxes: boolean): StageId[] {
+  const stages: StageId[] = withOcr ? ["prepare", "ocr"] : [];
+  stages.push("infer_schema");
+  if (withBoxes && settings.bboxAnnotations) stages.push("bbox_annotate");
+  stages.push("translate");
+  if (settings.structureOriginal === "always") stages.push("structure_original");
+  if (withBoxes && settings.blockTranslations) stages.push("block_translate");
+  return stages;
+}
+
+/** What is being translated, for the result and its saved copy. */
+interface Source {
+  text: string;
+  ocr: OcrText | undefined;
+  name: string;
+  kind: SourceKind;
+  hash: string | null;
+  ocrKey: string | null;
+}
+
+export async function runJob(rt: Runtime, kind: "ocr" | "translate" | "both"): Promise<void> {
+  const state = rt.getState();
+  if (state.job) return;
+  const translateSource = kind === "translate" ? selectSourceText(state) : null;
+  const withBoxes = kind === "both" || translateSource?.origin === "ocr";
+  const stages = kind === "ocr" ? (["prepare", "ocr"] as StageId[]) : translationStages(state.settings, kind === "both", withBoxes);
+  const job = beginJob(rt, kind, stages, kind !== "ocr");
+  if (!job) return;
 
   try {
-    let sourceText: string | null = null;
-    // OCR result of the loaded document, so bounding boxes can be used by the vision model.
-    let ocrText: OcrText | null = null;
-
-    if (kind === "ocr" || kind === "both") {
+    let source: Source;
+    if (kind === "translate") {
+      if (!translateSource) throw new Error("Nothing to translate: run OCR first, drop a text file, or paste text.");
+      source = await describeSource(rt.getState(), translateSource.text, translateSource.origin);
+    } else {
       const doc = state.doc;
       if (!doc || !canRunOcr(state)) throw new Error("Load a PDF or image first.");
-      const selection = parsePageSelection(doc.pageSelection, doc.pageCount);
-      if (selection.error) throw new Error(`Pages to OCR: ${selection.error}`);
-      emit(onProgress, "prepare", "start", `Encoding ${doc.name} (${formatBytes(doc.size)})`);
-      const dataUrl = await fileToDataUrl(doc.file, doc.mimeType);
-      emit(onProgress, "prepare", "done", "Document encoded");
-      const outcome = await ocrOnly(ctx, { dataUrl, mimeType: doc.mimeType, fileName: doc.name }, selection.pages);
-      controller.signal.throwIfAborted();
-      rt.dispatch({
-        type: "ocr/set",
-        ocr: { source: "api", model: outcome.response.model, response: outcome.response, text: outcome.text, docId: doc.id },
-      });
-      if (kind === "ocr") rt.dispatch({ type: "tab/set", tab: "ocr" });
-      if (state.settings.cacheOcr && doc.hash) {
-        void putCachedOcr({
-          key: ocrCacheKey(doc.hash, state.settings.ocrModel, selection.pages),
-          version: OCR_CACHE_VERSION,
-          fileName: doc.name,
-          fileSize: doc.size,
-          model: outcome.response.model,
-          createdAt: Date.now(),
-          response: outcome.response,
-        });
+      const ocr = await runOcrStage(rt, job, doc, kind === "both");
+      if (kind === "ocr") {
+        rt.dispatch({ type: "tab/set", tab: "ocr" });
+        return endJob(rt, job, jobTitle(kind));
       }
-      sourceText = outcome.text.text;
-      ocrText = outcome.text;
+      source = { text: ocr.text.text, ocr: ocr.text, name: doc.name, kind: doc.kind, hash: doc.hash, ocrKey: ocr.cacheKey };
     }
+    if (!source.text.trim()) throw new Error("OCR returned no text to translate.");
+    await runTranslation(rt, job, source);
+    endJob(rt, job, jobTitle(kind));
+  } catch (err) {
+    endJob(rt, job, jobTitle(kind), err);
+  }
+}
 
-    if (kind === "translate") {
-      const source = selectSourceText(state);
-      if (!source) throw new Error("Nothing to translate: run OCR first, drop a text file, or paste text.");
-      sourceText = source.text;
-      if (source.origin === "ocr" && state.ocr) ocrText = state.ocr.text;
-    }
+/**
+ * OCR the loaded document, or reuse the result already loaded for it with the
+ * same model and pages (`reuse`, used by "OCR + Translate": no second charge).
+ */
+async function runOcrStage(rt: Runtime, job: Job, doc: DocState, reuse: boolean): Promise<{ text: OcrText; cacheKey: string | null }> {
+  const { ctx } = job;
+  const settings = rt.getState().settings;
+  const selection = parsePageSelection(doc.pageSelection, doc.pageCount);
+  if (selection.error) throw new Error(`Pages to OCR: ${selection.error}`);
+  const requestKey = ocrRequestKey(settings.ocrModel, selection.pages);
+  const cacheKey = doc.hash ? ocrCacheKey(doc.hash, settings.ocrModel, selection.pages) : null;
 
-    if (kind === "translate" || kind === "both") {
-      if (!sourceText?.trim()) throw new Error("OCR returned no text to translate.");
-      const result = await translateText(ctx, sourceText, ocrText ? { ocr: ocrText } : {});
-      controller.signal.throwIfAborted();
+  const loaded = rt.getState().ocr;
+  if (reuse && loaded && loaded.docId === doc.id && loaded.requestKey === requestKey) {
+    emit(ctx.onProgress, "prepare", "skipped", "The document was already OCR'd with these settings");
+    emit(ctx.onProgress, "ocr", "skipped", `Reusing the OCR result ${loaded.source === "cache" ? "from this browser's cache" : "of this session"}: no new OCR charge`);
+    return { text: loaded.text, cacheKey: loaded.cacheKey ?? cacheKey };
+  }
+
+  emit(ctx.onProgress, "prepare", "start", `Encoding ${doc.name} (${formatBytes(doc.size)})`);
+  const dataUrl = await fileToDataUrl(doc.file, doc.mimeType);
+  emit(ctx.onProgress, "prepare", "done", "Document encoded");
+  const outcome = await ocrOnly(ctx, { dataUrl, mimeType: doc.mimeType, fileName: doc.name }, selection.pages);
+  job.controller.signal.throwIfAborted();
+  rt.dispatch({
+    type: "ocr/set",
+    ocr: { source: "api", model: outcome.response.model, response: outcome.response, text: outcome.text, docId: doc.id, requestKey, cacheKey },
+  });
+  if (settings.cacheOcr && cacheKey) {
+    void putCachedOcr({
+      key: cacheKey,
+      version: OCR_CACHE_VERSION,
+      fileName: doc.name,
+      fileSize: doc.size,
+      model: outcome.response.model,
+      createdAt: Date.now(),
+      response: outcome.response,
+    });
+  }
+  return { text: outcome.text, cacheKey };
+}
+
+async function describeSource(state: AppState, text: string, origin: "ocr" | "textfile" | "pasted" | "saved"): Promise<Source> {
+  const { doc, ocr, translation } = state;
+  if (origin === "ocr" && ocr) {
+    if (doc) return { text, ocr: ocr.text, name: doc.name, kind: doc.kind, hash: doc.hash, ocrKey: ocr.cacheKey };
+    // OCR reopened from "Recent translations".
+    return { text, ocr: ocr.text, name: translation?.sourceName ?? "Saved document", kind: translation?.sourceKind ?? "pdf", hash: translation?.sourceHash ?? null, ocrKey: ocr.cacheKey };
+  }
+  if (origin === "saved" && translation) {
+    return { text, ocr: undefined, name: translation.sourceName, kind: translation.sourceKind, hash: translation.sourceHash, ocrKey: null };
+  }
+  const name = origin === "textfile" && doc ? doc.name : "Pasted text";
+  return { text, ocr: undefined, name, kind: origin === "textfile" ? "text" : "pasted", hash: await hashText(text), ocrKey: null };
+}
+
+/**
+ * Schema → translation, with the bbox annotation running alongside (it does
+ * not feed into the translation), then the follow-ups side by side. A
+ * follow-up that fails leaves a warning on the result instead of failing
+ * the job: the translation is already there.
+ */
+async function runTranslation(rt: Runtime, job: Job, source: Source): Promise<void> {
+  const { ctx, controller } = job;
+  const appSettings = rt.getState().settings;
+  const warnings: string[] = [];
+  const followUp = <T>(stage: StageId, label: string, task: Promise<T | null>): Promise<T | null> =>
+    task.catch((err: unknown) => {
+      if (isCancellation(err, job)) throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      warnings.push(`${label} failed: ${message}`);
+      emit(ctx.onProgress, stage, "warning", `${label} failed`, { detail: message });
+      emit(ctx.onProgress, stage, "done", "Stopped; the translation is unaffected");
+      return null;
+    });
+
+  const schema = await resolveSchema(ctx, source.text);
+  controller.signal.throwIfAborted();
+  const bboxes = followUp("bbox_annotate", "Bounding-box descriptions", describeBboxes(ctx, source.ocr));
+  void bboxes.catch(() => undefined); // awaited below; a failing translation must not leave it unhandled
+
+  const translation = await translateDocument(ctx, source.text, schema.schema, source.ocr);
+  controller.signal.throwIfAborted();
+  const completedAt = Date.now();
+  rt.dispatch({
+    type: "translation/set",
+    translation: {
+      id: crypto.randomUUID(),
+      sourceName: source.name,
+      sourceKind: source.kind,
+      sourceHash: source.hash,
+      ocrKey: source.ocrKey,
+      sourceText: source.text,
+      data: translation.data,
+      rawText: translation.rawText,
+      schema: schema.schema,
+      schemaSource: schema.source,
+      schemaWarnings: schema.warnings,
+      usage: translation.usage,
+      inferUsage: schema.inferred?.usage ?? null,
+      provider: appSettings.provider,
+      model: translation.model,
+      mode: translation.mode,
+      violations: translation.violations,
+      finishReason: translation.finishReason,
+      partial: translation.partial,
+      targetLanguage: appSettings.targetLanguage,
+      completedAt,
+      sourceChars: source.text.length,
+      imagesSent: translation.imagesSent,
+      bboxAnnotations: [],
+      bboxUsage: null,
+      blockTranslations: {},
+      blockUsage: null,
+      originalData: null,
+      originalRawText: null,
+      originalUsage: null,
+      originalViolations: [],
+      warnings: [],
+      restored: false,
+    },
+  });
+  const patch = (p: Partial<TranslationState>) => rt.dispatch({ type: "translation/patch", patch: p });
+
+  // Follow-ups, side by side; each result shows up as soon as it is in.
+  // The original-language structure reads the document prefix the translation just cached.
+  await Promise.all([
+    bboxes.then((b) => b && patch({ bboxAnnotations: b.annotations, bboxUsage: b.usage })),
+    ctx.settings.structureOriginal === "always"
+      ? followUp("structure_original", "Structured text in the original language", structureOriginal(ctx, source.text, schema.schema, source.ocr)).then(
+          (o) => o && patch({ originalData: o.data, originalRawText: o.rawText, originalUsage: o.usage, originalViolations: o.violations }),
+        )
+      : null,
+    source.ocr
+      ? followUp("block_translate", "Block translations", blockTranslations(ctx, source.ocr)).then(
+          (b) => b && patch({ blockTranslations: b.translations, blockUsage: b.usage }),
+        )
+      : emit(ctx.onProgress, "block_translate", "skipped", "No text blocks (text input)"),
+  ]);
+  controller.signal.throwIfAborted();
+  if (warnings.length) patch({ warnings });
+  await saveTranslation(rt);
+}
+
+/**
+ * Fill the JSON format in the document's own language for the translation on
+ * screen ("Show translation" switched off, structure set to "on demand").
+ */
+export async function ensureOriginalStructure(rt: Runtime): Promise<void> {
+  const state = rt.getState();
+  const t = state.translation;
+  if (!t || state.job || (t.originalData !== null && t.originalData !== undefined) || state.settings.structureOriginal === "never") return;
+  const job = beginJob(rt, "original", ["structure_original"], true);
+  if (!job) return;
+  try {
+    // The OCR result on screen is the one the translation was made from (OCR'd sources only).
+    const ocr = t.sourceKind === "pdf" || t.sourceKind === "image" ? state.ocr?.text : undefined;
+    const original = await structureOriginal(job.ctx, t.sourceText, t.schema, ocr);
+    job.controller.signal.throwIfAborted();
+    if (rt.getState().translation?.id === t.id) {
       rt.dispatch({
-        type: "translation/set",
-        translation: {
-          data: result.translation.data,
-          rawText: result.translation.rawText,
-          schema: result.schema.schema,
-          schemaSource: result.schema.source,
-          schemaWarnings: result.schema.warnings,
-          usage: result.translation.usage,
-          inferUsage: result.schema.inferred?.usage ?? null,
-          provider: state.settings.provider,
-          model: result.translation.model,
-          mode: result.translation.mode,
-          violations: result.translation.violations,
-          finishReason: result.translation.finishReason,
-          targetLanguage: state.settings.targetLanguage,
-          completedAt: Date.now(),
-          sourceChars: sourceText.length,
-          imagesSent: result.translation.imagesSent,
-          bboxAnnotations: result.bboxes?.annotations ?? [],
-          bboxUsage: result.bboxes?.usage ?? null,
-          blockTranslations: {},
-          blockUsage: null,
-          originalData: null,
-          originalRawText: null,
-          originalUsage: null,
-          originalViolations: [],
-        },
+        type: "translation/patch",
+        patch: { originalData: original.data, originalRawText: original.rawText, originalUsage: original.usage, originalViolations: original.violations },
       });
-      // Follow-up stage: the same JSON format in the document's own language,
-      // so "Structured text" can be shown untranslated.
-      const original = await structureOriginal(ctx, sourceText, result.schema.schema, ocrText ?? undefined);
-      controller.signal.throwIfAborted();
-      if (original) {
+      await saveTranslation(rt);
+    }
+    endJob(rt, job, jobTitle("original"));
+  } catch (err) {
+    endJob(rt, job, jobTitle("original"), err);
+  }
+}
+
+/** Run the bounding boxes or text blocks that failed (or came back empty) again, and merge the results in. */
+export async function retryFailed(rt: Runtime, what: "bboxes" | "blocks"): Promise<void> {
+  const state = rt.getState();
+  const t = state.translation;
+  const ocr = state.ocr?.text;
+  if (!t || !ocr || state.job) return;
+  const ids =
+    what === "bboxes"
+      ? new Set(t.bboxAnnotations.filter((a) => !a.data).map((a) => a.id))
+      : new Set(ocr.pages.flatMap((p) => textBlocks(p).map((b) => b.id)).filter((id) => !t.blockTranslations[id]?.trim()));
+  if (!ids.size) return;
+  const job = beginJob(rt, "retry", [what === "bboxes" ? "bbox_annotate" : "block_translate"], true);
+  if (!job) return;
+  try {
+    if (what === "bboxes") {
+      const out = await describeBboxes(job.ctx, ocr, ids);
+      job.controller.signal.throwIfAborted();
+      const current = rt.getState().translation;
+      if (out && current?.id === t.id) {
+        const fresh = new Map(out.annotations.map((a) => [a.id, a]));
         rt.dispatch({
           type: "translation/patch",
           patch: {
-            originalData: original.data,
-            originalRawText: original.rawText,
-            originalUsage: original.usage,
-            originalViolations: original.violations,
+            bboxAnnotations: current.bboxAnnotations.map((a) => fresh.get(a.id) ?? a),
+            bboxUsage: addUsage(addUsage(emptyUsage(), current.bboxUsage), out.usage),
           },
         });
       }
-
-      // Follow-up stage: per-block translations for the bounding-box and OCR text views.
-      if (ocrText) {
-        const blocks = await blockTranslations(ctx, ocrText);
-        controller.signal.throwIfAborted();
-        if (blocks) rt.dispatch({ type: "translation/patch", patch: { blockTranslations: blocks.translations, blockUsage: blocks.usage } });
-      } else {
-        emit(onProgress, "block_translate", "skipped", "No text blocks (text input)");
+    } else {
+      const out = await blockTranslations(job.ctx, ocr, ids);
+      job.controller.signal.throwIfAborted();
+      const current = rt.getState().translation;
+      if (out && current?.id === t.id) {
+        rt.dispatch({
+          type: "translation/patch",
+          patch: {
+            blockTranslations: { ...current.blockTranslations, ...out.translations },
+            blockUsage: addUsage(addUsage(emptyUsage(), current.blockUsage), out.usage),
+          },
+        });
       }
     }
+    await saveTranslation(rt);
+    endJob(rt, job, jobTitle("retry"));
   } catch (err) {
-    if (controller.signal.aborted || (err instanceof ApiError && err.kind === "aborted")) {
-      // Cancelled by the user: nothing to report.
-    } else {
-      rt.dispatch({ type: "error/set", error: toAppError(err, jobTitle(kind)) });
-    }
-  } finally {
-    rt.dispatch({ type: "job/end" });
+    endJob(rt, job, jobTitle("retry"), err);
   }
 }
 
 function jobTitle(kind: JobKind): string {
-  return kind === "ocr" ? "OCR failed" : kind === "translate" ? "Translation failed" : "OCR + translation failed";
+  switch (kind) {
+    case "ocr":
+      return "OCR failed";
+    case "translate":
+      return "Translation failed";
+    case "both":
+      return "OCR + translation failed";
+    case "original":
+      return "Structured text in the original language failed";
+    case "retry":
+      return "Retry failed";
+  }
 }
 
 function toPipelineSettings(settings: Settings): PipelineSettings | { error: NonNullable<AppState["error"]> } {
@@ -443,6 +768,7 @@ function toPipelineSettings(settings: Settings): PipelineSettings | { error: Non
     targetLanguage: settings.targetLanguage,
     sourceLanguage: settings.sourceLanguage,
     domainHint: settings.domainHint,
+    glossary: settings.glossary,
   };
 }
 

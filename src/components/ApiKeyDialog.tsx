@@ -10,12 +10,15 @@ interface Props {
   /** Providers whose key is needed for the current settings. */
   required: ProviderId[];
   canClose: boolean;
+  /** Keys are kept in localStorage (true) or for this tab's session only. */
+  remember: boolean;
+  onRemember: (remember: boolean) => void;
   onProvider: (provider: ProviderId) => void;
   onSubmit: (keys: Partial<Record<ProviderId, string>>) => Promise<void>;
   onClose: () => void;
 }
 
-export function ApiKeyDialog({ keys, provider, required, canClose, onProvider, onSubmit, onClose }: Props) {
+export function ApiKeyDialog({ keys, provider, required, canClose, remember, onRemember, onProvider, onSubmit, onClose }: Props) {
   // OCR provider first, then the rest.
   const providers: ProviderId[] = [OCR_PROVIDER, ...PROVIDER_IDS.filter((p) => p !== OCR_PROVIDER)];
   const [values, setValues] = useState<Record<ProviderId, string>>(
@@ -54,8 +57,8 @@ export function ApiKeyDialog({ keys, provider, required, canClose, onProvider, o
       <form class="modal" role="dialog" aria-modal="true" aria-labelledby="key-title" onSubmit={submit}>
         <h2 id="key-title">API keys</h2>
         <p>
-          This app calls the providers' APIs directly from your browser. Keys are cached in this browser's local storage only
-          and are never sent anywhere else.
+          This app calls the providers' APIs directly from your browser. Keys stay in this browser and are never sent anywhere
+          but to the provider they belong to.
         </p>
         <label class="field">
           <span>Translate with</span>
@@ -103,6 +106,10 @@ export function ApiKeyDialog({ keys, provider, required, canClose, onProvider, o
         <label class="checkbox small">
           <input type="checkbox" checked={show} onChange={(e) => setShow((e.target as HTMLInputElement).checked)} />
           <span>Show keys</span>
+        </label>
+        <label class="checkbox small">
+          <input type="checkbox" checked={remember} onChange={(e) => onRemember((e.target as HTMLInputElement).checked)} />
+          <span>Remember keys in this browser (off: they are forgotten when this tab closes)</span>
         </label>
         <div class="modal-actions">
           {canClose && (

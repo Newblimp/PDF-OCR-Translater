@@ -1,3 +1,4 @@
+import { memo } from "preact/compat";
 import { useRef } from "preact/hooks";
 import { ACCEPT_ATTRIBUTE } from "@/lib/files/fileKind";
 import { formatBytes } from "@/lib/util/text";
@@ -15,7 +16,7 @@ interface Props {
 
 const KIND_LABEL = { pdf: "PDF", image: "Image", text: "Text" } as const;
 
-export function DocumentCard({ doc, ocr, busy, onPageSelection, onReplace, onRemove }: Props) {
+export const DocumentCard = memo(function DocumentCard({ doc, ocr, busy, onPageSelection, onReplace, onRemove }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const selection = parsePageSelection(doc.pageSelection, doc.pageCount);
   return (
@@ -56,7 +57,7 @@ export function DocumentCard({ doc, ocr, busy, onPageSelection, onReplace, onRem
       <div class="badge-row">
         {ocr && (
           <span class="badge badge-ok">
-            {ocr.source === "cache" ? "OCR result in local cache (use “Translate only” to reuse it)" : "OCR done"} · {ocr.text.pagesProcessed} page(s)
+            {ocr.source === "cache" ? "OCR result from this browser's cache (reused, no new OCR charge)" : "OCR done"} · {ocr.text.pagesProcessed} page(s)
             {ocr.text.bboxes.length ? ` · ${ocr.text.bboxes.length} bounding box(es)` : ""}
           </span>
         )}
@@ -104,4 +105,4 @@ export function DocumentCard({ doc, ocr, busy, onPageSelection, onReplace, onRem
       )}
     </div>
   );
-}
+});

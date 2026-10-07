@@ -1,12 +1,15 @@
-import type { JobKind } from "@/app/store";
+import { memo } from "preact/compat";
+import type { JobKind, SourceOrigin } from "@/app/store";
 
 interface Props {
   running: JobKind | null;
   canOcr: boolean;
   canTranslate: boolean;
-  translateSource: "ocr" | "textfile" | "pasted" | null;
+  translateSource: SourceOrigin | null;
   hasDocument: boolean;
-  onRun: (kind: JobKind) => void;
+  /** Token/cost estimate of the translation, when one can be made. */
+  estimate: string | null;
+  onRun: (kind: "ocr" | "translate" | "both") => void;
   onCancel: () => void;
 }
 
@@ -14,14 +17,16 @@ const SOURCE_LABEL = {
   ocr: "Translates the OCR text of the loaded document.",
   textfile: "Translates the text file.",
   pasted: "Translates the pasted text.",
+  saved: "Translates the source text of the reopened translation again.",
 } as const;
 
-export function ActionBar({ running, canOcr, canTranslate, translateSource, hasDocument, onRun, onCancel }: Props) {
+export const ActionBar = memo(function ActionBar({ running, canOcr, canTranslate, translateSource, hasDocument, estimate, onRun, onCancel }: Props) {
   const translateHint = translateSource
     ? SOURCE_LABEL[translateSource]
     : hasDocument
       ? "Run OCR first (or drop a text file / paste text) to enable translation."
       : "";
+  const label = translateSource === "saved" ? "Translate again" : "Translate only";
 
   return (
     <div class="action-bar">
@@ -39,7 +44,7 @@ export function ActionBar({ running, canOcr, canTranslate, translateSource, hasD
           title={translateHint}
           onClick={() => onRun("translate")}
         >
-          Translate only
+          {label}
         </button>
         {running && (
           <button type="button" class="btn btn-danger" onClick={onCancel}>
@@ -47,7 +52,8 @@ export function ActionBar({ running, canOcr, canTranslate, translateSource, hasD
           </button>
         )}
       </div>
-      {hasDocument && !running && <p class="muted small">{translateHint}</p>}
+      {(hasDocument || translateSource) && !running && <p class="muted small">{translateHint}</p>}
+      {estimate && !running && <p class="muted small estimate">{estimate}</p>}
     </div>
   );
-}
+});

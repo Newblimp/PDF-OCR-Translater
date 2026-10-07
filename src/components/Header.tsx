@@ -1,3 +1,4 @@
+import { memo } from "preact/compat";
 import { maskApiKey } from "@/lib/storage/apiKeys";
 import { PROVIDERS } from "@/lib/llm/registry";
 import type { ProviderId } from "@/lib/llm/provider";
@@ -23,7 +24,7 @@ const STATUS_LABEL: Record<KeyState["status"], string> = {
   invalid: "rejected",
 };
 
-export function Header({ keys, activeProvider, theme, onChangeKeys, onForgetKeys, onTheme }: Props) {
+export const Header = memo(function Header({ keys, activeProvider, theme, onChangeKeys, onForgetKeys, onTheme }: Props) {
   const shown: ProviderId[] = activeProvider === "mistral" ? ["mistral"] : ["mistral", activeProvider];
   const anyKey = shown.some((p) => keys[p].value);
   return (
@@ -60,4 +61,4 @@ export function Header({ keys, activeProvider, theme, onChangeKeys, onForgetKeys
       </div>
     </header>
   );
-}
+});

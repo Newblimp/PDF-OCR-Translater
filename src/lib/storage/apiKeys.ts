@@ -1,7 +1,8 @@
 /**
- * API key persistence, one key per provider. Keys are cached in localStorage
- * of this origin only, as requested; they are never embedded in the build or
- * sent anywhere except the provider's own API (see the CSP in public/_headers).
+ * API key persistence, one key per provider. Keys are kept in localStorage of
+ * this origin, or, when the user turns "Remember keys" off, in sessionStorage
+ * (gone when the tab closes). They are never embedded in the build or sent
+ * anywhere except the provider's own API (see the CSP in public/_headers).
  */
 import type { ProviderId } from "../llm/provider";
 
@@ -15,7 +16,7 @@ function storageKey(provider: ProviderId): string {
 
 export function loadApiKey(provider: ProviderId): string | null {
   try {
-    let value = localStorage.getItem(storageKey(provider));
+    let value = localStorage.getItem(storageKey(provider)) ?? sessionStorage.getItem(storageKey(provider));
     if (!value && provider === "mistral") {
       value = localStorage.getItem(LEGACY_MISTRAL_KEY);
       if (value) {
@@ -29,9 +30,12 @@ export function loadApiKey(provider: ProviderId): string | null {
   }
 }
 
-export function saveApiKey(provider: ProviderId, key: string): void {
+/** Store a key in localStorage (`remember`) or sessionStorage, removing it from the other. */
+export function saveApiKey(provider: ProviderId, key: string, remember = true): void {
   try {
-    localStorage.setItem(storageKey(provider), key.trim());
+    const [keep, drop] = remember ? [localStorage, sessionStorage] : [sessionStorage, localStorage];
+    keep.setItem(storageKey(provider), key.trim());
+    drop.removeItem(storageKey(provider));
   } catch {
     // Storage unavailable (private mode): the key lives in memory only.
   }
@@ -40,6 +44,7 @@ export function saveApiKey(provider: ProviderId, key: string): void {
 export function clearApiKey(provider: ProviderId): void {
   try {
     localStorage.removeItem(storageKey(provider));
+    sessionStorage.removeItem(storageKey(provider));
   } catch {
     // ignore
   }

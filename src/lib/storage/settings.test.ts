@@ -22,6 +22,19 @@ describe("settings persistence", () => {
   });
 });
 
+describe("newer settings", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("maps the old boolean structure-original setting onto the modes", () => {
+    localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ structureOriginal: true }));
+    expect(loadSettings().structureOriginal).toBe("on_demand");
+    localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ structureOriginal: false }));
+    expect(loadSettings().structureOriginal).toBe("never");
+    localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ structureOriginal: "always", glossary: 42, rememberKeys: "yes" }));
+    expect(loadSettings()).toMatchObject({ structureOriginal: "always", glossary: "", rememberKeys: true });
+  });
+});
+
 describe("model default migration", () => {
   beforeEach(() => localStorage.clear());
 
@@ -65,7 +78,7 @@ describe("settings v1 migration", () => {
     const settings = loadSettings();
     expect(settings.chatModels.mistral).toBe("mistral-medium-latest");
     expect(settings.chatModels.openai).toBe(DEFAULT_SETTINGS.chatModels.openai);
-    expect(settings.targetLanguage).toBe("English"); // French is not in the toggle
+    expect(settings.targetLanguage).toBe("French");
     expect(settings.domainHint).toBe("custom hint");
     expect(settings.schemaMode).toEqual({ kind: "custom", schemaText: "{\"type\":\"object\"}" });
     expect(settings.temperature).toBe(0.5);
@@ -88,5 +101,18 @@ describe("api key storage", () => {
     expect(loadApiKey("openai")).toBe("sk-x");
     clearApiKey("openai");
     expect(loadApiKey("openai")).toBeNull();
+  });
+
+  it("keeps a key for the session only when it should not be remembered, and moves it back", () => {
+    sessionStorage.clear();
+    saveApiKey("anthropic", "sk-ant", false);
+    expect(localStorage.getItem("pdf-ocr-translater.apiKey.anthropic")).toBeNull();
+    expect(sessionStorage.getItem("pdf-ocr-translater.apiKey.anthropic")).toBe("sk-ant");
+    expect(loadApiKey("anthropic")).toBe("sk-ant");
+    saveApiKey("anthropic", "sk-ant", true);
+    expect(localStorage.getItem("pdf-ocr-translater.apiKey.anthropic")).toBe("sk-ant");
+    expect(sessionStorage.getItem("pdf-ocr-translater.apiKey.anthropic")).toBeNull();
+    clearApiKey("anthropic");
+    expect(loadApiKey("anthropic")).toBeNull();
   });
 });
