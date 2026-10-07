@@ -209,8 +209,8 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   merges the results.
 - **Jobs that add to a translation** (original-language structure, retries)
   pass it to `beginJob(..., forTranslation)`: they run in its target
-  language, with its provider and model while that key is usable, ignore the
-  schema setting, and use the OCR result on screen only when it is the one
+  language (provider and model come from Settings, so a failing model can be
+  swapped), ignore the schema setting, and use the OCR result on screen only when it is the one
   the translation was made from (`ocrBelongsTo()` / `ocrOf()`; the retry
   buttons are hidden otherwise). The automatic original-language request
   fires once per translation (`originalRequested`), never while an error is

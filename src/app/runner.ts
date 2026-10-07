@@ -415,21 +415,20 @@ interface Job {
  * Check keys and settings and start a job in the store; null when it cannot
  * start (the reason is shown). `forTranslation` runs a job that adds to that
  * translation (original-language structure, retries) in its own target
- * language, and with its own provider and model while their key is usable,
- * whatever Settings say now; such jobs do not use the schema setting.
+ * language, whatever Settings say now, with the provider and model from
+ * Settings (so picking another model there recovers from a failing one);
+ * such jobs do not use the schema setting.
  */
 function beginJob(rt: Runtime, kind: JobKind, stages: StageId[], needsChat: boolean, forTranslation?: TranslationState): Job | null {
   const state = rt.getState();
   if (state.job) return null;
   let settings = state.settings;
   if (forTranslation) {
-    const own = usableKey(state.keys, forTranslation.provider) !== null;
     settings = {
       ...settings,
       targetLanguage: forTranslation.targetLanguage as Settings["targetLanguage"],
       // Its schema travels with the translation; an invalid custom schema in Settings must not block it.
       schemaMode: { kind: "infer" },
-      ...(own ? { provider: forTranslation.provider, chatModels: { ...settings.chatModels, [forTranslation.provider]: forTranslation.model } } : {}),
     };
   }
   const mistralKey = usableKey(state.keys, "mistral");
@@ -600,7 +599,6 @@ async function describeSource(state: AppState, text: string, origin: "ocr" | "te
  */
 async function runTranslation(rt: Runtime, job: Job, source: Source): Promise<void> {
   const { ctx, controller } = job;
-  const appSettings = rt.getState().settings;
   const warnings: string[] = [];
   const followUp = <T>(stage: StageId, label: string, task: Promise<T | null>): Promise<T | null> =>
     task.catch((err: unknown) => {
@@ -638,13 +636,14 @@ async function runTranslation(rt: Runtime, job: Job, source: Source): Promise<vo
       schemaWarnings: schema.warnings,
       usage: translation.usage,
       inferUsage: schema.inferred?.usage ?? null,
-      provider: appSettings.provider,
+      // What this job ran with (Settings may have changed while it ran).
+      provider: ctx.chat.id,
       model: translation.model,
       mode: translation.mode,
       violations: translation.violations,
       finishReason: translation.finishReason,
       partial: translation.partial,
-      targetLanguage: appSettings.targetLanguage,
+      targetLanguage: ctx.settings.targetLanguage,
       completedAt,
       sourceChars: source.text.length,
       imagesSent: translation.imagesSent,
