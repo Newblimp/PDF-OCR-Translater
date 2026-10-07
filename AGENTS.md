@@ -20,21 +20,32 @@ AI). Keep it current when you change the architecture.
   keys in the repo, in build-time env vars, or in URLs.
 - TypeScript everywhere, `strict` plus `exactOptionalPropertyTypes` and
   `noUncheckedIndexedAccess`. `npm run typecheck` must pass.
-- Responsiveness first: heavy libraries (pdf.js, marked/DOMPurify) are loaded
-  lazily; long lists use `content-visibility`; network calls are cancellable
-  via `AbortController`; the translation streams so progress is visible.
+- Responsiveness first: heavy libraries (pdf.js, marked/DOMPurify, the
+  Anthropic SDK) are loaded lazily; long lists use `content-visibility`;
+  network calls are cancellable via `AbortController`; the translation
+  streams so progress is visible.
 
 ## Stack
 
 - [Vite 8](https://vite.dev) + [Preact](https://preactjs.com) (React-compatible
   hooks, ~4 kB) + plain CSS with design tokens (`src/styles/global.css`).
-- No runtime dependency on the Mistral, OpenAI or Anthropic SDKs; the REST
-  calls are hand-written (`src/lib/mistral/client.ts`,
-  `src/lib/openai/client.ts`, `src/lib/anthropic/client.ts`) on a shared
-  fetch/error/SSE layer (`src/lib/http/`), with wire types derived from the
-  official SDKs. `apiFetch` sends `Authorization: Bearer` unless a client
-  names another key header (Anthropic: `x-api-key`, plus `anthropic-version`
-  and the `anthropic-dangerous-direct-browser-access` CORS opt-in).
+- Anthropic is called through the official
+  [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript)
+  (`src/lib/anthropic/client.ts`). It is imported on first use (its own
+  ~58 kB gzip chunk, so the initial bundle stays small), with the base URL
+  pinned to `https://api.anthropic.com`, the SDK's retries (2, with backoff)
+  and an explicit one-hour timeout (which also lifts the SDK's
+  "streaming required" guard for non-streaming 64k-token requests).
+  `dangerouslyAllowBrowser: true` sends the
+  `anthropic-dangerous-direct-browser-access` CORS opt-in; that is fine here
+  because the key is the user's own and stays in their browser, sent only to
+  the API. `toAnthropicApiError()` maps SDK errors onto `ApiError`. Use the
+  SDK's types (`Anthropic.MessageCreateParamsNonStreaming`, `Message`,
+  `ModelInfo`, ...); do not redefine them.
+- Mistral and OpenAI have no SDK dependency: their REST calls are
+  hand-written (`src/lib/mistral/client.ts`, `src/lib/openai/client.ts`) on a
+  shared fetch/error/SSE layer (`src/lib/http/`), with wire types derived
+  from the official SDKs.
 - Tests: Vitest for pure modules, Playwright for end-to-end flows against
   mocked Mistral, Anthropic and OpenAI APIs (`e2e/helpers.ts`; `chatStep()`
   tells the pipeline steps apart for every provider). CI runs both
@@ -54,7 +65,7 @@ src/
     BboxView.tsx               bounding boxes drawn over the rendered page
   lib/
     http/
-      apiFetch.ts              the one authenticated fetch + error mapping
+      apiFetch.ts              authenticated fetch + error mapping (Mistral, OpenAI)
       apiError.ts              ApiError (kind, provider, hint)
       sse.ts                   pure SSE parser
     llm/
@@ -68,8 +79,7 @@ src/
       types.ts                 request/response wire types (snake_case)
       models.ts                Mistral model ids, model-list filtering
     anthropic/
-      client.ts                Messages API + models REST client
-      types.ts                 wire types
+      client.ts                lazy-loaded official SDK client + SDK error → ApiError mapping
       models.ts                Claude model ids, default max_tokens, model-list filtering
     openai/
       client.ts                chat completions + models REST client
@@ -98,8 +108,9 @@ vite.config.ts                 Preact preset, pdf.js asset serving, _headers in 
 ```
 
 Data flow: `components → runner.ts → pipeline/* → llm/<provider> or
-mistral/client.ts (OCR) → http/apiFetch.ts`, with results dispatched back
-into `store.ts` and rendered by the components.
+mistral/client.ts (OCR) → http/apiFetch.ts` (Mistral, OpenAI) or the
+Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
+`store.ts` and rendered by the components.
 
 ## How to extend
 
@@ -157,8 +168,9 @@ into `store.ts` and rendered by the components.
   (4) add its host to the CSP in `public/_headers` and to the e2e mocks.
   Everything else (key storage, key dialog fields, header pills, settings
   model lists, `initialState`) iterates `PROVIDER_IDS` / `perProvider()`.
-- **Another API host or a proxy**: the clients take `baseUrl`; update the
-  CSP accordingly. This changes the privacy model, so document it.
+- **Another API host or a proxy**: the Mistral and OpenAI clients take
+  `baseUrl`, the Anthropic client pins `ANTHROPIC_BASE_URL`; update the CSP
+  accordingly. This changes the privacy model, so document it.
 - **Model line-up changes**: edit `src/lib/anthropic/models.ts`,
   `src/lib/openai/models.ts` or `src/lib/mistral/models.ts`. The translation-model dropdown lists whatever
   `/v1/models` returns (fallback list when it has not answered); the OCR-model
@@ -182,15 +194,19 @@ into `store.ts` and rendered by the components.
 
 - Wire types use the API's snake_case; app types use camelCase.
 - Errors thrown from the clients are `ApiError` with a `kind`, `provider` and
-  a user-facing `hint`; the runner converts anything else with `toAppError()`.
+  a user-facing `hint` (the Anthropic provider passes every SDK error through
+  `toAnthropicApiError()`); the runner converts anything else with
+  `toAppError()`.
 - OpenAI GPT-5.x and current Claude models reject `temperature`; those
   providers never send it. The reasoning effort is sent only to providers
   that support it (Anthropic maps "none" to `output_config.effort: "low"`).
-- The Anthropic provider reads only `text` blocks (adaptive thinking adds
-  `thinking` blocks first), maps `stop_reason` onto the pipeline's names
-  (`max_tokens` → "length", `refusal` → "content_filter", or an `ApiError`
-  of kind "refusal" when nothing was produced), and always sends
-  `max_tokens` (required by the API).
+- The Anthropic provider streams with `messages.stream()` (text deltas via
+  `on("text")`, result from `finalMessage()`), reads only `text` blocks
+  (adaptive thinking adds `thinking` blocks first), maps `stop_reason` onto
+  the pipeline's names (`max_tokens` and `model_context_window_exceeded` →
+  "length", `refusal` → "content_filter", or an `ApiError` of kind "refusal"
+  when nothing was produced), and always sends `max_tokens` (required by the
+  API).
 - `Runtime.getState()` (see `App.tsx`) mirrors the reducer synchronously, so
   code in `runner.ts` can read the state right after a `dispatch`. Async
   work that dispatches late must check it is still relevant (see

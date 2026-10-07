@@ -69,6 +69,7 @@ test("asks for both API keys once, verifies them and caches them in the browser"
   const anthropicModels = recorded.find((r) => r.host === "api.anthropic.com" && r.headers["x-api-key"] === ANTHROPIC_KEY)!;
   expect(anthropicModels.headers).toMatchObject({ "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" });
   expect(anthropicModels.headers).not.toHaveProperty("authorization");
+  expect(anthropicModels.url).toBe("https://api.anthropic.com/v1/models?limit=1000");
 
   await page.reload();
   await expect(page.getByRole("dialog")).toBeHidden();
@@ -498,7 +499,7 @@ test("fields can be hidden and shown individually and in bulk", async ({ page })
 
 test("the translation is shown live while it streams, even when another tab was active", async ({ page }) => {
   await installStreamingTranslationMock(page, 200, 8);
-  await setup(page);
+  const { recorded } = await setup(page);
   await enterKeys(page);
   await loadPdf(page);
   // "OCR only" leaves the OCR tab active; a following translation must still show its stream.
@@ -520,6 +521,8 @@ test("the translation is shown live while it streams, even when another tab was 
   await expect(panel).toBeHidden({ timeout: 20_000 });
   await expect(page.locator(".pipeline-strip")).toBeVisible();
   await expect(page.getByText("CN202310000001.2").first()).toBeVisible();
+  // The SDK used the patched window.fetch: the streamed request never reached the route mock.
+  expect(chatRequests(recorded).map(step)).not.toContain("translated_document");
 });
 
 test("cancelling during streaming stops cleanly", async ({ page }) => {

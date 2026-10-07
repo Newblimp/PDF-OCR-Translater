@@ -2,8 +2,8 @@
  * Anthropic model defaults for the translation step.
  * Model ids: https://platform.claude.com/docs/en/about-claude/models/overview
  */
+import type Anthropic from "@anthropic-ai/sdk";
 import type { ModelOption } from "../mistral/models";
-import type { ModelInfo } from "./types";
 
 /**
  * Claude Haiku 5.5: Anthropic's fastest, cheapest current model for
@@ -29,7 +29,7 @@ export const FALLBACK_ANTHROPIC_MODELS: ReadonlyArray<ModelOption> = [
 const EXCLUDED_ID = /^claude-(?:[0-3]|instant)|^claude-(?:sonnet|haiku)-4-5|^claude-(?:opus|sonnet)-4-(?:0|1|2\d{7})/;
 
 /** Keep the usable Claude models from /v1/models, Haiku first, otherwise newest first (the API's order). */
-export function anthropicModelOptions(models: ModelInfo[]): ModelOption[] {
+export function anthropicModelOptions(models: ReadonlyArray<Pick<Anthropic.ModelInfo, "id" | "display_name" | "max_input_tokens">>): ModelOption[] {
   const seen = new Set<string>();
   const options: ModelOption[] = [];
   for (const m of models) {

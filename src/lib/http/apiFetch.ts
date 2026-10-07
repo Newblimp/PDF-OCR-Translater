@@ -1,17 +1,15 @@
 /**
- * Minimal authenticated JSON fetch used by every API client, with uniform
- * error mapping. Keeping all outbound requests on this one function makes the
- * app's network surface auditable: grep for `apiFetch(` to see every call.
+ * Minimal authenticated JSON fetch used by the Mistral and OpenAI clients,
+ * with uniform error mapping. Anthropic goes through the official SDK instead
+ * (`src/lib/anthropic/client.ts`, pinned to https://api.anthropic.com), whose
+ * errors are mapped onto the same `ApiError`s. Together they are the app's
+ * whole network surface: grep for `apiFetch(` and `createAnthropicClient(`.
  */
-import { ApiError, type ApiErrorKind, type ApiProvider } from "./apiError";
+import { ApiError, kindForStatus, type ApiProvider } from "./apiError";
 
 export interface ApiFetchOptions {
   provider: ApiProvider;
   apiKey: string;
-  /** Header that carries the key; default `Authorization: Bearer <key>`. */
-  apiKeyHeader?: string;
-  /** Extra provider-specific headers (API version, CORS opt-in). */
-  headers?: Record<string, string>;
   method: "GET" | "POST";
   body?: string;
   signal?: AbortSignal | undefined;
@@ -21,8 +19,7 @@ export interface ApiFetchOptions {
 
 export async function apiFetch(url: string, options: ApiFetchOptions): Promise<Response> {
   const headers: Record<string, string> = {
-    ...options.headers,
-    ...(options.apiKeyHeader ? { [options.apiKeyHeader]: options.apiKey } : { Authorization: `Bearer ${options.apiKey}` }),
+    Authorization: `Bearer ${options.apiKey}`,
     Accept: options.accept ?? "application/json",
   };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
@@ -66,15 +63,7 @@ async function errorFromResponse(res: Response, provider: ApiProvider): Promise<
   } catch {
     // body could not be read
   }
-  const kind: ApiErrorKind =
-    res.status === 401 || res.status === 403
-      ? "auth"
-      : res.status === 429
-        ? "rate_limit"
-        : res.status >= 500
-          ? "server"
-          : "request";
-  return new ApiError(message, kind, provider, res.status, body);
+  return new ApiError(message, kindForStatus(res.status), provider, res.status, body);
 }
 
 /** Best-effort extraction of a human-readable message from an error payload. */

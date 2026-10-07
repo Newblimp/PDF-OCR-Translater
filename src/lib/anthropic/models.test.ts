@@ -16,7 +16,7 @@ describe("anthropicModelOptions", () => {
         ["claude-opus-4-1-20250805", "Claude Opus 4.1"],
         ["claude-opus-4-20250514", "Claude Opus 4"],
         ["claude-3-haiku-20240307", "Claude Haiku 3"],
-      ].map(([id, display_name]) => ({ type: "model" as const, id: id!, display_name: display_name!, created_at: "", max_input_tokens: 1_000_000 })),
+      ].map(([id, display_name]) => ({ id: id!, display_name: display_name!, max_input_tokens: 1_000_000 })),
     );
     expect(options.map((o) => o.id)).toEqual([
       "claude-haiku-5-5",

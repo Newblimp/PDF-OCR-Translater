@@ -140,6 +140,7 @@ All defaults live in code so they can be changed in one place:
 | Translation model | `claude-haiku-5-5` (Anthropic) / `gpt-6-luna` (OpenAI) / `mistral-large-latest` (Mistral); dropdown of the models from `/v1/models` | `src/lib/anthropic/models.ts`, `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
 | Reasoning effort (Anthropic, OpenAI) | `none` (Anthropic: effort `low`, its lowest) | Settings panel |
 | Max output tokens | provider default (Anthropic: 64k, the API requires a value) | Settings panel, `src/lib/anthropic/models.ts` |
+| Anthropic retries / timeout | 2 retries with backoff (the SDK's default) / 1 hour per request | `src/lib/anthropic/client.ts` |
 | Document annotation with images | on (first 8 boxes, `DOCUMENT_ANNOTATION_MAX_IMAGES`) | Settings panel, `src/lib/pipeline/runOcr.ts` |
 | BBox annotation | on, up to 20 boxes per run | Settings panel; format in `src/lib/pipeline/schemas/bboxAnnotation.ts` |
 | Block translations | on | Settings panel; `src/lib/pipeline/blockTranslate.ts` |
@@ -158,10 +159,19 @@ All defaults live in code so they can be changed in one place:
   long documents (hundreds of pages) would need a chunked strategy; the
   pipeline is structured so one can be added in `src/lib/pipeline/`.
 - The browser calls `api.mistral.ai`, `api.anthropic.com` and
-  `api.openai.com` directly, which relies on the APIs' CORS headers
-  (Anthropic requires the `anthropic-dangerous-direct-browser-access: true`
-  opt-in header, which the app sends). If a browser ever blocks a call, the
-  app reports it as a network error with a hint.
+  `api.openai.com` directly, which relies on the APIs' CORS headers. If a
+  browser ever blocks a call, the app reports it as a network error with a
+  hint.
+- Anthropic is called through Anthropic's official TypeScript SDK
+  (`@anthropic-ai/sdk`, bundled with the site and loaded the first time it is
+  needed) with its browser opt-in, `dangerouslyAllowBrowser`, which sends the
+  `anthropic-dangerous-direct-browser-access: true` header. The SDK warns
+  about browser use because a key shipped inside a website would leak; here
+  the key is your own, typed into your browser and sent only to
+  `api.anthropic.com`. Rate-limited (429) and overloaded or failing (5xx)
+  requests, and connections that fail before a response arrives, are retried
+  twice with backoff; an error after the answer has started arriving (for
+  example in the middle of a streamed translation) is reported straight away.
 - GPT-5.x and current Claude models do not accept a custom `temperature`;
   the app never sends one to OpenAI or Anthropic. The reasoning effort
   defaults to `none` (OpenAI `reasoning_effort`; Anthropic

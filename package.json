@@ -18,6 +18,7 @@
     "node": ">=22.13.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.0",
     "dompurify": "^3.4.15",
     "marked": "^18.0.13",
     "pdfjs-dist": "^6.3.289",

@@ -111,7 +111,7 @@ export default defineConfig({
   build: {
     target: "es2022",
     sourcemap: false,
-    // pdf.js and the Markdown renderer are imported lazily, so the bundler
-    // already emits them as separate chunks loaded on demand.
+    // pdf.js, the Markdown renderer and the Anthropic SDK are imported lazily,
+    // so the bundler already emits them as separate chunks loaded on demand.
   },
 });

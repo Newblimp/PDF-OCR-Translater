@@ -362,7 +362,10 @@ function anthropicMessage(route: Route, body: Record<string, unknown> | null) {
  * Make the translation request truly stream inside the browser: patches
  * `window.fetch` so the streamed Anthropic message arrives as SSE frames with
  * a delay between them. Playwright's `route.fulfill` delivers bodies at once,
- * so this is the only way to exercise the live-streaming UI.
+ * so this is the only way to exercise the live-streaming UI. The Anthropic
+ * SDK uses the patched function because it takes the global `fetch` when a
+ * client is created (after this init script ran); the signal it passes is
+ * the SDK's own, aborted when the app cancels.
  */
 export async function installStreamingTranslationMock(page: Page, delayMs = 150, chunks = 8): Promise<void> {
   // Frames are token-sized so several land inside one throttle window; the stream honours AbortSignal.

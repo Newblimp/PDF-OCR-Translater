@@ -16,6 +16,13 @@ export type ApiProvider = "anthropic" | "mistral" | "openai";
 
 const PROVIDER_NAMES: Record<ApiProvider, string> = { anthropic: "Anthropic", mistral: "Mistral", openai: "OpenAI" };
 
+/** The kind of an HTTP error response (used by `apiFetch` and the Anthropic SDK error mapping). */
+export function kindForStatus(status: number): ApiErrorKind {
+  if (status === 401 || status === 403) return "auth";
+  if (status === 429) return "rate_limit";
+  return status >= 500 ? "server" : "request";
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
