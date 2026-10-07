@@ -47,17 +47,43 @@ describe("annotateBboxes", () => {
   it("stops scheduling boxes after a systematic error and fails fast on auth errors", async () => {
     const { ApiError } = await import("../http/apiError");
     let calls = 0;
-    const rateLimited = fakeProvider(() => {
+    const unsupported = fakeProvider(() => {
       calls++;
-      throw new ApiError("HTTP 429", "rate_limit", "openai", 429);
+      throw new ApiError("HTTP 400: Unsupported parameter: images", "request", "openai", 400);
     });
-    const out = await annotateBboxes(rateLimited, ocr, { ...base, concurrency: 1 });
+    const out = await annotateBboxes(unsupported, ocr, { ...base, concurrency: 1 });
     expect(calls).toBe(1);
     expect(out.annotations.every((a) => a.error)).toBe(true);
+    expect(out.annotations[1]?.error).toMatch(/Skipped after a systematic error/);
     const unauthorized = fakeProvider(() => {
       throw new ApiError("HTTP 401", "auth", "openai", 401);
     });
     await expect(annotateBboxes(unauthorized, ocr, { ...base })).rejects.toMatchObject({ kind: "auth" });
+  });
+
+  it("tolerates one rate-limited box (the client already retried) but stops after the second", async () => {
+    const { ApiError } = await import("../http/apiError");
+    const many: OcrText = { ...ocr, bboxes: ["a", "b", "c", "d"].map((id) => ({ ...ocr.bboxes[0]!, id })) };
+    let calls = 0;
+    const provider = fakeProvider(() => {
+      calls++;
+      if (calls === 1 || calls === 3) throw new ApiError("HTTP 429", "rate_limit", "openai", 429);
+      return JSON.stringify({ image_type: "stamp", short_description: "d", summary: "s", text_in_image: "", text_translated: "" });
+    });
+    const out = await annotateBboxes(provider, many, { ...base, concurrency: 1 });
+    expect(calls).toBe(3);
+    expect(out.annotations.map((a) => (a.data ? "ok" : "error"))).toEqual(["error", "ok", "error", "error"]);
+  });
+
+  it("describes only the requested boxes when retrying, ignoring the limit", async () => {
+    const seen: string[] = [];
+    const provider = fakeProvider((req) => {
+      seen.push(req.images?.[0]?.id ?? "");
+      return JSON.stringify({ image_type: "stamp", short_description: "d", summary: "s", text_in_image: "", text_translated: "" });
+    });
+    const out = await annotateBboxes(provider, ocr, { ...base, maxBoxes: 0, onlyIds: new Set(["b"]) });
+    expect(seen).toEqual(["b"]);
+    expect(out.annotations.map((a) => a.id)).toEqual(["b"]);
   });
 
   it("explains a zero limit instead of claiming there are no images", async () => {

@@ -1,3 +1,4 @@
+import { memo } from "preact/compat";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { getPageRenderer } from "@/lib/files/pageRenderCache";
 import type { OcrBlock } from "@/lib/mistral/types";
@@ -43,7 +44,7 @@ type Selected = { kind: "bbox"; bbox: OcrBbox } | { kind: "block"; block: OcrBlo
  * translation and original text, or the cropped image and the vision
  * model's description.
  */
-export function BboxView({ doc, ocr, annotations, blockTranslations }: Props) {
+export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTranslations }: Props) {
   const pages = ocr.pages;
   const [position, setPosition] = useState(0); // index into `pages` (which may be a subset of the document)
   const [showBlocks, setShowBlocks] = useState(true);
@@ -60,9 +61,12 @@ export function BboxView({ doc, ocr, annotations, blockTranslations }: Props) {
   const annotationById = useMemo(() => new Map(annotations.map((a) => [a.id, a])), [annotations]);
 
   // One renderer per document; it keeps the PDF open and pre-renders pages in the background.
+  // An image document waits for its preview URL, which the renderer shows as the page.
+  const imageUrl = doc?.kind === "image" ? (doc.previews[0] ?? null) : null;
   const renderer = useMemo(
-    () => (doc ? getPageRenderer(doc.id, doc.file, doc.kind === "image" ? "image" : "pdf", doc.previews[0] ?? null, RENDER_WIDTH) : null),
-    [doc],
+    () => (doc && (doc.kind !== "image" || imageUrl) ? getPageRenderer(doc.id, doc.file, doc.kind === "image" ? "image" : "pdf", imageUrl, RENDER_WIDTH) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one renderer per document id; the file never changes for an id
+    [doc?.id, imageUrl],
   );
 
   useEffect(() => {
@@ -239,7 +243,7 @@ export function BboxView({ doc, ocr, annotations, blockTranslations }: Props) {
       </div>
     </div>
   );
-}
+});
 
 function BlockDetails({ block, translation, hasTranslations }: { block: OcrBlock; translation: string | null; hasTranslations: boolean }) {
   return (

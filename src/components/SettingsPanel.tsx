@@ -1,10 +1,13 @@
+import { memo } from "preact/compat";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ProviderId, ReasoningEffort } from "@/lib/llm/provider";
 import { PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
 import { OCR_MODELS, type ModelOption } from "@/lib/mistral/models";
 import { BUILTIN_SCHEMAS } from "@/lib/pipeline/schemas";
+import type { StructureOriginalMode } from "@/lib/pipeline/pipeline";
+import { parseGlossary } from "@/lib/pipeline/prompts";
 import { clearOcrCache } from "@/lib/storage/ocrCache";
-import { DEFAULT_SETTINGS, TARGET_LANGUAGES, type Settings, type TargetLanguage } from "@/lib/storage/settings";
+import { DEFAULT_SETTINGS, QUICK_TARGET_LANGUAGES, TARGET_LANGUAGES, type Settings, type TargetLanguage } from "@/lib/storage/settings";
 import { prettyJson } from "@/lib/util/json";
 
 interface Props {
@@ -16,6 +19,12 @@ interface Props {
 }
 
 const EFFORTS: ReasoningEffort[] = ["none", "low", "medium", "high"];
+
+const STRUCTURE_ORIGINAL: Array<{ value: StructureOriginalMode; label: string }> = [
+  { value: "on_demand", label: "When “Show translation” is switched off (one extra call, only if needed)" },
+  { value: "always", label: "After every translation (one extra call per run)" },
+  { value: "never", label: "Never" },
+];
 
 interface DraftProps {
   value: string;
@@ -69,7 +78,7 @@ function DraftText({ value, onCommit, fallback, rows, ...rest }: DraftProps) {
   );
 }
 
-export function SettingsPanel({ settings, models, open, onToggle, onChange }: Props) {
+export const SettingsPanel = memo(function SettingsPanel({ settings, models, open, onToggle, onChange }: Props) {
   const provider = PROVIDERS[settings.provider];
   const chatModel = settings.chatModels[settings.provider];
   const options = models[settings.provider].length ? models[settings.provider] : provider.fallbackModels;
@@ -91,19 +100,32 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
       <div class="settings-grid">
         <div class="field field-wide">
           <span>Target language</span>
-          <div class="segmented" role="radiogroup" aria-label="Target language">
-            {TARGET_LANGUAGES.map((lang) => (
-              <button
-                key={lang}
-                type="button"
-                role="radio"
-                aria-checked={settings.targetLanguage === lang}
-                class={`segment${settings.targetLanguage === lang ? " segment-active" : ""}`}
-                onClick={() => onChange({ targetLanguage: lang as TargetLanguage })}
-              >
-                {lang}
-              </button>
-            ))}
+          <div class="btn-row">
+            <div class="segmented" role="radiogroup" aria-label="Target language">
+              {QUICK_TARGET_LANGUAGES.map((lang) => (
+                <button
+                  key={lang}
+                  type="button"
+                  role="radio"
+                  aria-checked={settings.targetLanguage === lang}
+                  class={`segment${settings.targetLanguage === lang ? " segment-active" : ""}`}
+                  onClick={() => onChange({ targetLanguage: lang })}
+                >
+                  {lang}
+                </button>
+              ))}
+            </div>
+            <select
+              aria-label="Other target language"
+              value={settings.targetLanguage}
+              onChange={(e) => onChange({ targetLanguage: (e.target as HTMLSelectElement).value as TargetLanguage })}
+            >
+              {TARGET_LANGUAGES.map((lang) => (
+                <option key={lang} value={lang}>
+                  {lang}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -316,17 +338,6 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
           <label class="checkbox">
             <input
               type="checkbox"
-              checked={settings.structureOriginal}
-              onChange={(e) => onChange({ structureOriginal: (e.target as HTMLInputElement).checked })}
-            />
-            <span>
-              Structured text in the original language: fill the same JSON format a second time without translating, so the Structured text
-              tab can also show the document's own wording (one extra model call per run).
-            </span>
-          </label>
-          <label class="checkbox">
-            <input
-              type="checkbox"
               checked={settings.blockTranslations}
               onChange={(e) => onChange({ blockTranslations: (e.target as HTMLInputElement).checked })}
             />
@@ -339,15 +350,59 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
             <input type="checkbox" checked={settings.cacheOcr} onChange={(e) => onChange({ cacheOcr: (e.target as HTMLInputElement).checked })} />
             <span>Keep OCR results in this browser so the same file is not OCR'd twice</span>
           </label>
+          <label class="checkbox">
+            <input
+              type="checkbox"
+              checked={settings.saveTranslations}
+              onChange={(e) => onChange({ saveTranslations: (e.target as HTMLInputElement).checked })}
+            />
+            <span>Keep translations in this browser (“Recent translations”; reopened automatically when the same document is loaded)</span>
+          </label>
           <div class="btn-row">
             <button type="button" class="btn btn-ghost small" onClick={() => void clearOcrCache()}>
               Clear local OCR cache
             </button>
-            <button type="button" class="btn btn-ghost small" onClick={() => onChange({ ...structuredClone(DEFAULT_SETTINGS), theme: settings.theme })}>
+            <button type="button" class="btn btn-ghost small" onClick={() => onChange({ ...structuredClone(DEFAULT_SETTINGS), theme: settings.theme, rememberKeys: settings.rememberKeys })}>
               Reset to defaults
             </button>
           </div>
         </div>
+
+        <label class="field field-wide">
+          <span>Structured text in the original language</span>
+          <select
+            value={settings.structureOriginal}
+            onChange={(e) => onChange({ structureOriginal: (e.target as HTMLSelectElement).value as StructureOriginalMode })}
+          >
+            {STRUCTURE_ORIGINAL.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <span class="muted small">
+            Fills the same JSON format without translating, so the Structured text tab can show the document's own wording. It reads the
+            document from the prompt cache when it runs soon after the translation.
+          </span>
+        </label>
+
+        <label class="field field-wide">
+          <span>Glossary (optional)</span>
+          <DraftText
+            rows={4}
+            class="code-area"
+            spellcheck={false}
+            value={settings.glossary}
+            placeholder={"One term per line: source = target\n审查员 = examiner\n驳回 = rejection"}
+            aria-label="Glossary"
+            onCommit={(glossary) => onChange({ glossary })}
+          />
+          <span class="muted small">
+            {parseGlossary(settings.glossary).length
+              ? `${parseGlossary(settings.glossary).length} term(s) the translation must use.`
+              : "Required translations of specific terms, sent with every translation call."}
+          </span>
+        </label>
 
         <label class="field field-wide">
           <span>Document family hint (shown to the model)</span>
@@ -356,4 +411,4 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
       </div>
     </details>
   );
-}
+});

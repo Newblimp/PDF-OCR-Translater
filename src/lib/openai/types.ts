@@ -40,6 +40,8 @@ export interface Usage {
   completion_tokens?: number;
   total_tokens?: number;
   completion_tokens_details?: { reasoning_tokens?: number } | null;
+  /** Prompt tokens served from OpenAI's automatic prompt cache. */
+  prompt_tokens_details?: { cached_tokens?: number } | null;
 }
 
 export type FinishReason = "stop" | "length" | "content_filter" | "tool_calls" | string;

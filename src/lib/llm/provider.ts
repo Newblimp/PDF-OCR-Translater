@@ -25,9 +25,18 @@ export interface AttachedImage {
 export interface JsonChatRequest {
   model: string;
   system: string;
+  /**
+   * Shared document context, placed first in the user message (before the
+   * images). Requests that send the same `system`, `context` and `images`
+   * share a prompt prefix the provider can cache; the task goes in `user`.
+   */
+  context?: string | undefined;
+  /** The task, placed last in the user message (after the context and the images). */
   user: string;
-  /** Images appended to the user message (vision models). Omitted when empty. */
+  /** Images placed after the context and before the task (vision models). Omitted when empty. */
   images?: AttachedImage[] | undefined;
+  /** Mark the shared prefix (system, context, images) for prompt caching where the API needs it (Anthropic). */
+  cachePrefix?: boolean | undefined;
   format: JsonFormat;
   stream: boolean;
   /** Sampling temperature; providers that do not support it ignore it. */
@@ -45,6 +54,25 @@ export interface TokenUsage {
   completion_tokens?: number | undefined;
   total_tokens?: number | undefined;
   reasoning_tokens?: number | undefined;
+  /** Prompt tokens served from the provider's prompt cache (included in `prompt_tokens`). */
+  cache_read_tokens?: number | undefined;
+  /** Prompt tokens written to the prompt cache (Anthropic; included in `prompt_tokens`). */
+  cache_write_tokens?: number | undefined;
+}
+
+/** Add `add` to `total` in place (missing counts count as 0); returns `total`. */
+export function addUsage(total: TokenUsage, add: TokenUsage | null | undefined): TokenUsage {
+  if (!add) return total;
+  for (const key of ["prompt_tokens", "completion_tokens", "total_tokens", "reasoning_tokens", "cache_read_tokens", "cache_write_tokens"] as const) {
+    const value = add[key];
+    if (value !== undefined) total[key] = (total[key] ?? 0) + value;
+  }
+  return total;
+}
+
+/** A fresh usage record with the three main counts at zero. */
+export function emptyUsage(): TokenUsage {
+  return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 }
 
 export interface JsonChatResult {

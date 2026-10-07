@@ -16,14 +16,17 @@ AI). Keep it current when you change the architecture.
   this with a CSP (`connect-src 'self' https://api.mistral.ai https://api.anthropic.com https://api.openai.com`).
   Do not add Cloudflare Pages Functions, proxies, or remote fonts/scripts
   without an explicit product decision.
-- API keys are stored in `localStorage` only (one per provider). Never put
-  keys in the repo, in build-time env vars, or in URLs.
+- API keys are stored in `localStorage` (or `sessionStorage` when the user
+  turns "Remember keys" off), one per provider. Never put keys in the repo,
+  in build-time env vars, or in URLs.
 - TypeScript everywhere, `strict` plus `exactOptionalPropertyTypes` and
   `noUncheckedIndexedAccess`. `npm run typecheck` must pass.
 - Responsiveness first: heavy libraries (pdf.js, marked/DOMPurify, the
   Anthropic SDK) are loaded lazily; long lists use `content-visibility`;
   network calls are cancellable via `AbortController`; the translation
-  streams so progress is visible.
+  streams so progress is visible; independent stages run concurrently;
+  components are memoised with stable handlers so streaming does not
+  re-render the whole app.
 
 ## Stack
 
@@ -44,12 +47,14 @@ AI). Keep it current when you change the architecture.
   `ModelInfo`, ...); do not redefine them.
 - Mistral and OpenAI have no SDK dependency: their REST calls are
   hand-written (`src/lib/mistral/client.ts`, `src/lib/openai/client.ts`) on a
-  shared fetch/error/SSE layer (`src/lib/http/`), with wire types derived
-  from the official SDKs.
+  shared fetch/error/SSE layer (`src/lib/http/`: `apiFetch` with the SDK's
+  retry policy, `readChatStream` for their common streaming format), with
+  wire types derived from the official SDKs.
 - Tests: Vitest for pure modules, Playwright for end-to-end flows against
   mocked Mistral, Anthropic and OpenAI APIs (`e2e/helpers.ts`; `chatStep()`
-  tells the pipeline steps apart for every provider). CI runs both
-  (`.github/workflows/ci.yml`).
+  tells the pipeline steps apart for every provider). ESLint
+  (`eslint.config.js`: typescript-eslint, React hooks rules, floating
+  promises). CI runs all of them (`.github/workflows/ci.yml`).
 
 ## Code map
 
@@ -60,16 +65,20 @@ src/
     App.tsx                    layout + wiring of components to the store
     store.ts                   AppState, Action union, reducer, selectors
     runner.ts                  side effects: load document, verify key, run jobs
-  components/                  presentational Preact components
+  components/                  presentational Preact components (memoised; handlers come from App, created once)
     JsonBrowser/               browsable view of the translated JSON
     BboxView.tsx               bounding boxes drawn over the rendered page
+    HistoryPanel.tsx           "Recent translations" (saved in IndexedDB)
   lib/
     http/
-      apiFetch.ts              authenticated fetch + error mapping (Mistral, OpenAI)
-      apiError.ts              ApiError (kind, provider, hint)
+      apiFetch.ts              authenticated fetch + error mapping + retries with backoff (Mistral, OpenAI)
+      apiError.ts              ApiError (kind, provider, hint); permanent / image rejection checks
       sse.ts                   pure SSE parser
+      chatStream.ts            streamed Chat Completions reader shared by Mistral and OpenAI
     llm/
-      provider.ts              ChatProvider interface (JSON completions)
+      provider.ts              ChatProvider interface (JSON completions), token usage helpers
+      content.ts               user message order shared by the providers: context, images, task
+      pricing.ts               list prices for the cost estimate
       anthropicProvider.ts     Anthropic implementation (Claude Haiku 5.5, the default)
       openaiProvider.ts        OpenAI implementation (GPT Luna)
       mistralProvider.ts       Mistral implementation
@@ -95,12 +104,18 @@ src/
       schemas/                 built-in schemas (registry in index.ts)
       prompts.ts               all prompt text
       translate.ts             text + first 8 bbox images + schema → JSON (document annotation);
-                               fallbacks: without images → non-streaming → json_object
-      pipeline.ts              ocrOnly / translateText / ocrAndTranslate
+                               fallbacks: without images → non-streaming → json_object; keeps truncated output
+      chunks.ts                long documents: split along pages/paragraphs, merge the parts' JSON
+      pipeline.ts              the stages: ocrOnly, resolveSchema, describeBboxes, translateDocument,
+                               structureOriginal, blockTranslations (composed by app/runner.ts)
+      estimate.ts              token / cost estimate shown before a run
       events.ts                progress events shared by the steps
-    files/                     hashing, data-URL encoding, pdf.js preview, page render cache, file kinds
-    storage/                   localStorage (keys, settings, theme), IndexedDB OCR cache
-    util/                      JSON extraction, partial-JSON parser for streaming, page selection, text helpers
+    export/bilingual.ts        bilingual HTML export (translation next to the original)
+    markdown.ts                lazy marked + DOMPurify renderers (app view; export without remote resources)
+    files/                     hashing, data-URL encoding, pdf.js preview (WebP object URLs), page render cache, file kinds
+    storage/                   localStorage/sessionStorage (keys, settings, theme); IndexedDB (db.ts):
+                               OCR cache (ocrCache.ts), saved translations (history.ts)
+    util/                      JSON extraction, partial-JSON parser for streaming, page selection, text helpers, worker pool
   styles/global.css
 e2e/                           Playwright specs + API mock
 public/_headers                Cloudflare Pages headers (CSP etc.)
@@ -117,16 +132,29 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 - **New document family / schema**: add a file under
   `src/lib/pipeline/schemas/` and register it in `schemas/index.ts`. Adjust
   `DEFAULT_DOMAIN_HINT` in `prompts.ts` if the default should change.
-- **Prompt tuning**: only `src/lib/pipeline/prompts.ts`. Both prompts must keep
-  the word "JSON" (required by Mistral's `json_object` mode).
-- **New pipeline step** (e.g. chunked translation for very long documents,
-  glossary enforcement, a review pass): add a module in `src/lib/pipeline/`,
-  emit progress with `emit()` from `events.ts` (add a `StageId` if needed),
-  and compose it in `pipeline.ts`. Then surface results through a new field in
-  `AppState` and a component.
-- **Annotation workflow** (`pipeline.translateText()`): mirrors Mistral's
+- **Prompt tuning**: only `src/lib/pipeline/prompts.ts`. Prompts must keep
+  the word "JSON" (required by Mistral's `json_object` mode). The document
+  calls share `documentSystemPrompt()` (settings only, never the document or
+  the task) and put `documentContext()` (the document) and the images first,
+  the task (`*Instruction()`, with the schema) last: keep anything that varies
+  between the calls of a run out of the system prompt and the context, or
+  the prompt cache stops hitting (`JsonChatRequest.cachePrefix` puts the
+  Anthropic breakpoint on the last shared block). Schema inference sets no
+  breakpoint: the translation adds a structured-output format (and usually
+  images), so it cannot read that prefix back.
+- **New pipeline step** (e.g. a review pass): add a module in
+  `src/lib/pipeline/`, emit progress with `emit()` from `events.ts` (add a
+  `StageId` if needed), expose it from `pipeline.ts`, and compose it in
+  `runner.ts` (`runTranslation()`; add it to `translationStages()` so the job
+  status lists it). A step after the translation should go through
+  `followUp()` so its failure becomes a warning on the result rather than a
+  failed job. Then surface results through a new field in `AppState` and a
+  component.
+- **Annotation workflow** (`runner.runTranslation()`): mirrors Mistral's
   Document AI annotations with the vision LLM swapped for the selected chat
-  provider. `bboxAnnotate.ts` describes each `OcrText.bboxes` entry that has
+  provider. Schema first; then `describeBboxes()` runs alongside
+  `translateDocument()` (the annotations do not feed the translation); then
+  the follow-ups side by side. `bboxAnnotate.ts` describes each `OcrText.bboxes` entry that has
   an image (stage `bbox_annotate`); `translate.ts` attaches the first
   `DOCUMENT_ANNOTATION_MAX_IMAGES` box images to the user message
   (`JsonChatRequest.images`, rendered as `image_url` parts by each provider).
@@ -139,12 +167,15 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   switch rendered in several toolbars) decides whether the OCR text, the
   structured text and the raw JSON are shown translated or in the document's
   own language.
-- **Structured text in the original language**: after `translation/set` the
-  runner calls `pipeline.structureOriginal()` (stage `structure_original`,
-  `translateStructured(..., target: "original")` with the same schema and bbox
-  images, non-streaming) and patches `TranslationState.originalData`. Without
-  it (setting off, or an older run) the tab falls back to the translation and
-  says so.
+- **Structured text in the original language**: `pipeline.structureOriginal()`
+  (stage `structure_original`, `translateStructured(..., target: "original")`
+  with the same schema and bbox images, non-streaming) patches
+  `TranslationState.originalData`. `Settings.structureOriginal` decides when:
+  `"on_demand"` (default) runs it once per translation when the Structured
+  text or Raw JSON tab is shown with "Show translation" off
+  (`runner.ensureOriginalStructure()`, job kind `"original"`), `"always"`
+  runs it as a follow-up of every translation, `"never"` not at all. Without
+  it the tab falls back to the translation and says so.
 - **Block translations**: after `translation/set`, the runner runs
   `pipeline.blockTranslations()` (stage `block_translate`, batches of OCR
   blocks as JSON) and patches `TranslationState.blockTranslations`;
@@ -158,8 +189,33 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `util/pageSelection.ts` into the OCR API's 0-based `pages`; the OCR cache
   key includes it.
 - **Live streaming**: `translate.ts` emits `streamText` on progress events
-  (throttled); the store keeps it in `job.streamText`; `ResultsPanel`'s
-  `StreamingView` renders it through `util/partialJson.ts`.
+  (throttled); the store keeps it in `job.streamText` (cleared when the
+  translation is set, so the follow-ups run under the finished result);
+  `ResultsPanel`'s `StreamingView` renders it through `util/partialJson.ts`.
+  For a document in parts, `pipeline.ts` merges the finished parts into the
+  stream text.
+- **Long documents**: `chunks.splitDocument()` splits above
+  `TRANSLATION_CHUNK_TOKENS` along OCR pages (or paragraphs for text input);
+  `fillStructure()` in `pipeline.ts` fills each part (with that part's
+  images) and merges with `mergeStructured()`.
+- **Saved translations**: `storage/history.ts` keeps `TranslationState`s
+  (with `sourceText`, `sourceHash`, `ocrKey`) in IndexedDB; the runner saves
+  after every job that changed the translation, restores the newest one when
+  the same document (and cached OCR result) is loaded, and reopens entries
+  from `HistoryPanel`. Bump `HISTORY_VERSION` when `TranslationState`
+  changes shape incompatibly.
+- **Retries of failed parts**: `runner.retryFailed()` (job kind `"retry"`)
+  re-runs `describeBboxes()` / `blockTranslations()` with `onlyIds` and
+  merges the results.
+- **Jobs that add to a translation** (original-language structure, retries)
+  pass it to `beginJob(..., forTranslation)`: they run in its target
+  language (provider and model come from Settings, so a failing model can be
+  swapped), ignore the schema setting, and use the OCR result on screen only when it is the one
+  the translation was made from (`ocrBelongsTo()` / `ocrOf()`; the retry
+  buttons are hidden otherwise). The automatic original-language request
+  fires once per translation (`originalRequested`), never while an error is
+  shown, and not after the job that produced the translation was cancelled
+  or failed.
 - **Another translation provider**: (1) widen the `ApiProvider` union in
   `src/lib/http/apiError.ts` (it is the `ProviderId` type); (2) implement
   `ChatProvider` (`src/lib/llm/provider.ts`) on a client in `src/lib/<name>/`;
@@ -180,7 +236,10 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `MODEL_DEFAULT_MIGRATIONS` in `src/lib/storage/settings.ts` so saved
   choices move over once.
 - **More target languages**: extend `TARGET_LANGUAGES` in
-  `src/lib/storage/settings.ts`; the toggle renders from it.
+  `src/lib/storage/settings.ts`; the dropdown renders from it and
+  `QUICK_TARGET_LANGUAGES` picks the one-click buttons.
+- **Prices for the estimate**: `src/lib/llm/pricing.ts`; models without an
+  entry get a token estimate only.
 - **Theme / visual style**: shared with github.com/Newblimp/refcheck (Gruvbox
   dark default, warm high-contrast light, system font stacks, orange accent,
   uppercase letter-spaced section labels, dot chips). Tokens keep refcheck's
@@ -210,18 +269,29 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 - `Runtime.getState()` (see `App.tsx`) mirrors the reducer synchronously, so
   code in `runner.ts` can read the state right after a `dispatch`. Async
   work that dispatches late must check it is still relevant (see
-  `verifyAndSaveApiKey`, `loadDocument`).
+  `verifyAndSaveApiKey`, `loadDocument`, the `translation.id` checks in
+  `retryFailed`).
+- Components that receive callbacks get them from the `on` / `results`
+  objects in `App.tsx`, created once: an inline arrow function as a prop
+  defeats `memo()` and re-renders the subtree on every streaming update.
+- Page images and previews are object URLs: whoever creates one revokes it
+  (`releaseDocument()` in the runner, `dispose()` in `pageRenderCache.ts`).
 - Settings text inputs use `DraftText` (commit on blur/Enter) so unrelated
   re-renders do not clobber typing.
 - `public/theme-init.js` applies the saved theme before the first paint; it
   reads the same localStorage key as `storage/settings.ts` (keep in sync).
 - Anything reaching the DOM from the model goes through `MarkdownText`
-  (marked + DOMPurify) or is rendered as text. Never inject raw HTML.
+  (marked + DOMPurify) or is rendered as text. Never inject raw HTML. Files
+  the app writes (the bilingual export) get no CSP from `public/_headers`:
+  they must not reference anything outside themselves, so they render
+  Markdown with `loadExportMarkdownRenderer()` (a separate DOMPurify instance
+  whose hook drops non-`data:` src/srcset/background/... attributes) and
+  carry their own CSP meta tag.
 - Keep `README.md` (user-facing) and this file (developer-facing) in sync
   with behaviour changes.
 
 ## Checks before you push
 
 ```bash
-npm run typecheck && npm test && npm run e2e && npm run build
+npm run typecheck && npm run lint && npm test && npm run e2e && npm run build
 ```

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ANTHROPIC_KEY, chatStep, installStreamingTranslationMock, makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY, systemPrompt, type RecordedRequest } from "./helpers";
+import { ANTHROPIC_KEY, chatStep, installStreamingTranslationMock, jsonBody, makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY, systemPrompt, type RecordedRequest } from "./helpers";
 
 const APP_HOST = "localhost:4173";
 const ALLOWED_HOSTS = new Set([APP_HOST, "api.mistral.ai", "api.anthropic.com", "api.openai.com"]);
@@ -127,17 +127,26 @@ test("OCR + translate: Mistral OCR, Claude Haiku 5.5 translation, browsable JSON
   await expect(page.locator(".pipeline-strip")).toContainText("Mistral OCR: 1 page(s), 2 bounding box(es)");
   await expect(page.locator(".pipeline-strip")).toContainText("BBox annotation: 2 of 2 box(es) described by the vision model");
   await expect(page.locator(".pipeline-strip")).toContainText("from the text + 2 bounding-box image(s)");
-  await expect(page.locator(".pipeline-strip")).toContainText("Structured text in the original language: filled by");
+  // The switch in the OCR tab does not need the original-language structure, so it was not requested.
+  await expect(page.locator(".pipeline-strip")).toContainText("Structured text in the original language not produced yet");
 
-  // Chat on Anthropic: schema inference (no JSON Schema), one bbox annotation per box (structured outputs), then the translation.
-  const chats = chatRequests(recorded);
+  // Chat on Anthropic: schema inference (no JSON Schema), one bbox annotation per box (structured outputs), the translation and
+  // the block translations; the original-language structure only on demand.
+  let chats = chatRequests(recorded);
   expect(chats.every((c) => c.host === "api.anthropic.com" && path(c) === "/v1/messages")).toBe(true);
-  // schema inference, 2 bbox annotations, translation, original-language structure, block translations
-  expect(chats).toHaveLength(6);
+  expect(chats).toHaveLength(5);
   expect(step(chats[0]!)).toBe("infer_schema");
   expect(chats[0]!.body!["output_config"]).toEqual({ effort: "low" });
-  expect(step(chats.at(-1)!)).toBe("block_translations");
-  expect(chats.map(step)).toContain("original_document");
+  expect(chats.map(step).sort()).toEqual(["bbox_annotation", "bbox_annotation", "block_translations", "infer_schema", "translated_document"]);
+
+  // Switched off here, the structured text in the original language is produced once.
+  await translationSwitch(page).uncheck();
+  await expect(page.locator(".pipeline-strip")).toContainText("Structured text in the original language: filled by", { timeout: 20_000 });
+  await translationSwitch(page).check();
+  await translationSwitch(page).uncheck();
+  chats = chatRequests(recorded);
+  expect(chats.map(step).filter((s) => s === "original_document")).toHaveLength(1);
+  expect(step(chats.at(-1)!)).toBe("original_document");
   const bboxCalls = chats.filter((c) => step(c) === "bbox_annotation");
   expect(bboxCalls).toHaveLength(2);
   const bboxContent = (bboxCalls[0]!.body!["messages"] as Array<{ role: string; content: unknown }>)[0]!.content as Array<{ type: string }>;
@@ -152,12 +161,18 @@ test("OCR + translate: Mistral OCR, Claude Haiku 5.5 translation, browsable JSON
   expect(translate).not.toHaveProperty("temperature");
   expect(translate).not.toHaveProperty("thinking");
   expect(typeof translate["system"]).toBe("string");
-  // Document annotation input: text part + the bounding-box images, ids referenced in the text.
+  // Document annotation input: the document first, then the bounding-box images (ids referenced in the text), then the task.
   const messages = translate["messages"] as Array<{ role: string; content: unknown }>;
   expect(messages.map((m) => m.role)).toEqual(["user"]);
-  const userContent = messages[0]!.content as Array<{ type: string; text?: string; source?: { type: string; media_type: string; data: string } }>;
+  const userContent = messages[0]!.content as Array<{ type: string; text?: string; source?: { type: string; media_type: string; data: string }; cache_control?: unknown }>;
   expect(Array.isArray(userContent)).toBe(true);
   const userMessage = userContent[0]!.text!;
+  expect(userContent.at(-1)!.text).toMatch(/^Task: /);
+  // Prompt caching: the breakpoint sits on the last image, the end of the prefix shared with the original-language structure.
+  expect(userContent.filter((p) => p.cache_control)).toEqual([expect.objectContaining({ type: "image", cache_control: { type: "ephemeral" } })]);
+  const original = chats.find((c) => step(c) === "original_document")!.body!;
+  expect(original["system"]).toBe(translate["system"]);
+  expect((original["messages"] as Array<{ content: unknown[] }>)[0]!.content.slice(0, -1)).toEqual(userContent.slice(0, -1));
   expect(userMessage).toContain("权利要求1不具备创造性");
   expect(userMessage).toContain("[Image: img-0.jpeg]");
   expect(userMessage).toContain('"img-0.jpeg", "img-1.jpeg"');
@@ -212,7 +227,7 @@ test("German toggle changes the target language of the next translation", async 
   await expect(page.getByRole("tab", { name: "Bounding boxes" })).toHaveCount(0);
 
   const translate = chatRequests(recorded).find((r) => step(r) === "translated_document")!.body!;
-  expect(systemPrompt(translate)).toContain("into German");
+  expect(systemPrompt(translate)).toContain("Target language of the translation: German");
   expect(recorded.some((r) => r.url.endsWith("/v1/ocr"))).toBe(false);
 
   await page.reload();
@@ -355,8 +370,8 @@ test("Mistral can still be chosen as translation provider", async ({ page }) => 
   await page.getByRole("button", { name: "Translate only" }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   const chats = chatRequests(recorded);
-  expect(chats.map((c) => c.host)).toEqual(["api.mistral.ai", "api.mistral.ai", "api.mistral.ai"]);
-  expect(chats.map(step)).toEqual(["infer_schema", "translated_document", "original_document"]);
+  expect(chats.map((c) => c.host)).toEqual(["api.mistral.ai", "api.mistral.ai"]);
+  expect(chats.map(step)).toEqual(["infer_schema", "translated_document"]);
   expect(chats[1]!.body).toMatchObject({ model: "mistral-large-latest", temperature: 0.2 });
   expect(chats[1]!.body).not.toHaveProperty("reasoning_effort");
 });
@@ -379,8 +394,8 @@ test("OpenAI (GPT Luna) can still be chosen as translation provider", async ({ p
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".toolbar")).toContainText("OpenAI (GPT Luna) · gpt-6-luna");
   const chats = chatRequests(recorded);
-  expect(chats.map((c) => c.host)).toEqual(["api.openai.com", "api.openai.com", "api.openai.com"]);
-  expect(chats.map(step)).toEqual(["infer_schema", "translated_document", "original_document"]);
+  expect(chats.map((c) => c.host)).toEqual(["api.openai.com", "api.openai.com"]);
+  expect(chats.map(step)).toEqual(["infer_schema", "translated_document"]);
   expect(chats[1]!.body).toMatchObject({
     model: "gpt-6-luna",
     stream: true,
@@ -552,4 +567,137 @@ test("cancel stops a running job without an error", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "OCR only" })).toBeEnabled();
+});
+
+/** Answer the Anthropic requests of one pipeline step with an error (registered after the mocks, so it takes precedence). */
+async function failStep(page: Page, failing: string, status: number, times = Infinity): Promise<{ failed: () => number }> {
+  let failed = 0;
+  await page.route("https://api.anthropic.com/v1/messages", async (route) => {
+    if (chatStep(jsonBody(route.request())) !== failing || failed >= times) return route.fallback();
+    failed++;
+    await route.fulfill({
+      status,
+      contentType: "application/json",
+      body: JSON.stringify({ type: "error", error: { type: status === 401 ? "authentication_error" : "invalid_request_error", message: `mocked ${status}` } }),
+    });
+  });
+  return { failed: () => failed };
+}
+
+test("a failing follow-up step leaves a warning on the translation instead of failing the job", async ({ page }) => {
+  await setup(page);
+  await enterKeys(page);
+  await failStep(page, "block_translations", 401);
+  await loadPdf(page);
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByText("Some follow-up steps failed; the translation itself is complete.")).toBeVisible();
+  await expect(page.getByText(/Block translations failed: HTTP 401/)).toBeVisible();
+  await expect(page.getByText("The examiner finds claim 1 lacks inventive step.")).toBeVisible();
+});
+
+test("blocks that came back without a translation can be retried", async ({ page }) => {
+  const { recorded } = await setup(page);
+  await enterKeys(page);
+  const failing = await failStep(page, "block_translations", 400, 1);
+  await loadPdf(page);
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
+  // A later change of the target language does not leak into the retry: it runs in the translation's own language.
+  await page.locator(".settings > summary").click();
+  await page.getByRole("radio", { name: "German" }).click();
+  await page.getByRole("tab", { name: "OCR text" }).click();
+  await page.getByRole("button", { name: "Translate the blocks now" }).click();
+  await expect(page.locator(".ocr-page")).toContainText("[EN] 申请号：CN202310000001.2", { timeout: 20_000 });
+  // The first batch was rejected (it never reached the recording mock); the retry went through.
+  expect(failing.failed()).toBe(1);
+  expect(chatRequests(recorded).filter((r) => step(r) === "block_translations")).toHaveLength(1);
+});
+
+test("OCR + Translate reuses the OCR result already loaded, and results are kept in this browser", async ({ page }) => {
+  const { recorded } = await setup(page);
+  await enterKeys(page);
+  await loadPdf(page);
+  await page.getByRole("button", { name: "OCR only" }).click();
+  await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
+  await expect(page.getByText(/Translation estimate: ≈ .* tokens over \d+ call\(s\) ≈ \$/)).toBeVisible();
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
+  expect(recorded.filter((r) => r.url.endsWith("/v1/ocr"))).toHaveLength(1);
+
+  // After a reload the translation is listed, and loading the same file brings back OCR and translation without any request.
+  await page.reload();
+  await expect(page.getByText("Anthropic key verified")).toBeVisible();
+  const history = page.locator(".history");
+  await expect(history).toContainText("Recent translations");
+  await history.locator("summary").click();
+  await expect(history).toContainText("office-action.pdf");
+  const before = recorded.length;
+  await loadPdf(page);
+  await expect(page.getByText("OCR result from this browser's cache")).toBeVisible();
+  await expect(page.getByText("The examiner finds claim 1 lacks inventive step.")).toBeVisible();
+  await expect(page.locator(".toolbar").first()).toContainText("saved in this browser");
+  expect(recorded.slice(before).filter((r) => path(r) !== "/v1/models")).toEqual([]);
+
+  // Reopening from the list works without the document, too.
+  await page.getByRole("button", { name: "Remove" }).click();
+  await history.getByRole("button", { name: "Open" }).click();
+  await expect(page.getByText("The examiner finds claim 1 lacks inventive step.")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "OCR text" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Translate only" })).toBeEnabled();
+});
+
+test("the glossary and other target languages reach the translation prompt", async ({ page }) => {
+  const { recorded } = await setup(page);
+  await enterKeys(page);
+  await page.locator(".settings > summary").click();
+  await page.getByLabel("Other target language").selectOption("French");
+  await page.getByLabel("Glossary").fill("审查员 = examinateur\n# a comment\n驳回 = rejet");
+  await page.getByLabel("Glossary").blur();
+  await expect(page.getByText("2 term(s) the translation must use.")).toBeVisible();
+  await page.getByRole("button", { name: "…or paste text to translate" }).click();
+  await page.getByPlaceholder("Paste the source text").fill("审查员认为权利要求1不具备创造性。");
+  await page.getByRole("button", { name: "Translate only" }).click();
+  await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
+  const translate = chatRequests(recorded).find((r) => step(r) === "translated_document")!.body!;
+  expect(systemPrompt(translate)).toContain("Target language of the translation: French.");
+  expect(systemPrompt(translate)).toContain("- 审查员 → examinateur\n- 驳回 → rejet");
+});
+
+test("keys can be kept for the session only", async ({ page }) => {
+  await setup(page);
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel(/Remember keys in this browser/).uncheck();
+  await enterKeys(page);
+  await expect(page.getByText("Anthropic key verified")).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.anthropic"))).toBeNull();
+  expect(await page.evaluate(() => sessionStorage.getItem("pdf-ocr-translater.apiKey.anthropic"))).toBe(ANTHROPIC_KEY);
+  // Turning it back on moves the keys to localStorage.
+  await page.getByRole("button", { name: "Keys" }).click();
+  await page.getByRole("dialog").getByLabel(/Remember keys in this browser/).check();
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+  expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.anthropic"))).toBe(ANTHROPIC_KEY);
+  expect(await page.evaluate(() => sessionStorage.getItem("pdf-ocr-translater.apiKey.anthropic"))).toBeNull();
+});
+
+test("the bilingual export holds the translation next to the original", async ({ page }) => {
+  await setup(page);
+  await enterKeys(page);
+  await loadPdf(page);
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
+  await translationSwitch(page).uncheck();
+  await expect(page.locator(".fields")).toContainText("审查员认为权利要求1不具备创造性。", { timeout: 20_000 });
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Download bilingual HTML" }).click()]);
+  expect(download.suggestedFilename()).toBe("office-action.bilingual.html");
+  const html = await (await download.createReadStream()).toArray().then((chunks) => Buffer.concat(chunks).toString("utf8"));
+  expect(html).toContain("The examiner finds claim 1 lacks inventive step.");
+  expect(html).toContain("审查员认为权利要求1不具备创造性。");
+  expect(html).toContain("<h2>Page by page</h2>");
+  expect(html).toContain("[EN] 申请号：CN202310000001.2");
+  expect(html).not.toMatch(/<script/i);
 });

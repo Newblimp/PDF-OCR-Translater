@@ -4,9 +4,9 @@
  * `public/_headers` enforces this.
  */
 import { ApiError } from "../http/apiError";
-import { apiFetch, extractErrorMessage, toApiError } from "../http/apiFetch";
-import { readSseStream } from "../http/sse";
-import type { ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, FinishReason, ModelObject, ModelList, Usage } from "./types";
+import { apiFetch } from "../http/apiFetch";
+import { readChatStream } from "../http/chatStream";
+import type { ChatCompletionRequest, ChatCompletionResponse, FinishReason, ModelObject, ModelList, Usage } from "./types";
 
 export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com";
 
@@ -23,17 +23,21 @@ export interface OpenAIClientOptions {
   apiKey: string;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
+  /** Retries of 408/409/429/5xx and connection failures (default 2, like the Anthropic SDK). */
+  maxRetries?: number;
 }
 
 export class OpenAIClient {
   private readonly apiKey: string;
   readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch | undefined;
+  private readonly maxRetries: number | undefined;
 
   constructor(options: OpenAIClientOptions) {
     this.apiKey = options.apiKey;
     this.baseUrl = (options.baseUrl ?? DEFAULT_OPENAI_BASE_URL).replace(/\/+$/, "");
     this.fetchImpl = options.fetchImpl;
+    this.maxRetries = options.maxRetries;
   }
 
   /** GET /v1/models. Also validates the key. */
@@ -76,45 +80,13 @@ export class OpenAIClient {
       signal: options.signal,
       accept: "text/event-stream",
     });
-    if (!res.body) throw new ApiError("Streaming response has no body", "protocol", "openai", res.status);
-
-    let accumulated = "";
-    let refusal = "";
-    let finishReason: FinishReason | null = null;
-    let usage: Usage | null = null;
-    let model = request.model;
-    let streamError: ApiError | null = null;
-
-    try {
-      await readSseStream(res.body, (ev) => {
-        if (ev.data === "[DONE]") return;
-        let chunk: ChatCompletionChunk & { error?: unknown };
-        try {
-          chunk = JSON.parse(ev.data) as typeof chunk;
-        } catch {
-          return;
-        }
-        if (chunk.error) {
-          streamError = new ApiError(extractErrorMessage(chunk), "server", "openai", res.status, chunk);
-          return;
-        }
-        if (chunk.model) model = chunk.model;
-        if (chunk.usage) usage = chunk.usage;
-        for (const choice of chunk.choices ?? []) {
-          const delta = choice.delta?.content;
-          if (delta) {
-            accumulated += delta;
-            options.onDelta?.(delta, accumulated);
-          }
-          if (choice.delta?.refusal) refusal += choice.delta.refusal;
-          if (choice.finish_reason) finishReason = choice.finish_reason;
-        }
-      });
-    } catch (err) {
-      throw toApiError(err, "openai");
-    }
-    if (streamError) throw streamError;
-    return { content: accumulated, finishReason, usage, model, refusal: refusal || null };
+    const out = await readChatStream<Usage>(res, {
+      provider: "openai",
+      model: request.model,
+      deltaText: (content) => (typeof content === "string" ? content : ""),
+      onDelta: options.onDelta,
+    });
+    return { content: out.content, finishReason: out.finishReason, usage: out.usage, model: out.model, refusal: out.refusal || null };
   }
 
   private request(path: string, init: { method: "GET" | "POST"; body?: string; signal?: AbortSignal | undefined; accept?: string }) {
@@ -126,6 +98,7 @@ export class OpenAIClient {
       ...(init.signal ? { signal: init.signal } : {}),
       ...(init.accept ? { accept: init.accept } : {}),
       ...(this.fetchImpl ? { fetchImpl: this.fetchImpl } : {}),
+      maxRetries: this.maxRetries,
     });
   }
 }

@@ -14,9 +14,15 @@ import type { OcrText } from "@/lib/pipeline/ocrText";
 import type { StructuredMode } from "@/lib/pipeline/translate";
 import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
 import type { FileKind } from "@/lib/files/fileKind";
+import type { SavedTranslationSummary, SourceKind } from "@/lib/storage/history";
 import type { Settings } from "@/lib/storage/settings";
 
-export type JobKind = "ocr" | "translate" | "both";
+/**
+ * "ocr", "translate" and "both" are the three action buttons; "original" fills
+ * the JSON format in the document's own language on demand; "retry" re-runs
+ * the bounding boxes or text blocks that failed.
+ */
+export type JobKind = "ocr" | "translate" | "both" | "original" | "retry";
 /** Result tabs, in the order they are shown. "bboxes" is the default. */
 export type ResultTab = "bboxes" | "ocr" | "structured" | "schema" | "json";
 
@@ -54,9 +60,34 @@ export interface OcrState {
   text: OcrText;
   /** Document id the OCR belongs to. */
   docId: string;
+  /** OCR model and pages the result was requested with (`ocrRequestKey()`): "OCR + Translate" reuses a result with the same key. */
+  requestKey: string;
+  /** Key of the result in this browser's OCR cache (null when the document hash is unknown). */
+  cacheKey: string | null;
+}
+
+/** Whether `translation` was made from this OCR result (its text is exactly what was translated). */
+export function ocrBelongsTo(ocr: OcrState, translation: Pick<TranslationState, "sourceText">): boolean {
+  return ocr.text.text === translation.sourceText;
+}
+
+/** Identifies an OCR request of a document: the model and the selected pages (null = all). */
+export function ocrRequestKey(model: string, pages: number[] | null): string {
+  return `${model}|${pages?.length ? pages.join(",") : "all"}`;
 }
 
 export interface TranslationState {
+  /** Id of the saved copy in this browser ("Recent translations"). */
+  id: string;
+  /** File name, or "Pasted text". */
+  sourceName: string;
+  sourceKind: SourceKind;
+  /** SHA-256 of the document (or of the text), to find saved translations of the same source. */
+  sourceHash: string | null;
+  /** OCR cache key of the OCR result that was translated, to restore it with a saved translation. */
+  ocrKey: string | null;
+  /** The text that was translated (needed for on-demand follow-ups and re-runs). */
+  sourceText: string;
   data: unknown;
   rawText: string;
   schema: JsonSchemaObject;
@@ -69,6 +100,8 @@ export interface TranslationState {
   mode: StructuredMode;
   violations: string[];
   finishReason: string | null;
+  /** The output was cut off and only the fields received before were kept. */
+  partial: boolean;
   targetLanguage: string;
   completedAt: number;
   /** Characters of source text that were translated. */
@@ -86,14 +119,20 @@ export interface TranslationState {
   originalRawText: string | null;
   originalUsage: TokenUsage | null;
   originalViolations: string[];
+  /** Follow-up stages that failed after the translation succeeded (shown as warnings, not as a failed job). */
+  warnings: string[];
+  /** Reopened from this browser's saved translations rather than produced in this session. */
+  restored: boolean;
 }
 
 export interface JobState {
   kind: JobKind;
   startedAt: number;
+  /** The stages this job runs, in the order shown by the job status card. */
+  stages: StageId[];
   events: ProgressEvent[];
-  currentStage: StageId;
-  receivedChars: number;
+  /** Characters received so far, per streaming stage. */
+  receivedChars: Partial<Record<StageId, number>>;
   /** Partial translation text while it streams in. */
   streamText: string;
   controller: AbortController;
@@ -126,6 +165,8 @@ export interface AppState {
    * the document's own language ("Show translation" in both tabs).
    */
   showTranslation: boolean;
+  /** Translations saved in this browser, newest first. */
+  history: SavedTranslationSummary[];
 }
 
 export type Action =
@@ -148,7 +189,9 @@ export type Action =
   | { type: "job/end" }
   | { type: "error/set"; error: AppError | null }
   | { type: "tab/set"; tab: ResultTab }
-  | { type: "view/translation"; show: boolean };
+  | { type: "view/translation"; show: boolean }
+  | { type: "history/set"; history: SavedTranslationSummary[] }
+  | { type: "history/open"; ocr: OcrState | null; translation: TranslationState; pastedText: string | null };
 
 function keyState(value: string | null): KeyState {
   return { value, status: value ? "unverified" : "missing", error: null };
@@ -186,6 +229,7 @@ export function initialState(keys: Record<ProviderId, string | null>, settings: 
     error: null,
     activeTab: "bboxes",
     showTranslation: true,
+    history: [],
   };
   state.keyDialogOpen = missingKeys(state).length > 0;
   return state;
@@ -223,7 +267,16 @@ export function reducer(state: AppState, action: Action): AppState {
       // A fresh OCR result invalidates a translation made from the previous one.
       return { ...state, ocr: action.ocr, translation: action.ocr?.source === "api" ? null : state.translation };
     case "translation/set":
-      return { ...state, translation: action.translation, activeTab: action.translation ? "structured" : state.activeTab };
+      return {
+        ...state,
+        translation: action.translation,
+        // An OCR result reopened from "Recent translations" (no document) leaves with the translation it came with
+        // when a translation of something else (pasted text) replaces it.
+        ocr: !state.doc && state.ocr && action.translation && !ocrBelongsTo(state.ocr, action.translation) ? null : state.ocr,
+        activeTab: action.translation ? "structured" : state.activeTab,
+        // The finished translation replaces the live stream view while follow-ups run.
+        job: state.job && action.translation ? { ...state.job, streamText: "" } : state.job,
+      };
     case "translation/patch":
       return state.translation ? { ...state, translation: { ...state.translation, ...action.patch } } : state;
     case "job/start":
@@ -231,21 +284,23 @@ export function reducer(state: AppState, action: Action): AppState {
     case "job/event": {
       if (!state.job) return state;
       const ev = action.event;
-      const last = state.job.events.at(-1);
       // The live stream lives in the Structured text tab: switch to it when streaming starts.
-      const activeTab: ResultTab = ev.streamText && !state.job.streamText ? "structured" : state.activeTab;
-      const events =
-        ev.status === "progress" && last?.status === "progress" && last.stage === ev.stage
-          ? [...state.job.events.slice(0, -1), ev]
-          : [...state.job.events, ev];
+      const activeTab: ResultTab = ev.streamText && !state.job.streamText && !state.translation ? "structured" : state.activeTab;
+      // Stages run concurrently: a progress event replaces the previous event of its stage when that was progress too.
+      const events = [...state.job.events];
+      let previous = events.length - 1;
+      while (previous >= 0 && events[previous]!.stage !== ev.stage) previous--;
+      if (ev.status === "progress" && previous >= 0 && events[previous]!.status === "progress") events.splice(previous, 1);
+      // The stream text lives in `job.streamText`; events keep only the message.
+      const { streamText: _streamText, ...stored } = ev;
+      events.push(stored);
       return {
         ...state,
         activeTab,
         job: {
           ...state.job,
           events,
-          currentStage: ev.stage,
-          receivedChars: ev.receivedChars ?? (ev.stage === state.job.currentStage ? state.job.receivedChars : 0),
+          receivedChars: ev.receivedChars === undefined ? state.job.receivedChars : { ...state.job.receivedChars, [ev.stage]: ev.receivedChars },
           streamText: ev.streamText ?? state.job.streamText,
         },
       };
@@ -258,6 +313,19 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, activeTab: action.tab };
     case "view/translation":
       return { ...state, showTranslation: action.show };
+    case "history/set":
+      return { ...state, history: action.history };
+    case "history/open":
+      return {
+        ...state,
+        doc: null,
+        pasteMode: action.pastedText !== null,
+        pastedText: action.pastedText ?? state.pastedText,
+        ocr: action.ocr,
+        translation: action.translation,
+        error: null,
+        activeTab: "structured",
+      };
     default:
       return state;
   }
@@ -265,8 +333,10 @@ export function reducer(state: AppState, action: Action): AppState {
 
 // ----------------------------------------------------------------- selectors
 
+export type SourceOrigin = "ocr" | "textfile" | "pasted" | "saved";
+
 /** Text that "Translate only" would use, and where it comes from. */
-export function selectSourceText(state: AppState): { text: string; origin: "ocr" | "textfile" | "pasted" } | null {
+export function selectSourceText(state: AppState): { text: string; origin: SourceOrigin } | null {
   if (state.pasteMode) {
     const text = state.pastedText.trim();
     return text ? { text, origin: "pasted" } : null;
@@ -274,8 +344,13 @@ export function selectSourceText(state: AppState): { text: string; origin: "ocr"
   if (state.doc?.kind === "text" && state.doc.textContent?.trim()) {
     return { text: state.doc.textContent, origin: "textfile" };
   }
-  if (state.ocr && state.doc && state.ocr.docId === state.doc.id && state.ocr.text.text.trim()) {
+  if (state.ocr && state.ocr.text.text.trim() && (state.doc ? state.ocr.docId === state.doc.id : true)) {
+    // Without a document: an OCR result reopened from "Recent translations".
     return { text: state.ocr.text.text, origin: "ocr" };
+  }
+  if (!state.doc && !state.ocr && state.translation?.sourceText.trim()) {
+    // A reopened translation whose OCR result is no longer cached (or a re-translation of it): its source text can be translated again.
+    return { text: state.translation.sourceText, origin: "saved" };
   }
   return null;
 }

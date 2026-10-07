@@ -5,10 +5,9 @@
  * also enforced by the CSP in `public/_headers`).
  */
 import { ApiError } from "../http/apiError";
-import { apiFetch, extractErrorMessage, toApiError } from "../http/apiFetch";
-import { readSseStream } from "../http/sse";
+import { apiFetch } from "../http/apiFetch";
+import { readChatStream } from "../http/chatStream";
 import type {
-  ChatCompletionChunk,
   ChatCompletionRequest,
   ChatCompletionResponse,
   ContentChunk,
@@ -39,17 +38,21 @@ export interface MistralClientOptions {
   apiKey: string;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
+  /** Retries of 408/409/429/5xx and connection failures (default 2, like the Anthropic SDK). */
+  maxRetries?: number;
 }
 
 export class MistralClient {
   private readonly apiKey: string;
   readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch | undefined;
+  private readonly maxRetries: number | undefined;
 
   constructor(options: MistralClientOptions) {
     this.apiKey = options.apiKey;
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.fetchImpl = options.fetchImpl;
+    this.maxRetries = options.maxRetries;
   }
 
   /** GET /v1/models. Also the cheapest way to validate an API key. */
@@ -98,43 +101,8 @@ export class MistralClient {
       signal: options.signal,
       accept: "text/event-stream",
     });
-    if (!res.body) throw new ApiError("Streaming response has no body", "protocol", "mistral", res.status);
-
-    let accumulated = "";
-    let finishReason: FinishReason | null = null;
-    let usage: UsageInfo | null = null;
-    let model = request.model;
-    let streamError: ApiError | null = null;
-
-    try {
-      await readSseStream(res.body, (ev) => {
-        if (ev.data === "[DONE]") return;
-        let chunk: ChatCompletionChunk & { error?: unknown; message?: unknown };
-        try {
-          chunk = JSON.parse(ev.data) as typeof chunk;
-        } catch {
-          return; // ignore malformed keep-alive frames
-        }
-        if (!chunk.choices && (chunk.message || chunk.error)) {
-          streamError = new ApiError(extractErrorMessage(chunk), "server", "mistral", res.status, chunk);
-          return;
-        }
-        if (chunk.model) model = chunk.model;
-        if (chunk.usage) usage = chunk.usage;
-        for (const choice of chunk.choices ?? []) {
-          const delta = contentToText(choice.delta?.content);
-          if (delta) {
-            accumulated += delta;
-            options.onDelta?.(delta, accumulated);
-          }
-          if (choice.finish_reason) finishReason = choice.finish_reason;
-        }
-      });
-    } catch (err) {
-      throw toApiError(err, "mistral");
-    }
-    if (streamError) throw streamError;
-    return { content: accumulated, finishReason, usage, model };
+    const out = await readChatStream<UsageInfo>(res, { provider: "mistral", model: request.model, deltaText: contentToText, onDelta: options.onDelta });
+    return { content: out.content, finishReason: out.finishReason, usage: out.usage, model: out.model };
   }
 
   private request(path: string, init: { method: "GET" | "POST"; body?: string; signal?: AbortSignal | undefined; accept?: string }) {
@@ -146,15 +114,17 @@ export class MistralClient {
       ...(init.signal ? { signal: init.signal } : {}),
       ...(init.accept ? { accept: init.accept } : {}),
       ...(this.fetchImpl ? { fetchImpl: this.fetchImpl } : {}),
+      maxRetries: this.maxRetries,
     });
   }
 }
 
 /** Normalise `content` (string | chunk[] | null) into plain text. Thinking chunks are ignored. */
-export function contentToText(content: string | ContentChunk[] | null | undefined): string {
+export function contentToText(content: unknown): string {
   if (!content) return "";
   if (typeof content === "string") return content;
-  return content
+  if (!Array.isArray(content)) return "";
+  return (content as ContentChunk[])
     .map((chunk) => (chunk.type === "text" && typeof chunk.text === "string" ? chunk.text : ""))
     .join("");
 }

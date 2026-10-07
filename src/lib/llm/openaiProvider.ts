@@ -1,4 +1,5 @@
 import { OpenAIClient } from "../openai/client";
+import { plainUserText, userMessage } from "./content";
 import { openaiModelOptions } from "../openai/models";
 import type { ChatCompletionRequest, ContentPart } from "../openai/types";
 import type { ChatProvider, JsonChatRequest, JsonChatResult } from "./provider";
@@ -10,16 +11,15 @@ import { ApiError } from "../http/apiError";
  *  - GPT-5.x models reject `temperature`, so it is never sent.
  *  - `reasoning_effort` is sent when set; "none" keeps outputs fast and cheap.
  *  - Streaming requests ask for usage in the final chunk.
+ *  - Prompt caching is automatic for long shared prefixes, which is why the
+ *    context and images come before the task (`userMessage()`).
  */
-/** Text first, then each image preceded by a short label carrying its id. */
 function userContent(request: JsonChatRequest): string | ContentPart[] {
-  if (!request.images?.length) return request.user;
-  const parts: ContentPart[] = [{ type: "text", text: request.user }];
-  for (const image of request.images) {
-    parts.push({ type: "text", text: `Image "${image.id}":` });
-    parts.push({ type: "image_url", image_url: { url: image.dataUrl, detail: "auto" } });
-  }
-  return parts;
+  const message = userMessage(request);
+  return (
+    plainUserText(message) ??
+    message.parts.map((part): ContentPart => (part.type === "text" ? part : { type: "image_url", image_url: { url: part.dataUrl, detail: "auto" } }))
+  );
 }
 
 export class OpenAIProvider implements ChatProvider {
@@ -78,6 +78,7 @@ export class OpenAIProvider implements ChatProvider {
             completion_tokens: result.usage.completion_tokens,
             total_tokens: result.usage.total_tokens,
             reasoning_tokens: result.usage.completion_tokens_details?.reasoning_tokens,
+            cache_read_tokens: result.usage.prompt_tokens_details?.cached_tokens || undefined,
           }
         : null,
       model: result.model,

@@ -1,3 +1,4 @@
+import { memo } from "preact/compat";
 import { useRef, useState } from "preact/hooks";
 import { ACCEPT_ATTRIBUTE } from "@/lib/files/fileKind";
 import { UploadIcon } from "./icons";
@@ -7,7 +8,7 @@ interface Props {
   onPaste: () => void;
 }
 
-export function DropZone({ onFile, onPaste }: Props) {
+export const DropZone = memo(function DropZone({ onFile, onPaste }: Props) {
   const [active, setActive] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -68,4 +69,4 @@ export function DropZone({ onFile, onPaste }: Props) {
       </button>
     </div>
   );
-}
+});

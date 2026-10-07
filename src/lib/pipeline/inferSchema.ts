@@ -10,7 +10,7 @@ import type { ChatProvider, ReasoningEffort, TokenUsage } from "../llm/provider"
 import type { JsonSchemaObject } from "../mistral/types";
 import { parseModelJson } from "../util/json";
 import { emit, type ProgressListener } from "./events";
-import { schemaInferenceSystemPrompt, schemaInferenceUserPrompt, type PromptContext } from "./prompts";
+import { documentSystemPrompt, schemaInferenceContext, schemaInferenceInstruction, type PromptContext } from "./prompts";
 import { countSchemaFields, sanitizeSchema } from "./schema";
 
 export interface InferSchemaOptions extends PromptContext {
@@ -36,8 +36,12 @@ export async function inferSchema(provider: ChatProvider, documentText: string, 
 
   const result = await provider.completeJson({
     model: options.model,
-    system: schemaInferenceSystemPrompt(options),
-    user: schemaInferenceUserPrompt(documentText),
+    system: documentSystemPrompt(options),
+    context: schemaInferenceContext(documentText),
+    user: schemaInferenceInstruction(options),
+    // No cache breakpoint: the translation that follows adds a structured-output format (and usually images), so it could
+    // not read this prefix back and the cache write would be paid for nothing.
+    cachePrefix: false,
     format: { type: "json_object" },
     stream: false,
     temperature: options.temperature ?? 0.1,

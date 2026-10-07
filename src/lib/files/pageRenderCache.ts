@@ -6,9 +6,9 @@
 import { openPdfPreview, type PdfPreview } from "./pdfPreview";
 
 export interface PageRenderer {
-  /** Data URL of a rendered page (0-based index), rendering it if needed. */
+  /** Object URL of a rendered page (0-based index), rendering it if needed. Valid until `dispose()`. */
   get(pageIndex: number): Promise<string>;
-  /** Cached data URL if already rendered. */
+  /** Cached object URL if already rendered. */
   peek(pageIndex: number): string | null;
   /** Render every page, starting at `startIndex`, in the background. */
   prefetchAll(startIndex: number): void;
@@ -70,10 +70,12 @@ function createRenderer(file: Blob, kind: "pdf" | "image", imageUrl: string | nu
         if (pageIndex < 0 || pageIndex >= preview.pageCount) throw new Error(`Page ${pageIndex + 1} does not exist`);
         url = await preview.renderPage(pageIndex + 1, width);
       }
-      if (!disposed) {
-        rendered.set(pageIndex, url);
-        for (const l of listeners) l(pageIndex);
+      if (disposed) {
+        if (kind === "pdf") URL.revokeObjectURL(url);
+        throw new Error("Renderer disposed");
       }
+      rendered.set(pageIndex, url);
+      for (const l of listeners) l(pageIndex);
       return url;
     })();
     pending.set(pageIndex, task);
@@ -131,6 +133,9 @@ function createRenderer(file: Blob, kind: "pdf" | "image", imageUrl: string | nu
       disposed = true;
       queue = [];
       listeners.clear();
+      // Page images are object URLs we created (an image document's URL belongs to its preview).
+      if (kind === "pdf") for (const url of rendered.values()) URL.revokeObjectURL(url);
+      rendered.clear();
       void doc?.then((d) => d.destroy()).catch(() => undefined);
       doc = null;
     },

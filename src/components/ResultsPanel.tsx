@@ -1,21 +1,41 @@
-import { useState } from "preact/hooks";
-import type { AppState, ResultTab, TranslationState } from "@/app/store";
+import { memo } from "preact/compat";
+import { useEffect, useMemo, useState } from "preact/hooks";
+import { ocrBelongsTo, type AppState, type JobKind, type OcrState, type ResultTab, type TranslationState } from "@/app/store";
+import { bilingualHtml } from "@/lib/export/bilingual";
+import type { TokenUsage } from "@/lib/llm/provider";
+import { PROVIDERS } from "@/lib/llm/registry";
+import { loadExportMarkdownRenderer } from "@/lib/markdown";
+import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
+import { textBlocks, translatedPageMarkdown } from "@/lib/pipeline/blockTranslate";
+import type { StructureOriginalMode } from "@/lib/pipeline/pipeline";
 import { isPlainObject, prettyJson } from "@/lib/util/json";
 import { parsePartialJson } from "@/lib/util/partialJson";
-import { BboxView } from "./BboxView";
 import { estimateTokens, formatNumber } from "@/lib/util/text";
-import { PROVIDERS } from "@/lib/llm/registry";
-import { translatedPageMarkdown } from "@/lib/pipeline/blockTranslate";
+import { BboxView } from "./BboxView";
 import { JsonBrowser } from "./JsonBrowser/JsonBrowser";
 import { MarkdownText } from "./MarkdownText";
 
+/** Stable callbacks from the app (created once, so the memoised views below skip unrelated re-renders). */
+export interface ResultActions {
+  setTab: (tab: ResultTab) => void;
+  /** "Show translation", shared by the OCR text, Structured text and Raw JSON tabs. */
+  setShowTranslation: (show: boolean) => void;
+  /** The structured text in the original language is on screen but missing: produce it (once per translation). */
+  requestOriginal: () => void;
+  /** Produce the structured text in the original language now (the user asked). */
+  produceOriginal: () => void;
+  /** Run the bounding boxes or text blocks that failed again. */
+  retry: (what: "bboxes" | "blocks") => void;
+  useSchema: (schemaText: string) => void;
+}
+
 interface Props {
   state: AppState;
-  onTab: (tab: ResultTab) => void;
-  onUseSchema: (schemaText: string) => void;
-  /** "Show translation", shared by the OCR text and Structured text tabs. */
-  onShowTranslation: (show: boolean) => void;
+  actions: ResultActions;
 }
+
+const NO_ANNOTATIONS: BboxAnnotation[] = [];
+const NO_BLOCK_TRANSLATIONS: Record<string, string> = {};
 
 function download(name: string, content: string, type: string): void {
   const blob = new Blob([content], { type });
@@ -36,8 +56,8 @@ async function copy(text: string): Promise<void> {
 }
 
 function baseName(state: AppState): string {
-  const name = state.doc?.name ?? "document";
-  return name.replace(/\.[^.]+$/, "");
+  const name = state.doc?.name ?? state.translation?.sourceName ?? "document";
+  return name.replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]+/g, "_") || "document";
 }
 
 /** True when the original-language structured text is available for the toggle. */
@@ -45,7 +65,16 @@ function hasOriginal(translation: TranslationState): boolean {
   return translation.originalData !== null && translation.originalData !== undefined;
 }
 
-export function ResultsPanel({ state, onTab, onUseSchema, onShowTranslation }: Props) {
+/** "1,234 in / 567 out tokens (1,000 cached, 50 reasoning)". */
+function usageText(usage: TokenUsage | null): string {
+  const extras = [
+    usage?.cache_read_tokens ? `${formatNumber(usage.cache_read_tokens)} cached` : "",
+    usage?.reasoning_tokens ? `${formatNumber(usage.reasoning_tokens)} reasoning` : "",
+  ].filter(Boolean);
+  return `${formatNumber(usage?.prompt_tokens)} in / ${formatNumber(usage?.completion_tokens)} out tokens${extras.length ? ` (${extras.join(", ")})` : ""}`;
+}
+
+export function ResultsPanel({ state, actions }: Props) {
   const { translation, ocr } = state;
   const streamText = state.job?.streamText;
   const tabs: Array<{ id: ResultTab; label: string; available: boolean }> = [
@@ -56,6 +85,8 @@ export function ResultsPanel({ state, onTab, onUseSchema, onShowTranslation }: P
     { id: "json", label: "Raw JSON", available: !!translation },
   ];
   const active = tabs.find((t) => t.id === state.activeTab && t.available)?.id ?? tabs.find((t) => t.available)?.id ?? null;
+  const name = baseName(state);
+  const jobKind = state.job?.kind ?? null;
 
   if (!active) {
     return (
@@ -86,7 +117,7 @@ export function ResultsPanel({ state, onTab, onUseSchema, onShowTranslation }: P
               role="tab"
               aria-selected={active === t.id}
               class={`tab${active === t.id ? " tab-active" : ""}`}
-              onClick={() => onTab(t.id)}
+              onClick={() => actions.setTab(t.id)}
             >
               {t.label}
             </button>
@@ -94,10 +125,25 @@ export function ResultsPanel({ state, onTab, onUseSchema, onShowTranslation }: P
       </div>
 
       {active === "bboxes" && ocr && (
-        <BboxView doc={state.doc} ocr={ocr.text} annotations={translation?.bboxAnnotations ?? []} blockTranslations={translation?.blockTranslations ?? {}} />
+        <BboxView
+          doc={state.doc}
+          ocr={ocr.text}
+          annotations={translation?.bboxAnnotations ?? NO_ANNOTATIONS}
+          blockTranslations={translation?.blockTranslations ?? NO_BLOCK_TRANSLATIONS}
+        />
       )}
 
-      {active === "ocr" && ocr && <OcrView state={state} onShowTranslation={onShowTranslation} />}
+      {active === "ocr" && ocr && (
+        <OcrView
+          ocr={ocr}
+          translation={translation}
+          canRetry={!!translation && ocrBelongsTo(ocr, translation)}
+          showTranslation={state.showTranslation}
+          busy={!!state.job}
+          baseName={name}
+          actions={actions}
+        />
+      )}
 
       {active === "structured" && streamText && (
         <div class="tab-panel">
@@ -106,47 +152,69 @@ export function ResultsPanel({ state, onTab, onUseSchema, onShowTranslation }: P
       )}
 
       {active === "structured" && translation && !streamText && (
-        <StructuredView state={state} translation={translation} onTab={onTab} onShowTranslation={onShowTranslation} />
+        <StructuredView
+          translation={translation}
+          ocr={ocr}
+          showTranslation={state.showTranslation}
+          jobKind={jobKind}
+          structureMode={state.settings.structureOriginal}
+          baseName={name}
+          actions={actions}
+        />
       )}
 
-      {active === "schema" && translation && (
-        <div class="tab-panel">
-          <div class="toolbar">
-            <span class="muted small">
-              {translation.schemaSource === "inferred"
-                ? `Inferred from the document by ${translation.model}`
-                : translation.schemaSource === "builtin"
-                  ? "Built-in schema"
-                  : "Custom schema"}
-              {translation.inferUsage ? ` · ${formatNumber(translation.inferUsage.total_tokens)} tokens for inference` : ""}
-            </span>
-            <div class="btn-row">
-              <button type="button" class="btn btn-ghost small" onClick={() => void copy(prettyJson(translation.schema))}>
-                Copy
-              </button>
-              <button type="button" class="btn btn-ghost small" onClick={() => onUseSchema(prettyJson(translation.schema))}>
-                Reuse as custom schema
-              </button>
-            </div>
-          </div>
-          {translation.schemaWarnings.length > 0 && (
-            <details class="banner banner-warn">
-              <summary>{translation.schemaWarnings.length} adjustment(s) were made so the schema works in strict mode</summary>
-              <pre class="details-pre">{translation.schemaWarnings.join("\n")}</pre>
-            </details>
-          )}
-          <pre class="code-block">{prettyJson(translation.schema)}</pre>
-        </div>
-      )}
+      {active === "schema" && translation && <SchemaView translation={translation} actions={actions} />}
 
-      {active === "json" && translation && <RawJsonView state={state} translation={translation} onShowTranslation={onShowTranslation} />}
+      {active === "json" && translation && (
+        <RawJsonView
+          translation={translation}
+          showTranslation={state.showTranslation}
+          jobKind={jobKind}
+          structureMode={state.settings.structureOriginal}
+          baseName={name}
+          actions={actions}
+        />
+      )}
     </div>
   );
 }
 
+const SchemaView = memo(function SchemaView({ translation, actions }: { translation: TranslationState; actions: ResultActions }) {
+  const text = useMemo(() => prettyJson(translation.schema), [translation.schema]);
+  return (
+    <div class="tab-panel">
+      <div class="toolbar">
+        <span class="muted small">
+          {translation.schemaSource === "inferred"
+            ? `Inferred from the document by ${translation.model}`
+            : translation.schemaSource === "builtin"
+              ? "Built-in schema"
+              : "Custom schema"}
+          {translation.inferUsage ? ` · ${formatNumber(translation.inferUsage.total_tokens)} tokens for inference` : ""}
+        </span>
+        <div class="btn-row">
+          <button type="button" class="btn btn-ghost small" onClick={() => void copy(text)}>
+            Copy
+          </button>
+          <button type="button" class="btn btn-ghost small" onClick={() => actions.useSchema(text)}>
+            Reuse as custom schema
+          </button>
+        </div>
+      </div>
+      {translation.schemaWarnings.length > 0 && (
+        <details class="banner banner-warn">
+          <summary>{translation.schemaWarnings.length} adjustment(s) were made so the schema works in strict mode</summary>
+          <pre class="details-pre">{translation.schemaWarnings.join("\n")}</pre>
+        </details>
+      )}
+      <pre class="code-block">{text}</pre>
+    </div>
+  );
+});
+
 /**
  * "Show translation": switches the OCR text and the structured text between
- * the document's own language and the translation. One shared state, so both
+ * the document's own language and the translation. One shared state, so all
  * tabs always show the same language.
  */
 function TranslationToggle({
@@ -174,66 +242,127 @@ function TranslationToggle({
   );
 }
 
+/**
+ * With "Show translation" off, a view of the structured text needs it in the
+ * original language: ask for it once (on-demand mode), rather than on every
+ * flip of the switch in the OCR tab, which does not need it.
+ */
+function useOriginalOnDemand(translation: TranslationState, wantTranslation: boolean, jobKind: JobKind | null, structureMode: StructureOriginalMode, actions: ResultActions): void {
+  const missing = !hasOriginal(translation);
+  useEffect(() => {
+    if (!wantTranslation && missing && !jobKind && structureMode !== "never") actions.requestOriginal();
+  }, [wantTranslation, missing, jobKind, structureMode, actions, translation.id]);
+}
+
+/** Bilingual HTML: the translation next to the original, field by field and block by block. */
+async function downloadBilingual(translation: TranslationState, ocr: OcrState | null, name: string): Promise<void> {
+  const render = await loadExportMarkdownRenderer().catch(() => null);
+  const html = bilingualHtml(
+    {
+      title: translation.sourceName,
+      targetLanguage: translation.targetLanguage,
+      producedBy: `${PROVIDERS[translation.provider].label} · ${translation.model}`,
+      completedAt: translation.completedAt,
+      schema: translation.schema,
+      translated: translation.data,
+      original: hasOriginal(translation) ? translation.originalData : null,
+      ocr: ocr?.text ?? null,
+      blockTranslations: translation.blockTranslations,
+    },
+    render ?? ((text) => `<p>${text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`).replace(/\n/g, "<br>")}</p>`),
+  );
+  download(`${name}.bilingual.html`, html, "text/html");
+}
+
 /** The JSON format filled by the model: translated, or in the document's own language. */
-function StructuredView({
-  state,
+const StructuredView = memo(function StructuredView({
   translation,
-  onTab,
-  onShowTranslation,
+  ocr,
+  showTranslation: wantTranslation,
+  jobKind,
+  structureMode,
+  baseName: name,
+  actions,
 }: {
-  state: AppState;
   translation: TranslationState;
-  onTab: (tab: ResultTab) => void;
-  onShowTranslation: (show: boolean) => void;
+  ocr: OcrState | null;
+  showTranslation: boolean;
+  jobKind: JobKind | null;
+  structureMode: StructureOriginalMode;
+  baseName: string;
+  actions: ResultActions;
 }) {
+  useOriginalOnDemand(translation, wantTranslation, jobKind, structureMode, actions);
   const original = hasOriginal(translation);
-  const showTranslation = state.showTranslation || !original;
+  const showTranslation = wantTranslation || !original;
   const data = showTranslation ? translation.data : translation.originalData;
   const violations = showTranslation ? translation.violations : translation.originalViolations;
   const usage = showTranslation ? translation.usage : translation.originalUsage;
   const truncated = showTranslation && (translation.finishReason === "length" || translation.finishReason === "model_length");
-  const waiting = !original && !!state.job;
 
   return (
     <div class="tab-panel">
       <div class="toolbar">
         <span class="muted small">
-          {PROVIDERS[translation.provider].label} · {translation.model} ·{" "}
-          {showTranslation ? `→ ${translation.targetLanguage}` : "original language"} ·{" "}
-          {translation.mode === "json_schema" ? "strict JSON schema" : "JSON mode"} · {formatNumber(usage?.prompt_tokens)} in /{" "}
-          {formatNumber(usage?.completion_tokens)} out tokens
-          {usage?.reasoning_tokens ? ` (${formatNumber(usage.reasoning_tokens)} reasoning)` : ""}
+          {PROVIDERS[translation.provider].label} · {translation.model} · {showTranslation ? `→ ${translation.targetLanguage}` : "original language"} ·{" "}
+          {translation.mode === "json_schema" ? "strict JSON schema" : "JSON mode"} · {usageText(usage)}
+          {translation.restored ? ` · saved in this browser on ${new Date(translation.completedAt).toLocaleString()}` : ""}
         </span>
         <div class="btn-row">
-          <TranslationToggle show={state.showTranslation} available={true} onShowTranslation={onShowTranslation} />
+          <TranslationToggle show={wantTranslation} available={true} onShowTranslation={actions.setShowTranslation} />
           <button type="button" class="btn btn-ghost small" onClick={() => void copy(prettyJson(data))}>
             Copy JSON
           </button>
           <button
             type="button"
             class="btn btn-ghost small"
-            onClick={() =>
-              download(`${baseName(state)}.${showTranslation ? "translation" : "original"}.json`, prettyJson(data), "application/json")
-            }
+            onClick={() => download(`${name}.${showTranslation ? "translation" : "original"}.json`, prettyJson(data), "application/json")}
           >
             Download JSON
           </button>
+          <button type="button" class="btn btn-ghost small" onClick={() => void downloadBilingual(translation, ocr, name)}>
+            Download bilingual HTML
+          </button>
         </div>
       </div>
-      <PipelineStrip translation={translation} ocr={state.ocr} onTab={onTab} />
-      {!state.showTranslation && !original && (
+      <PipelineStrip translation={translation} ocr={ocr} structureMode={structureMode} busy={jobKind !== null} actions={actions} />
+      {!wantTranslation && !original && (
         <div class="banner banner-warn">
           <p>
-            {waiting
-              ? "The structured text in the original language is still being produced; the translation is shown meanwhile."
-              : "This run produced no structured text in the original language, so the translation is shown. Enable “Structured text in the original language” in Settings and run the translation again."}
+            {jobKind === "original"
+              ? "The structured text in the original language is being produced; the translation is shown meanwhile."
+              : jobKind
+                ? "The structured text in the original language is produced after the current job; the translation is shown meanwhile."
+                : structureMode === "never"
+                  ? "Structured text in the original language is turned off in Settings, so the translation is shown."
+                  : "There is no structured text in the original language for this translation yet, so the translation is shown."}
           </p>
+          {!jobKind && structureMode !== "never" && (
+            <button type="button" class="btn small" onClick={actions.produceOriginal}>
+              Produce it now
+            </button>
+          )}
+        </div>
+      )}
+      {translation.warnings.length > 0 && (
+        <div class="banner banner-warn">
+          <p>Some follow-up steps failed; the translation itself is complete.</p>
+          <ul>
+            {translation.warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
         </div>
       )}
       {(violations.length > 0 || truncated) && (
         <div class="banner banner-warn">
           {truncated ? (
-            <p>The model reached its output limit, so the translation may be truncated. Try a model with a larger context or split the document.</p>
+            <p>
+              {translation.partial
+                ? "The model reached its output limit before the JSON was complete; the fields received up to that point are shown."
+                : "The model reached its output limit, so the translation may be truncated."}{" "}
+              Raise “Max output tokens” in Settings or try a model with a larger output limit.
+            </p>
           ) : null}
           {violations.length > 0 && (
             <details>
@@ -246,21 +375,28 @@ function StructuredView({
       <JsonBrowser data={data} schema={translation.schema} />
     </div>
   );
-}
+});
 
-function RawJsonView({
-  state,
+const RawJsonView = memo(function RawJsonView({
   translation,
-  onShowTranslation,
+  showTranslation: wantTranslation,
+  jobKind,
+  structureMode,
+  baseName: name,
+  actions,
 }: {
-  state: AppState;
   translation: TranslationState;
-  onShowTranslation: (show: boolean) => void;
+  showTranslation: boolean;
+  jobKind: JobKind | null;
+  structureMode: StructureOriginalMode;
+  baseName: string;
+  actions: ResultActions;
 }) {
+  useOriginalOnDemand(translation, wantTranslation, jobKind, structureMode, actions);
   const original = hasOriginal(translation);
-  const showTranslation = state.showTranslation || !original;
+  const showTranslation = wantTranslation || !original;
   const data = showTranslation ? translation.data : translation.originalData;
-  const text = prettyJson(data);
+  const text = useMemo(() => prettyJson(data), [data]);
   return (
     <div class="tab-panel">
       <div class="toolbar">
@@ -268,14 +404,14 @@ function RawJsonView({
           {showTranslation ? `translation → ${translation.targetLanguage}` : "original language"} · {text.length.toLocaleString()} characters
         </span>
         <div class="btn-row">
-          <TranslationToggle show={state.showTranslation} available={true} onShowTranslation={onShowTranslation} />
+          <TranslationToggle show={wantTranslation} available={true} onShowTranslation={actions.setShowTranslation} />
           <button type="button" class="btn btn-ghost small" onClick={() => void copy(text)}>
             Copy
           </button>
           <button
             type="button"
             class="btn btn-ghost small"
-            onClick={() => download(`${baseName(state)}.${showTranslation ? "translation" : "original"}.json`, text, "application/json")}
+            onClick={() => download(`${name}.${showTranslation ? "translation" : "original"}.json`, text, "application/json")}
           >
             Download
           </button>
@@ -284,13 +420,26 @@ function RawJsonView({
       <pre class="code-block">{text}</pre>
     </div>
   );
-}
+});
 
 /** Shows which model did what, mirroring Mistral's annotation workflow. */
-function PipelineStrip({ translation, ocr, onTab }: { translation: TranslationState; ocr: AppState["ocr"]; onTab: (tab: ResultTab) => void }) {
+function PipelineStrip({
+  translation,
+  ocr,
+  structureMode,
+  busy,
+  actions,
+}: {
+  translation: TranslationState;
+  ocr: OcrState | null;
+  structureMode: StructureOriginalMode;
+  busy: boolean;
+  actions: ResultActions;
+}) {
   const chat = `${PROVIDERS[translation.provider].label} · ${translation.model}`;
   const boxes = ocr?.text.bboxes.length ?? 0;
   const described = translation.bboxAnnotations.filter((a) => a.data).length;
+  const failed = translation.bboxAnnotations.length - described;
   const schemaStep =
     translation.schemaSource === "inferred"
       ? `JSON format inferred by ${chat}`
@@ -301,7 +450,7 @@ function PipelineStrip({ translation, ocr, onTab }: { translation: TranslationSt
     <ol class="pipeline-strip" aria-label="Processing steps">
       <li class="step step-done">
         {ocr ? (
-          <button type="button" class="btn btn-link small" onClick={() => onTab("bboxes")}>
+          <button type="button" class="btn btn-link small" onClick={() => actions.setTab("bboxes")}>
             Mistral OCR: {ocr.text.pagesProcessed} page(s), {boxes} bounding box(es)
           </button>
         ) : (
@@ -309,15 +458,20 @@ function PipelineStrip({ translation, ocr, onTab }: { translation: TranslationSt
         )}
       </li>
       <li class="step step-done">
-        <button type="button" class="btn btn-link small" onClick={() => onTab("schema")}>
+        <button type="button" class="btn btn-link small" onClick={() => actions.setTab("schema")}>
           {schemaStep}
         </button>
       </li>
       {translation.bboxAnnotations.length > 0 ? (
-        <li class="step step-done">
-          <button type="button" class="btn btn-link small" onClick={() => onTab("bboxes")}>
+        <li class={`step ${failed ? "step-warning" : "step-done"}`}>
+          <button type="button" class="btn btn-link small" onClick={() => actions.setTab("bboxes")}>
             BBox annotation: {described} of {translation.bboxAnnotations.length} box(es) described by the vision model
           </button>
+          {failed > 0 && ocr && ocrBelongsTo(ocr, translation) && (
+            <button type="button" class="btn btn-ghost small" disabled={busy} onClick={() => actions.retry("bboxes")}>
+              Retry {failed} failed
+            </button>
+          )}
         </li>
       ) : (
         <li class="step step-skipped">BBox annotation skipped{boxes === 0 ? " (no boxes)" : ""}</li>
@@ -329,20 +483,23 @@ function PipelineStrip({ translation, ocr, onTab }: { translation: TranslationSt
       {hasOriginal(translation) ? (
         <li class="step step-done">Structured text in the original language: filled by {chat} without translating</li>
       ) : (
-        <li class="step step-skipped">Structured text in the original language skipped</li>
+        <li class="step step-skipped">
+          Structured text in the original language {structureMode === "never" ? "turned off" : "not produced yet (switch off “Show translation” here to produce it)"}
+        </li>
       )}
     </ol>
   );
 }
 
 /** Live view of the translation while it streams: partial JSON rendered as it grows. */
-function StreamingView({ text }: { text: string }) {
-  let partial: unknown;
-  try {
-    partial = parsePartialJson(text);
-  } catch {
-    partial = undefined; // never let a parser edge case take the page down
-  }
+const StreamingView = memo(function StreamingView({ text }: { text: string }) {
+  const partial = useMemo(() => {
+    try {
+      return parsePartialJson(text);
+    } catch {
+      return undefined; // never let a parser edge case take the page down
+    }
+  }, [text]);
   return (
     <div class="stream-panel">
       <div class="toolbar">
@@ -356,36 +513,57 @@ function StreamingView({ text }: { text: string }) {
       {partial !== undefined && isPlainObject(partial) && Object.keys(partial).length > 0 && <JsonBrowser data={partial} schema={null} streaming />}
     </div>
   );
-}
+});
 
-function OcrView({ state, onShowTranslation }: { state: AppState; onShowTranslation: (show: boolean) => void }) {
-  const ocr = state.ocr;
+const OcrView = memo(function OcrView({
+  ocr,
+  translation,
+  canRetry,
+  showTranslation: wantTranslation,
+  busy,
+  baseName: name,
+  actions,
+}: {
+  ocr: OcrState;
+  translation: TranslationState | null;
+  /** The translation was made from this OCR result, so its blocks can be (re)translated into it. */
+  canRetry: boolean;
+  showTranslation: boolean;
+  busy: boolean;
+  baseName: string;
+  actions: ResultActions;
+}) {
   const [markdown, setMarkdown] = useState(true);
-  if (!ocr) return null;
-  const blockTranslations = state.translation?.blockTranslations ?? {};
+  const blockTranslations = translation?.blockTranslations ?? NO_BLOCK_TRANSLATIONS;
   const translationsAvailable = Object.keys(blockTranslations).length > 0;
-  const showTranslation = state.showTranslation && translationsAvailable;
+  const showTranslation = wantTranslation && translationsAvailable;
   const headersFooters = ocr.text.pages.filter((p) => p.header || p.footer);
-  const pages = ocr.text.pages.map((p) => {
-    if (!showTranslation) return { page: p, text: p.markdown, missing: 0, translated: 0, total: 0 };
-    const { text, total, translated } = translatedPageMarkdown(p, blockTranslations);
-    return { page: p, text, missing: total - translated, translated, total };
-  });
+  const pages = useMemo(
+    () =>
+      ocr.text.pages.map((p) => {
+        if (!showTranslation) return { page: p, text: p.markdown, missing: 0, translated: 0, total: 0 };
+        const { text, total, translated } = translatedPageMarkdown(p, blockTranslations);
+        return { page: p, text, missing: total - translated, translated, total };
+      }),
+    [ocr, showTranslation, blockTranslations],
+  );
   const untranslated = pages.reduce((n, p) => n + p.missing, 0);
   // Untranslated, the full text keeps the page delimiters the model saw.
   const fullText = showTranslation ? pages.map((p) => p.text).join("\n\n") : ocr.text.text;
+  const tokens = useMemo(() => estimateTokens(ocr.text.text), [ocr]);
+  const hasTextBlocks = useMemo(() => ocr.text.pages.some((p) => textBlocks(p).length > 0), [ocr]);
 
   return (
     <div class="tab-panel">
       <div class="toolbar">
         <span class="muted small">
-          {ocr.model} · {ocr.text.pagesProcessed} page(s) · {ocr.text.chars.toLocaleString()} characters (~{formatNumber(estimateTokens(ocr.text.text))} tokens)
+          {ocr.model} · {ocr.text.pagesProcessed} page(s) · {ocr.text.chars.toLocaleString()} characters (~{formatNumber(tokens)} tokens)
           {ocr.source === "cache" ? " · from local cache" : ""}
           {ocr.text.bboxes.length ? ` · ${ocr.text.bboxes.length} bounding box(es)` : ""}
-          {showTranslation ? ` · translated into ${state.translation?.targetLanguage} per text block` : ""}
+          {showTranslation ? ` · translated into ${translation?.targetLanguage} per text block` : ""}
         </span>
         <div class="btn-row">
-          <TranslationToggle show={state.showTranslation} available={translationsAvailable} onShowTranslation={onShowTranslation} />
+          <TranslationToggle show={wantTranslation} available={translationsAvailable} onShowTranslation={actions.setShowTranslation} />
           <label class="checkbox small">
             <input type="checkbox" checked={markdown} onChange={(e) => setMarkdown((e.target as HTMLInputElement).checked)} />
             <span>Render Markdown</span>
@@ -396,23 +574,39 @@ function OcrView({ state, onShowTranslation }: { state: AppState; onShowTranslat
           <button
             type="button"
             class="btn btn-ghost small"
-            onClick={() =>
-              download(`${baseName(state)}.ocr${showTranslation ? ".translated" : ""}.md`, fullText, "text/markdown")
-            }
+            onClick={() => download(`${name}.ocr${showTranslation ? ".translated" : ""}.md`, fullText, "text/markdown")}
           >
             Download .md
           </button>
         </div>
       </div>
-      {state.showTranslation && !translationsAvailable && (state.translation || state.job) && (
+      {wantTranslation && !translationsAvailable && (translation || busy) && (
         <p class="muted small">
-          {state.job
+          {busy
             ? "The per-block translations are still being produced; the OCR text is shown in its original language."
             : "No per-block translations for this text yet: run “OCR + Translate” (the blocks are translated after the main translation) or keep “Translate each OCR text block” enabled in Settings."}
+          {!busy && canRetry && hasTextBlocks && (
+            <>
+              {" "}
+              <button type="button" class="btn btn-ghost small" onClick={() => actions.retry("blocks")}>
+                Translate the blocks now
+              </button>
+            </>
+          )}
         </p>
       )}
       {showTranslation && untranslated > 0 && (
-        <p class="muted small">{untranslated} block(s) came back without a translation; they are shown in the original language.</p>
+        <p class="muted small">
+          {untranslated} block(s) came back without a translation; they are shown in the original language.
+          {canRetry && (
+            <>
+              {" "}
+              <button type="button" class="btn btn-ghost small" disabled={busy} onClick={() => actions.retry("blocks")}>
+                Retry them
+              </button>
+            </>
+          )}
+        </p>
       )}
       {headersFooters.length > 0 && (
         <details class="banner">
@@ -442,4 +636,4 @@ function OcrView({ state, onShowTranslation }: { state: AppState; onShowTranslat
       </div>
     </div>
   );
-}
+});

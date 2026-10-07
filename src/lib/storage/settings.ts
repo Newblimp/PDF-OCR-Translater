@@ -1,5 +1,6 @@
 /** User settings, persisted in localStorage. Bump VERSION when the shape changes. */
 import type { ProviderId, ReasoningEffort } from "../llm/provider";
+import type { StructureOriginalMode } from "../pipeline/pipeline";
 import { PROVIDERS } from "../llm/registry";
 import { DEFAULT_OCR_MODEL } from "../mistral/models";
 import { DEFAULT_DOMAIN_HINT } from "../pipeline/prompts";
@@ -11,8 +12,21 @@ export type SchemaModeSetting =
 
 export type ThemeSetting = "system" | "light" | "dark";
 
-/** Languages offered by the target-language toggle. Add entries here to extend it. */
-export const TARGET_LANGUAGES = ["English", "German"] as const;
+/** Languages offered as translation targets. Add entries here to extend the list. */
+export const TARGET_LANGUAGES = [
+  "English",
+  "German",
+  "French",
+  "Spanish",
+  "Italian",
+  "Portuguese",
+  "Dutch",
+  "Japanese",
+  "Korean",
+  "Chinese (Simplified)",
+] as const;
+/** Shown as one-click buttons; the rest are in a dropdown next to them. */
+export const QUICK_TARGET_LANGUAGES: ReadonlyArray<TargetLanguage> = ["English", "German"];
 export type TargetLanguage = (typeof TARGET_LANGUAGES)[number];
 
 export interface Settings {
@@ -43,8 +57,18 @@ export interface Settings {
   maxBboxAnnotations: number;
   /** Translate each OCR text block so the bounding-box view and the OCR text view can show it. */
   blockTranslations: boolean;
-  /** Also fill the JSON format with the document's own wording, so "Structured text" can show the original. */
-  structureOriginal: boolean;
+  /**
+   * Fill the JSON format with the document's own wording too, so "Structured
+   * text" can show the original: after every translation, only when "Show
+   * translation" is switched off (the default, saving a full generation), or never.
+   */
+  structureOriginal: StructureOriginalMode;
+  /** Required terminology, one `source = target` pair per line; empty = none. */
+  glossary: string;
+  /** Keep API keys in localStorage (true) or only for this browser tab's session (false). */
+  rememberKeys: boolean;
+  /** Keep finished translations in this browser (IndexedDB) for the "Recent translations" list. */
+  saveTranslations: boolean;
   /** Last model-default migration applied (see MODEL_DEFAULT_MIGRATIONS); runs each one once. */
   modelDefaultsRevision: number;
 }
@@ -83,7 +107,10 @@ export const DEFAULT_SETTINGS: Settings = {
   bboxAnnotations: true,
   maxBboxAnnotations: 20,
   blockTranslations: true,
-  structureOriginal: true,
+  structureOriginal: "on_demand",
+  glossary: "",
+  rememberKeys: true,
+  saveTranslations: true,
   modelDefaultsRevision: MODEL_DEFAULT_MIGRATIONS.length,
 };
 
@@ -115,7 +142,18 @@ function normalise(parsed: Partial<Settings>): Settings {
   });
   merged.modelDefaultsRevision = MODEL_DEFAULT_MIGRATIONS.length;
   if (!Number.isInteger(merged.maxBboxAnnotations) || merged.maxBboxAnnotations < 0) merged.maxBboxAnnotations = DEFAULT_SETTINGS.maxBboxAnnotations;
+  merged.structureOriginal = structureOriginalMode(parsed.structureOriginal as unknown);
+  if (typeof merged.glossary !== "string") merged.glossary = DEFAULT_SETTINGS.glossary;
+  if (typeof merged.rememberKeys !== "boolean") merged.rememberKeys = DEFAULT_SETTINGS.rememberKeys;
+  if (typeof merged.saveTranslations !== "boolean") merged.saveTranslations = DEFAULT_SETTINGS.saveTranslations;
   return merged;
+}
+
+/** Earlier releases stored a boolean (always / never); "always" becomes the cheaper on-demand default. */
+function structureOriginalMode(value: unknown): StructureOriginalMode {
+  if (value === "always" || value === "on_demand" || value === "never") return value;
+  if (value === false) return "never";
+  return DEFAULT_SETTINGS.structureOriginal;
 }
 
 /** Carry compatible v1 fields over, store them as v2 and drop the v1 entry. */

@@ -118,12 +118,78 @@ describe("providers map the generic request onto each API", () => {
       {
         role: "user",
         content: [
-          { type: "text", text: "usr" },
           { type: "text", text: 'Image "img-0.jpeg":' },
           { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "QUJD" } },
+          { type: "text", text: "usr" },
         ],
       },
     ]);
+  });
+
+  it("Anthropic: the shared context and images come first, with a cache breakpoint on the last of them; cache usage is reported", async () => {
+    const { calls, fetchImpl } = captureAnthropic({ usage: { input_tokens: 3, cache_read_input_tokens: 200, cache_creation_input_tokens: 0, output_tokens: 4 } });
+    const provider = new AnthropicProvider(createAnthropicClient("k", { fetch: fetchImpl }));
+    const result = await provider.completeJson({
+      ...request,
+      context: "<document>doc</document>",
+      images: [{ id: "a", dataUrl: "data:image/png;base64,QQ==" }],
+      cachePrefix: true,
+    });
+    expect(calls[0]!.body["messages"]).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<document>doc</document>" },
+          { type: "text", text: 'Image "a":' },
+          { type: "image", source: { type: "base64", media_type: "image/png", data: "QQ==" }, cache_control: { type: "ephemeral" } },
+          { type: "text", text: "usr" },
+        ],
+      },
+    ]);
+    expect(result.usage).toEqual({ prompt_tokens: 203, completion_tokens: 4, total_tokens: 207, cache_read_tokens: 200 });
+
+    // Without images the breakpoint sits on the context; without cachePrefix a text-only message stays a string.
+    await provider.completeJson({ ...request, context: "ctx", cachePrefix: true });
+    expect((calls[1]!.body["messages"] as Array<{ content: unknown }>)[0]!.content).toEqual([
+      { type: "text", text: "ctx", cache_control: { type: "ephemeral" } },
+      { type: "text", text: "usr" },
+    ]);
+    await provider.completeJson({ ...request, context: "ctx" });
+    expect((calls[2]!.body["messages"] as Array<{ content: unknown }>)[0]!.content).toBe("ctx\n\nusr");
+  });
+
+  it("OpenAI and Mistral: context, images, then the task; cached prompt tokens are reported", async () => {
+    const openai = capture();
+    await new OpenAIProvider(new OpenAIClient({ apiKey: "k", fetchImpl: openai.fetchImpl })).completeJson({
+      ...request,
+      context: "ctx",
+      images: [{ id: "a", dataUrl: "data:image/png;base64,QQ==" }],
+      cachePrefix: true,
+    });
+    expect((openai.calls[0]!.body["messages"] as Array<{ content: unknown }>)[1]!.content).toEqual([
+      { type: "text", text: "ctx" },
+      { type: "text", text: 'Image "a":' },
+      { type: "image_url", image_url: { url: "data:image/png;base64,QQ==", detail: "auto" } },
+      { type: "text", text: "usr" },
+    ]);
+    const mistral = capture();
+    await new MistralProvider(new MistralClient({ apiKey: "k", fetchImpl: mistral.fetchImpl })).completeJson({ ...request, context: "ctx" });
+    expect((mistral.calls[0]!.body["messages"] as Array<{ content: unknown }>)[1]!.content).toBe("ctx\n\nusr");
+
+    const cached: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({
+          id: "x",
+          object: "chat.completion",
+          model: "m",
+          created: 0,
+          usage: { prompt_tokens: 2000, completion_tokens: 1, total_tokens: 2001, prompt_tokens_details: { cached_tokens: 1536 } },
+          choices: [{ index: 0, message: { role: "assistant", content: "{}" }, finish_reason: "stop" }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    const result = await new OpenAIProvider(new OpenAIClient({ apiKey: "k", fetchImpl: cached })).completeJson(request);
+    expect(result.usage).toMatchObject({ prompt_tokens: 2000, cache_read_tokens: 1536 });
   });
 
   it("Anthropic: json_object mode sends no format, \"none\" effort maps to low, and max_tokens has a default", async () => {
@@ -176,7 +242,7 @@ describe("providers map the generic request onto each API", () => {
     expect(result).toEqual({
       content: '{"a":"b"}',
       finishReason: "stop",
-      usage: { prompt_tokens: 9, completion_tokens: 3, total_tokens: 12 },
+      usage: { prompt_tokens: 9, completion_tokens: 3, total_tokens: 12, cache_read_tokens: 2 },
       model: "claude-haiku-5-5",
     });
   });

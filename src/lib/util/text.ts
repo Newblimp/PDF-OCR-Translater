@@ -43,7 +43,7 @@ export function estimateTokens(text: string): number {
 /** Convert `snake_case`, `camelCase` or `kebab-case` keys into a readable label. */
 export function humanizeKey(key: string): string {
   const spaced = key
-    .replace(/[_\-]+/g, " ")
+    .replace(/[_-]+/g, " ")
     .replace(/([a-z0-9])([A-Z])/g, (_m, a: string, b: string) => `${a} ${b.toLowerCase()}`)
     .trim();
   if (!spaced) return key;
