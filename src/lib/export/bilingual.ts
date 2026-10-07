@@ -3,10 +3,10 @@
  * to the original, field by field (the structured text) and block by block
  * (the OCR pages). It opens in any browser, prints to PDF, and Word and
  * LibreOffice import it. No scripts and no external resources: the app's CSP
- * does not apply to a downloaded file, so every rendered fragment loses
- * `src`/`srcset`/`background`/`poster` URLs that are not `data:` (a document
- * or a model could otherwise make the file fetch a remote image whose URL
- * carries text), and the file declares its own CSP for browsers.
+ * does not apply to a downloaded file, so the caller renders Markdown with
+ * `loadExportMarkdownRenderer()` (remote `src`/`srcset`/`background`/... are
+ * removed, a document or a model could otherwise make the file fetch an image
+ * whose URL carries text), and the file declares its own CSP for browsers.
  */
 import type { JsonSchemaObject } from "../mistral/types";
 import { textBlocks } from "../pipeline/blockTranslate";
@@ -28,19 +28,11 @@ export interface BilingualExportInput {
   blockTranslations: Record<string, string>;
 }
 
-/** Markdown → sanitised HTML (the app's renderer, or an escaping stand-in). */
+/** Markdown → sanitised HTML without remote resources (the export renderer, or an escaping stand-in). */
 export type MarkdownRenderer = (markdown: string) => string;
 
 /** The exported file's own policy: inline styles and embedded images only. */
 export const EXPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:";
-
-/** Attributes that make a browser or word processor fetch a URL when the file is opened. */
-const REMOTE_ATTRIBUTE = /\s(?:src|srcset|background|poster|lowsrc|dynsrc|data)\s*=\s*(?:"(?!\s*data:)[^"]*"|'(?!\s*data:)[^']*'|(?!["'\s])(?!data:)[^\s>]+)/gi;
-
-/** Remove every URL that would be fetched from outside the file (keeps `data:` images). */
-export function stripRemoteResources(html: string): string {
-  return html.replace(REMOTE_ATTRIBUTE, "");
-}
 
 export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -117,8 +109,7 @@ function pagesSection(input: BilingualExportInput, render: MarkdownRenderer): st
   return pages ? `<h2>Page by page</h2>${pages}` : "";
 }
 
-export function bilingualHtml(input: BilingualExportInput, renderMarkdown: MarkdownRenderer): string {
-  const render: MarkdownRenderer = (markdown) => stripRemoteResources(renderMarkdown(markdown));
+export function bilingualHtml(input: BilingualExportInput, render: MarkdownRenderer): string {
   const date = new Date(input.completedAt).toISOString().slice(0, 10);
   return [
     "<!doctype html>",

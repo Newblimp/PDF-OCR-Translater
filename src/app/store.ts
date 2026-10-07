@@ -66,6 +66,11 @@ export interface OcrState {
   cacheKey: string | null;
 }
 
+/** Whether `translation` was made from this OCR result (its text is exactly what was translated). */
+export function ocrBelongsTo(ocr: OcrState, translation: Pick<TranslationState, "sourceText">): boolean {
+  return ocr.text.text === translation.sourceText;
+}
+
 /** Identifies an OCR request of a document: the model and the selected pages (null = all). */
 export function ocrRequestKey(model: string, pages: number[] | null): string {
   return `${model}|${pages?.length ? pages.join(",") : "all"}`;
@@ -255,8 +260,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "doc/clear":
       return { ...state, doc: null, ocr: null, translation: null, error: null };
     case "paste/mode":
-      // An OCR result reopened from "Recent translations" belongs to no document; pasted text must not be paired with it.
-      return { ...state, pasteMode: action.enabled, error: null, ocr: action.enabled && !state.doc ? null : state.ocr };
+      return { ...state, pasteMode: action.enabled, error: null };
     case "paste/text":
       return { ...state, pastedText: action.text };
     case "ocr/set":
@@ -266,6 +270,9 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         translation: action.translation,
+        // An OCR result reopened from "Recent translations" (no document) leaves with the translation it came with
+        // when a translation of something else (pasted text) replaces it.
+        ocr: !state.doc && state.ocr && action.translation && !ocrBelongsTo(state.ocr, action.translation) ? null : state.ocr,
         activeTab: action.translation ? "structured" : state.activeTab,
         // The finished translation replaces the live stream view while follow-ups run.
         job: state.job && action.translation ? { ...state.job, streamText: "" } : state.job,

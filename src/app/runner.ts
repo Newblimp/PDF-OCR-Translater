@@ -46,6 +46,7 @@ import { formatBytes } from "@/lib/util/text";
 import {
   canRunOcr,
   missingKeys,
+  ocrBelongsTo,
   ocrRequestKey,
   selectSourceText,
   usableKey,
@@ -406,6 +407,8 @@ export function cancelJob(rt: Runtime): void {
 interface Job {
   ctx: PipelineContext;
   controller: AbortController;
+  /** Id of the translation this job put on screen, once it has. */
+  producedId?: string;
 }
 
 /**
@@ -458,9 +461,8 @@ function beginJob(rt: Runtime, kind: JobKind, stages: StageId[], needsChat: bool
 /** Report a job's failure unless it was cancelled; always ends the job. */
 function endJob(rt: Runtime, job: Job, title: string, err?: unknown): void {
   if (err !== undefined) {
-    // After a cancelled or failed job, nothing starts by itself: the user decides what runs next.
-    const current = rt.getState().translation?.id;
-    if (current) originalRequested.add(current);
+    // A translation whose job was cancelled or failed after it appeared gets no automatic follow-up: the user decides.
+    if (job.producedId) originalRequested.add(job.producedId);
     if (!isCancellation(err, job)) {
       rt.dispatch({ type: "error/set", error: toAppError(err, title) });
       job.controller.abort(); // stop stages still running in the background
@@ -474,7 +476,7 @@ const originalRequested = new Set<string>();
 
 /** The OCR result on screen, if it is the one `t` was translated from (not another page selection, document or source). */
 function ocrOf(state: AppState, t: TranslationState): OcrText | undefined {
-  return state.ocr && state.ocr.text.text === t.sourceText ? state.ocr.text : undefined;
+  return state.ocr && ocrBelongsTo(state.ocr, t) ? state.ocr.text : undefined;
 }
 
 function isCancellation(err: unknown, job: Job): boolean {
@@ -619,6 +621,7 @@ async function runTranslation(rt: Runtime, job: Job, source: Source): Promise<vo
   controller.signal.throwIfAborted();
   const completedAt = Date.now();
   const id = crypto.randomUUID();
+  job.producedId = id;
   rt.dispatch({
     type: "translation/set",
     translation: {
@@ -693,7 +696,8 @@ export async function ensureOriginalStructure(rt: Runtime, force = false): Promi
   const state = rt.getState();
   const t = state.translation;
   if (!t || state.job || (t.originalData !== null && t.originalData !== undefined) || state.settings.structureOriginal === "never") return;
-  if (!force && originalRequested.has(t.id)) return;
+  // Not by itself while an error is shown (an automatic job would also clear it), nor twice for one translation.
+  if (!force && (originalRequested.has(t.id) || state.error)) return;
   const job = beginJob(rt, "original", ["structure_original"], true, t);
   if (!job) return;
   originalRequested.add(t.id);

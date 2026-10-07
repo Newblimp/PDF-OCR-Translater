@@ -1,10 +1,10 @@
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useState } from "preact/hooks";
-import type { AppState, JobKind, OcrState, ResultTab, TranslationState } from "@/app/store";
+import { ocrBelongsTo, type AppState, type JobKind, type OcrState, type ResultTab, type TranslationState } from "@/app/store";
 import { bilingualHtml } from "@/lib/export/bilingual";
 import type { TokenUsage } from "@/lib/llm/provider";
 import { PROVIDERS } from "@/lib/llm/registry";
-import { loadMarkdownRenderer } from "@/lib/markdown";
+import { loadExportMarkdownRenderer } from "@/lib/markdown";
 import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
 import { textBlocks, translatedPageMarkdown } from "@/lib/pipeline/blockTranslate";
 import type { StructureOriginalMode } from "@/lib/pipeline/pipeline";
@@ -134,7 +134,15 @@ export function ResultsPanel({ state, actions }: Props) {
       )}
 
       {active === "ocr" && ocr && (
-        <OcrView ocr={ocr} translation={translation} showTranslation={state.showTranslation} busy={!!state.job} baseName={name} actions={actions} />
+        <OcrView
+          ocr={ocr}
+          translation={translation}
+          canRetry={!!translation && ocrBelongsTo(ocr, translation)}
+          showTranslation={state.showTranslation}
+          busy={!!state.job}
+          baseName={name}
+          actions={actions}
+        />
       )}
 
       {active === "structured" && streamText && (
@@ -248,7 +256,7 @@ function useOriginalOnDemand(translation: TranslationState, wantTranslation: boo
 
 /** Bilingual HTML: the translation next to the original, field by field and block by block. */
 async function downloadBilingual(translation: TranslationState, ocr: OcrState | null, name: string): Promise<void> {
-  const render = await loadMarkdownRenderer().catch(() => null);
+  const render = await loadExportMarkdownRenderer().catch(() => null);
   const html = bilingualHtml(
     {
       title: translation.sourceName,
@@ -459,7 +467,7 @@ function PipelineStrip({
           <button type="button" class="btn btn-link small" onClick={() => actions.setTab("bboxes")}>
             BBox annotation: {described} of {translation.bboxAnnotations.length} box(es) described by the vision model
           </button>
-          {failed > 0 && ocr && (
+          {failed > 0 && ocr && ocrBelongsTo(ocr, translation) && (
             <button type="button" class="btn btn-ghost small" disabled={busy} onClick={() => actions.retry("bboxes")}>
               Retry {failed} failed
             </button>
@@ -510,6 +518,7 @@ const StreamingView = memo(function StreamingView({ text }: { text: string }) {
 const OcrView = memo(function OcrView({
   ocr,
   translation,
+  canRetry,
   showTranslation: wantTranslation,
   busy,
   baseName: name,
@@ -517,6 +526,8 @@ const OcrView = memo(function OcrView({
 }: {
   ocr: OcrState;
   translation: TranslationState | null;
+  /** The translation was made from this OCR result, so its blocks can be (re)translated into it. */
+  canRetry: boolean;
   showTranslation: boolean;
   busy: boolean;
   baseName: string;
@@ -574,7 +585,7 @@ const OcrView = memo(function OcrView({
           {busy
             ? "The per-block translations are still being produced; the OCR text is shown in its original language."
             : "No per-block translations for this text yet: run “OCR + Translate” (the blocks are translated after the main translation) or keep “Translate each OCR text block” enabled in Settings."}
-          {!busy && translation && hasTextBlocks && (
+          {!busy && canRetry && hasTextBlocks && (
             <>
               {" "}
               <button type="button" class="btn btn-ghost small" onClick={() => actions.retry("blocks")}>
@@ -586,10 +597,15 @@ const OcrView = memo(function OcrView({
       )}
       {showTranslation && untranslated > 0 && (
         <p class="muted small">
-          {untranslated} block(s) came back without a translation; they are shown in the original language.{" "}
-          <button type="button" class="btn btn-ghost small" disabled={busy} onClick={() => actions.retry("blocks")}>
-            Retry them
-          </button>
+          {untranslated} block(s) came back without a translation; they are shown in the original language.
+          {canRetry && (
+            <>
+              {" "}
+              <button type="button" class="btn btn-ghost small" disabled={busy} onClick={() => actions.retry("blocks")}>
+                Retry them
+              </button>
+            </>
+          )}
         </p>
       )}
       {headersFooters.length > 0 && (

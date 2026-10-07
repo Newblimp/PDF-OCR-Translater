@@ -83,12 +83,19 @@ describe("history", () => {
     expect(selectSourceText(state)).toEqual({ text: "源文本", origin: "saved" });
   });
 
-  it("drops a reopened OCR result (no document) when switching to pasted text", () => {
+  it("keeps a reopened OCR result (no document) until a translation of something else replaces its translation", () => {
     let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
     const ocr: OcrState = { source: "cache", model: "m", response: { model: "m", pages: [], usage_info: { pages_processed: 0 } }, text: { text: "源文本", pages: [], bboxes: [], pagesProcessed: 0, chars: 3 }, docId: "saved:t1", requestKey: "", cacheKey: "k" };
     state = reducer(state, { type: "history/open", ocr, translation: translationFixture({ restored: true }), pastedText: null });
     expect(selectSourceText(state)?.origin).toBe("ocr");
+    // Opening and closing the paste box loses nothing.
     state = reducer(state, { type: "paste/mode", enabled: true });
+    state = reducer(state, { type: "paste/mode", enabled: false });
+    expect(state.ocr).toBe(ocr);
+    // A new translation of the same OCR text keeps it; a translation of pasted text drops it.
+    state = reducer(state, { type: "translation/set", translation: translationFixture({ id: "t2" }) });
+    expect(state.ocr).toBe(ocr);
+    state = reducer(state, { type: "translation/set", translation: translationFixture({ id: "t3", sourceKind: "pasted", sourceText: "别的文本" }) });
     expect(state.ocr).toBeNull();
   });
 });
