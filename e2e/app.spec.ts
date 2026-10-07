@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ANTHROPIC_KEY, chatStep, installStreamingTranslationMock, makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY, systemPrompt, type RecordedRequest } from "./helpers";
+import { ANTHROPIC_KEY, chatStep, installStreamingTranslationMock, jsonBody, makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY, systemPrompt, type RecordedRequest } from "./helpers";
 
 const APP_HOST = "localhost:4173";
 const ALLOWED_HOSTS = new Set([APP_HOST, "api.mistral.ai", "api.anthropic.com", "api.openai.com"]);
@@ -564,13 +564,7 @@ test("cancel stops a running job without an error", async ({ page }) => {
 async function failStep(page: Page, failing: string, status: number, times = Infinity): Promise<{ failed: () => number }> {
   let failed = 0;
   await page.route("https://api.anthropic.com/v1/messages", async (route) => {
-    let body: Record<string, unknown> | null = null;
-    try {
-      body = route.request().postDataJSON() as Record<string, unknown>;
-    } catch {
-      body = null;
-    }
-    if (chatStep(body) !== failing || failed >= times) return route.fallback();
+    if (chatStep(jsonBody(route.request())) !== failing || failed >= times) return route.fallback();
     failed++;
     await route.fulfill({
       status,
