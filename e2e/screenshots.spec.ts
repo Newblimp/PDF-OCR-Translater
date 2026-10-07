@@ -1,5 +1,5 @@
 import { test } from "@playwright/test";
-import { makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY } from "./helpers";
+import { ANTHROPIC_KEY, makePdf, MISTRAL_KEY, mockApis } from "./helpers";
 
 // Not a real test: produces screenshots for a visual check. Run with
 //   npx playwright test e2e/screenshots.spec.ts
@@ -16,9 +16,9 @@ for (const [name, width] of [
     await page.goto("/");
     await page.screenshot({ path: `${out}/${name}-1-key.png`, fullPage: true });
     await page.getByRole("dialog").getByPlaceholder("Paste your Mistral key").fill(MISTRAL_KEY);
-    await page.getByRole("dialog").getByPlaceholder("Paste your OpenAI (GPT Luna) key").fill(OPENAI_KEY);
+    await page.getByRole("dialog").getByPlaceholder("Paste your Anthropic (Claude) key").fill(ANTHROPIC_KEY);
     await page.getByRole("dialog").getByRole("button", { name: "Save and verify" }).click();
-    await page.getByText("OpenAI key verified").waitFor();
+    await page.getByText("Anthropic key verified").waitFor();
     await page.screenshot({ path: `${out}/${name}-2-empty.png`, fullPage: true });
     await page.locator('input[type="file"]').first().setInputFiles({ name: "office-action.pdf", mimeType: "application/pdf", buffer: makePdf("Hello patent office") });
     await page.locator(".preview-page img").first().waitFor();

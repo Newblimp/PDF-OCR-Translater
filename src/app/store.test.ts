@@ -4,7 +4,7 @@ import { initialState, missingKeys, reducer, requiredProviders, usableKey, type 
 
 describe("streaming and OCR invalidation", () => {
   it("switches to the Structured text tab when the first stream text arrives", () => {
-    let state = initialState({ mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
     state = { ...state, activeTab: "ocr" };
     state = reducer(state, {
       type: "job/start",
@@ -17,7 +17,7 @@ describe("streaming and OCR invalidation", () => {
   });
 
   it("drops a translation when a new OCR result from the API replaces the old one", () => {
-    let state = initialState({ mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
     const translation: TranslationState = { data: {}, rawText: "", schema: {}, schemaSource: "builtin", schemaWarnings: [], usage: null, inferUsage: null, provider: "openai", model: "m", mode: "json_schema", violations: [], finishReason: "stop", targetLanguage: "English", completedAt: 0, sourceChars: 0, imagesSent: 0, bboxAnnotations: [], bboxUsage: null, blockTranslations: {}, blockUsage: null, originalData: null, originalRawText: null, originalUsage: null, originalViolations: [] };
     state = reducer(state, { type: "translation/set", translation });
     const ocr: OcrState = { source: "cache", model: "m", response: { model: "m", pages: [], usage_info: { pages_processed: 0 } }, text: { text: "", pages: [], bboxes: [], pagesProcessed: 0, chars: 0 }, docId: "d" };
@@ -30,7 +30,7 @@ describe("streaming and OCR invalidation", () => {
 
 describe("result tabs", () => {
   it("starts on the bounding boxes tab and shows the structured text once a translation arrives", () => {
-    const state = initialState({ mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    const state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
     expect(state.activeTab).toBe("bboxes");
     expect(state.showTranslation).toBe(true);
     const translation: TranslationState = {
@@ -48,27 +48,28 @@ describe("result tabs", () => {
 describe("key gating", () => {
   it("requires only the Mistral key when Mistral translates, both otherwise", () => {
     expect(requiredProviders({ ...DEFAULT_SETTINGS, provider: "mistral" })).toEqual(["mistral"]);
+    expect(requiredProviders(DEFAULT_SETTINGS)).toEqual(["mistral", "anthropic"]);
     expect(requiredProviders({ ...DEFAULT_SETTINGS, provider: "openai" })).toEqual(["mistral", "openai"]);
   });
 
   it("treats a rejected key as missing", () => {
-    let state = initialState({ mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
     expect(missingKeys(state)).toEqual([]);
-    state = reducer(state, { type: "key/status", provider: "openai", status: "invalid", error: "nope" });
-    expect(usableKey(state.keys, "openai")).toBeNull();
-    expect(missingKeys(state)).toEqual(["openai"]);
+    state = reducer(state, { type: "key/status", provider: "anthropic", status: "invalid", error: "nope" });
+    expect(usableKey(state.keys, "anthropic")).toBeNull();
+    expect(missingKeys(state)).toEqual(["anthropic"]);
     // Unverified (network trouble) keys stay usable.
-    state = reducer(state, { type: "key/status", provider: "openai", status: "unverified" });
+    state = reducer(state, { type: "key/status", provider: "anthropic", status: "unverified" });
     expect(missingKeys(state)).toEqual([]);
   });
 
   it("opens the key dialog initially only when a required key is missing", () => {
-    expect(initialState({ mistral: "m", openai: null }, { ...DEFAULT_SETTINGS, provider: "mistral" }).keyDialogOpen).toBe(false);
-    expect(initialState({ mistral: "m", openai: null }, { ...DEFAULT_SETTINGS, provider: "openai" }).keyDialogOpen).toBe(true);
+    expect(initialState({ anthropic: null, mistral: "m", openai: null }, { ...DEFAULT_SETTINGS, provider: "mistral" }).keyDialogOpen).toBe(false);
+    expect(initialState({ anthropic: null, mistral: "m", openai: null }, { ...DEFAULT_SETTINGS, provider: "openai" }).keyDialogOpen).toBe(true);
   });
 
   it("evaluates missing keys against explicitly passed settings", () => {
-    const state = initialState({ mistral: "m", openai: null }, { ...DEFAULT_SETTINGS, provider: "mistral" });
+    const state = initialState({ anthropic: null, mistral: "m", openai: null }, { ...DEFAULT_SETTINGS, provider: "mistral" });
     expect(missingKeys(state, { ...state.settings, provider: "openai" })).toEqual(["openai"]);
   });
 });

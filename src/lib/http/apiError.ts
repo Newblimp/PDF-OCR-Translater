@@ -12,7 +12,9 @@ export type ApiErrorKind =
   | "refusal" // the model declined to answer (a completed, billed response)
   | "protocol"; // unexpected response shape
 
-export type ApiProvider = "mistral" | "openai";
+export type ApiProvider = "anthropic" | "mistral" | "openai";
+
+const PROVIDER_NAMES: Record<ApiProvider, string> = { anthropic: "Anthropic", mistral: "Mistral", openai: "OpenAI" };
 
 export class ApiError extends Error {
   constructor(
@@ -28,7 +30,7 @@ export class ApiError extends Error {
 
   /** A short, user-facing explanation with a hint on what to do. */
   get hint(): string {
-    const name = this.provider === "openai" ? "OpenAI" : "Mistral";
+    const name = PROVIDER_NAMES[this.provider];
     switch (this.kind) {
       case "network":
         return `The request never reached the ${name} API. Check your connection. If you are online, the browser may have blocked the call (CORS or Content-Security-Policy).`;

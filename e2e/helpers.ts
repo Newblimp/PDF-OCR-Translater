@@ -1,6 +1,6 @@
 /**
- * Test helpers: a tiny PDF generator and mocks of the Mistral (OCR) and
- * OpenAI (translation) endpoints the app uses. Kept dependency-free so the
+ * Test helpers: a tiny PDF generator and mocks of the Mistral (OCR),
+ * Anthropic and OpenAI (translation) endpoints the app uses. Kept dependency-free so the
  * e2e suite runs offline.
  */
 import type { Page, Route } from "@playwright/test";
@@ -34,13 +34,14 @@ export function makePdf(text: string, morePages: string[] = []): Buffer {
 }
 
 export interface RecordedRequest {
-  host: "api.mistral.ai" | "api.openai.com";
+  host: "api.mistral.ai" | "api.anthropic.com" | "api.openai.com";
   url: string;
   headers: Record<string, string>;
   body: Record<string, unknown> | null;
 }
 
 export const MISTRAL_KEY = "mistral-test-key";
+export const ANTHROPIC_KEY = "sk-ant-test-key";
 export const OPENAI_KEY = "sk-openai-test-key";
 
 /** 1×1 PNG, enough for an <img> and for a vision request body. */
@@ -134,7 +135,7 @@ function json(route: Route, status: number, body: unknown) {
   return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 }
 
-/** Intercept every call to api.mistral.ai and api.openai.com and answer like the real APIs would. */
+/** Intercept every call to api.mistral.ai, api.anthropic.com and api.openai.com and answer like the real APIs would. */
 export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise<void> {
   await page.route("https://api.mistral.ai/**", async (route: Route) => {
     const req = route.request();
@@ -175,6 +176,34 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
     return json(route, 404, { message: "not mocked" });
   });
 
+  await page.route("https://api.anthropic.com/**", async (route: Route) => {
+    const req = route.request();
+    const url = req.url();
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = req.postDataJSON() as Record<string, unknown>;
+    } catch {
+      body = null;
+    }
+    recorded.push({ host: "api.anthropic.com", url, headers: req.headers(), body });
+
+    if (req.headers()["x-api-key"] !== ANTHROPIC_KEY) {
+      return json(route, 401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
+    }
+    const path = new URL(url).pathname;
+    if (path === "/v1/models") {
+      const model = (id: string, display_name: string) => ({ type: "model", id, display_name, created_at: "2026-10-07T00:00:00Z", max_input_tokens: 1_000_000, max_tokens: 128_000 });
+      return json(route, 200, {
+        data: [model("claude-haiku-5-5", "Claude Haiku 5.5"), model("claude-sonnet-5-5", "Claude Sonnet 5.5"), model("claude-haiku-4-5-20251001", "Claude Haiku 4.5")],
+        has_more: false,
+        first_id: "claude-haiku-5-5",
+        last_id: "claude-haiku-4-5-20251001",
+      });
+    }
+    if (path === "/v1/messages") return anthropicMessage(route, body);
+    return json(route, 404, { type: "error", error: { type: "not_found_error", message: "not mocked" } });
+  });
+
   await page.route("https://api.openai.com/**", async (route: Route) => {
     const req = route.request();
     const url = req.url();
@@ -206,70 +235,77 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
   });
 }
 
+export type ChatStep = "infer_schema" | "bbox_annotation" | "translated_document" | "original_document" | "block_translations";
+
 /**
- * Schema inference answers in json_object mode; bbox annotation, the
- * original-language structure and the translation in json_schema mode
- * (the translation streamed).
+ * The pipeline step a recorded chat request belongs to. OpenAI and Mistral
+ * name it in `response_format.json_schema.name`; Anthropic's structured
+ * outputs carry no name, so its requests are told apart by schema and prompt.
+ * Schema inference is the only request without a JSON Schema.
+ */
+export function chatStep(body: Record<string, unknown> | null): ChatStep {
+  const responseFormat = body?.["response_format"] as { type?: string; json_schema?: { name?: string } } | undefined;
+  if (responseFormat) return responseFormat.type === "json_schema" ? (responseFormat.json_schema?.name as ChatStep) : "infer_schema";
+  const format = (body?.["output_config"] as { format?: { schema?: { properties?: Record<string, unknown> } } } | undefined)?.format;
+  if (!format) return "infer_schema";
+  const properties = format.schema?.properties ?? {};
+  if ("translations" in properties) return "block_translations";
+  if ("image_type" in properties) return "bbox_annotation";
+  return /Do NOT translate/.test(systemPrompt(body)) ? "original_document" : "translated_document";
+}
+
+/** System prompt of an OpenAI/Mistral (system message) or Anthropic (top-level `system`) request. */
+export function systemPrompt(body: Record<string, unknown> | null): string {
+  if (typeof body?.["system"] === "string") return body["system"];
+  const messages = (body?.["messages"] as Array<{ role: string; content: string | unknown[] }> | undefined) ?? [];
+  const content = messages.find((m) => m.role === "system")?.content;
+  return typeof content === "string" ? content : "";
+}
+
+/** The JSON the model "returns" for each step, plus mock token counts. */
+function stepAnswer(body: Record<string, unknown> | null): { step: ChatStep; text: string; input: number; output: number } {
+  const step = chatStep(body);
+  const german = /into German/.test(systemPrompt(body));
+  switch (step) {
+    case "block_translations": {
+      const messages = (body?.["messages"] as Array<{ role: string; content: string | unknown[] }> | undefined) ?? [];
+      const user = messages.find((m) => m.role === "user")?.content;
+      const items = JSON.parse(String(user).replace(/^[^[]*/, "")) as Array<{ id: string; text: string }>;
+      return { step, text: JSON.stringify({ translations: items.map((i) => ({ id: i.id, text: `[${german ? "DE" : "EN"}] ${i.text}` })) }), input: 30, output: 30 };
+    }
+    case "original_document":
+      return { step, text: JSON.stringify(ORIGINAL_STRUCTURE), input: 400, output: 150 };
+    case "bbox_annotation":
+      return { step, text: JSON.stringify(BBOX_ANNOTATION), input: 40, output: 20 };
+    case "infer_schema":
+      return { step, text: JSON.stringify(INFERRED_SCHEMA), input: 100, output: 50 };
+    case "translated_document": {
+      const translation = german
+        ? { ...TRANSLATION, document_type: "Erster Prüfungsbescheid", summary: "Der Prüfer hält Anspruch 1 für nicht erfinderisch." }
+        : TRANSLATION;
+      return { step, text: JSON.stringify(translation), input: 500, output: 200 };
+    }
+  }
+}
+
+/**
+ * OpenAI/Mistral chat completions: schema inference answers in json_object
+ * mode; bbox annotation, the original-language structure and the
+ * translation in json_schema mode (the translation streamed).
  */
 function chatCompletion(route: Route, body: Record<string, unknown> | null, model: string, openai: boolean) {
-  const responseFormat = body?.["response_format"] as { type?: string; json_schema?: { name?: string } } | undefined;
-  const format = responseFormat?.type;
-  const messages = (body?.["messages"] as Array<{ role: string; content: string | unknown[] }> | undefined) ?? [];
-  const systemContent = messages.find((m) => m.role === "system")?.content;
-  const system = typeof systemContent === "string" ? systemContent : "";
-  const german = /into German/.test(system);
-  if (format === "json_schema" && responseFormat?.json_schema?.name === "block_translations") {
-    const user = messages.find((m) => m.role === "user")?.content;
-    const items = JSON.parse(String(user).replace(/^[^[]*/, "")) as Array<{ id: string; text: string }>;
+  const { text, input, output } = stepAnswer(body);
+  const usage = { prompt_tokens: input, completion_tokens: output, total_tokens: input + output };
+  if (body?.["stream"] !== true) {
     return json(route, 200, {
-      id: "cmpl-blocks",
+      id: "cmpl",
       object: "chat.completion",
       model,
       created: 0,
-      usage: { prompt_tokens: 30, completion_tokens: 30, total_tokens: 60 },
-      choices: [
-        {
-          index: 0,
-          message: { role: "assistant", content: JSON.stringify({ translations: items.map((i) => ({ id: i.id, text: `[${german ? "DE" : "EN"}] ${i.text}` })) }) },
-          finish_reason: "stop",
-        },
-      ],
+      usage,
+      choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
     });
   }
-  if (format === "json_schema" && responseFormat?.json_schema?.name === "original_document") {
-    return json(route, 200, {
-      id: "cmpl-original",
-      object: "chat.completion",
-      model,
-      created: 0,
-      usage: { prompt_tokens: 400, completion_tokens: 150, total_tokens: 550 },
-      choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify(ORIGINAL_STRUCTURE) }, finish_reason: "stop" }],
-    });
-  }
-  if (format === "json_schema" && responseFormat?.json_schema?.name === "bbox_annotation") {
-    return json(route, 200, {
-      id: "cmpl-bbox",
-      object: "chat.completion",
-      model,
-      created: 0,
-      usage: { prompt_tokens: 40, completion_tokens: 20, total_tokens: 60 },
-      choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify(BBOX_ANNOTATION) }, finish_reason: "stop" }],
-    });
-  }
-  if (format === "json_object") {
-    return json(route, 200, {
-      id: "cmpl-1",
-      object: "chat.completion",
-      model,
-      created: 0,
-      usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
-      choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify(INFERRED_SCHEMA) }, finish_reason: "stop" }],
-    });
-  }
-  const translation = german
-    ? { ...TRANSLATION, document_type: "Erster Prüfungsbescheid", summary: "Der Prüfer hält Anspruch 1 für nicht erfinderisch." }
-    : TRANSLATION;
-  const text = JSON.stringify(translation);
   const mid = Math.floor(text.length / 2);
   const chunk = (content: string, finish?: string) => ({
     id: "cmpl-2",
@@ -280,31 +316,51 @@ function chatCompletion(route: Route, body: Record<string, unknown> | null, mode
   });
   const frames: unknown[] = [chunk(text.slice(0, mid)), chunk(text.slice(mid), "stop")];
   if (openai) {
-    frames.push({
-      id: "cmpl-2",
-      object: "chat.completion.chunk",
-      model,
-      created: 0,
-      choices: [],
-      usage: { prompt_tokens: 500, completion_tokens: 200, total_tokens: 700, completion_tokens_details: { reasoning_tokens: 0 } },
-    });
-  }
-  if (body?.["stream"] !== true) {
-    return json(route, 200, {
-      id: "cmpl-2",
-      object: "chat.completion",
-      model,
-      created: 0,
-      usage: { prompt_tokens: 500, completion_tokens: 200, total_tokens: 700 },
-      choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
-    });
+    frames.push({ id: "cmpl-2", object: "chat.completion.chunk", model, created: 0, choices: [], usage: { ...usage, completion_tokens_details: { reasoning_tokens: 0 } } });
   }
   return route.fulfill({ status: 200, contentType: "text/event-stream", body: sse(frames) });
 }
 
+/** One Anthropic SSE frame (`event:` mirrors the payload's `type`). */
+export function anthropicFrame(data: { type: string } & Record<string, unknown>): string {
+  return `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+/** Anthropic Messages API: a thinking block (empty, as by default) followed by the JSON text. */
+function anthropicMessage(route: Route, body: Record<string, unknown> | null) {
+  const { text, input, output } = stepAnswer(body);
+  const model = String(body?.["model"] ?? "claude-haiku-5-5");
+  const message = { id: "msg", type: "message", role: "assistant", model, stop_reason: null, usage: { input_tokens: input, output_tokens: 1 } };
+  if (body?.["stream"] !== true) {
+    return json(route, 200, {
+      ...message,
+      content: [
+        { type: "thinking", thinking: "", signature: "sig" },
+        { type: "text", text },
+      ],
+      stop_reason: "end_turn",
+      usage: { input_tokens: input, output_tokens: output },
+    });
+  }
+  const mid = Math.floor(text.length / 2);
+  const frames = [
+    anthropicFrame({ type: "message_start", message: { ...message, content: [] } }),
+    anthropicFrame({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }),
+    anthropicFrame({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig" } }),
+    anthropicFrame({ type: "content_block_stop", index: 0 }),
+    anthropicFrame({ type: "content_block_start", index: 1, content_block: { type: "text", text: "" } }),
+    anthropicFrame({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: text.slice(0, mid) } }),
+    anthropicFrame({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: text.slice(mid) } }),
+    anthropicFrame({ type: "content_block_stop", index: 1 }),
+    anthropicFrame({ type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: output } }),
+    anthropicFrame({ type: "message_stop" }),
+  ];
+  return route.fulfill({ status: 200, contentType: "text/event-stream", body: frames.join("") });
+}
+
 /**
  * Make the translation request truly stream inside the browser: patches
- * `window.fetch` so the streamed chat completion arrives as SSE frames with
+ * `window.fetch` so the streamed Anthropic message arrives as SSE frames with
  * a delay between them. Playwright's `route.fulfill` delivers bodies at once,
  * so this is the only way to exercise the live-streaming UI.
  */
@@ -315,17 +371,24 @@ export async function installStreamingTranslationMock(page: Page, delayMs = 150,
       const original = window.fetch.bind(window);
       window.fetch = async (input, init) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("api.openai.com/v1/chat/completions") && init?.body) {
-          const body = JSON.parse(String(init.body)) as { stream?: boolean; response_format?: { json_schema?: { name?: string } } };
-          if (body.stream && body.response_format?.json_schema?.name === "translated_document") {
+        if (url.includes("api.anthropic.com/v1/messages") && init?.body) {
+          const body = JSON.parse(String(init.body)) as { stream?: boolean; system?: string; output_config?: { format?: { schema?: { properties?: Record<string, unknown> } } } };
+          const properties = body.output_config?.format?.schema?.properties;
+          // The streamed translated_document call (see chatStep in this file).
+          if (body.stream && properties && !("translations" in properties) && !("image_type" in properties) && !/Do NOT translate/.test(body.system ?? "")) {
             const text = JSON.stringify(translation);
             const size = Math.ceil(text.length / chunks);
             const encoder = new TextEncoder();
-            const frame = (content: string, finish: string | null) =>
-              `data: ${JSON.stringify({ id: "s", object: "chat.completion.chunk", model: "gpt-6-luna", created: 0, choices: [{ index: 0, delta: { content }, finish_reason: finish }] })}\n\n`;
+            const frame = (data: { type: string } & Record<string, unknown>) => `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`;
             const signal = init.signal ?? null;
             const stream = new ReadableStream<Uint8Array>({
               async start(controller) {
+                controller.enqueue(
+                  encoder.encode(
+                    frame({ type: "message_start", message: { id: "s", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [], stop_reason: null, usage: { input_tokens: 500, output_tokens: 1 } } }) +
+                      frame({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+                  ),
+                );
                 for (let i = 0; i < chunks; i++) {
                   await new Promise((r) => setTimeout(r, delayMs));
                   if (signal?.aborted) {
@@ -335,11 +398,16 @@ export async function installStreamingTranslationMock(page: Page, delayMs = 150,
                   const piece = text.slice(i * size, (i + 1) * size);
                   // Split each piece into small frames, like real token streaming.
                   for (let j = 0; j < piece.length; j += 4) {
-                    const last = i === chunks - 1 && j + 4 >= piece.length;
-                    controller.enqueue(encoder.encode(frame(piece.slice(j, j + 4), last ? "stop" : null)));
+                    controller.enqueue(encoder.encode(frame({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: piece.slice(j, j + 4) } })));
                   }
                 }
-                controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                controller.enqueue(
+                  encoder.encode(
+                    frame({ type: "content_block_stop", index: 0 }) +
+                      frame({ type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 200 } }) +
+                      frame({ type: "message_stop" }),
+                  ),
+                );
                 controller.close();
               },
             });

@@ -4,10 +4,11 @@ A browser-only tool that turns a scanned or digital PDF (for example a
 communication from the China National Intellectual Property Administration,
 CNIPA) into a translated, structured JSON document using
 [Mistral Document AI](https://docs.mistral.ai/capabilities/document_ai/basic_ocr)
-for OCR and OpenAI's GPT Luna
-([`gpt-6-luna`](https://developers.openai.com/api/docs/models/gpt-6-luna))
-with JSON-schema structured outputs for translation. Mistral chat models
-remain available as an alternative translation provider.
+for OCR and Anthropic's Claude Haiku 5.5
+([`claude-haiku-5-5`](https://platform.claude.com/docs/en/models/haiku-5-5/overview))
+with JSON-schema structured outputs for translation. OpenAI's GPT Luna
+(`gpt-6-luna`) and Mistral chat models remain available as alternative
+translation providers.
 
 **Privacy model:** the site is a static bundle. The document is read in your
 browser, base64-encoded there and sent **only** to `https://api.mistral.ai`
@@ -15,7 +16,8 @@ browser, base64-encoded there and sent **only** to `https://api.mistral.ai`
 OCR returns** (figures, stamps, seals; up to 8 with the translation request
 and up to the configured limit for per-box descriptions, both can be turned
 off in Settings) are then sent **only** to the translation provider
-(`https://api.openai.com` by default). Nothing is uploaded to GitHub,
+(`https://api.anthropic.com` by default, or `https://api.openai.com` /
+`https://api.mistral.ai` when selected). Nothing is uploaded to GitHub,
 Cloudflare, or any other server. A Content-Security-Policy header
 (`public/_headers`) enforces this in production: the page cannot connect
 anywhere else.
@@ -79,11 +81,11 @@ anywhere else.
    language; it is one shared setting, not one per tab. The document card
    takes a page selection (e.g. `1-3, 7`) to OCR only part of a PDF.
 
-Two API keys are requested on first use (Mistral for OCR, OpenAI for
+Two API keys are requested on first use (Mistral for OCR, Anthropic for
 translation), verified against each provider's `GET /v1/models`, and cached
 in this browser's `localStorage` only. The key dialog also lets you pick
-Mistral as the translation provider, in which case only the Mistral key is
-needed. "Forget" in the header removes all keys.
+OpenAI or Mistral as the translation provider; with Mistral only the Mistral
+key is needed. "Forget" in the header removes all keys.
 OCR results are cached in the browser's IndexedDB (keyed by a SHA-256 of the
 file) so re-running "Translate only" on the same file costs no OCR credits.
 Both caches can be cleared from the UI. The header also offers a
@@ -99,7 +101,7 @@ npm install
 npm run dev          # http://localhost:5173, with the production CSP applied
 npm run typecheck    # strict TypeScript
 npm test             # unit tests (Vitest)
-npm run e2e          # Playwright end-to-end tests against mocked Mistral and OpenAI APIs
+npm run e2e          # Playwright end-to-end tests against mocked Mistral, Anthropic and OpenAI APIs
 npm run build        # typecheck + production build into dist/
 npm run preview      # serve dist/ locally
 ```
@@ -134,10 +136,10 @@ All defaults live in code so they can be changed in one place:
 | Setting | Default | Where |
 | --- | --- | --- |
 | OCR model | `mistral-ocr-latest` (dropdown of `OCR_MODELS`) | `src/lib/mistral/models.ts` |
-| Translation provider | OpenAI (GPT Luna); Mistral selectable | `src/lib/llm/registry.ts` |
-| Translation model | `gpt-6-luna` (OpenAI) / `mistral-large-latest` (Mistral); dropdown of the models from `/v1/models` | `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
-| Reasoning effort (OpenAI) | `none` | Settings panel |
-| Max output tokens | provider default | Settings panel |
+| Translation provider | Anthropic (Claude Haiku 5.5); OpenAI and Mistral selectable | `src/lib/llm/registry.ts` |
+| Translation model | `claude-haiku-5-5` (Anthropic) / `gpt-6-luna` (OpenAI) / `mistral-large-latest` (Mistral); dropdown of the models from `/v1/models` | `src/lib/anthropic/models.ts`, `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
+| Reasoning effort (Anthropic, OpenAI) | `none` (Anthropic: effort `low`, its lowest) | Settings panel |
+| Max output tokens | provider default (Anthropic: 64k, the API requires a value) | Settings panel, `src/lib/anthropic/models.ts` |
 | Document annotation with images | on (first 8 boxes, `DOCUMENT_ANNOTATION_MAX_IMAGES`) | Settings panel, `src/lib/pipeline/runOcr.ts` |
 | BBox annotation | on, up to 20 boxes per run | Settings panel; format in `src/lib/pipeline/schemas/bboxAnnotation.ts` |
 | Block translations | on | Settings panel; `src/lib/pipeline/blockTranslate.ts` |
@@ -148,23 +150,35 @@ All defaults live in code so they can be changed in one place:
 | Prompts | schema inference and translation | `src/lib/pipeline/prompts.ts` |
 | Temperature (Mistral only) | 0.2 | Settings panel |
 | API limits (50 MB, 1000 pages) | checked client-side | `src/lib/pipeline/runOcr.ts` |
-| CSP / security headers | `connect-src https://api.mistral.ai https://api.openai.com` | `public/_headers` |
+| CSP / security headers | `connect-src https://api.mistral.ai https://api.anthropic.com https://api.openai.com` | `public/_headers` |
 
 ## Limitations and notes
 
 - A single translation call must fit in the model's context window. Very
   long documents (hundreds of pages) would need a chunked strategy; the
   pipeline is structured so one can be added in `src/lib/pipeline/`.
-- The browser calls `api.mistral.ai` and `api.openai.com` directly, which
-  relies on the APIs' CORS headers. If a browser ever blocks a call, the app
-  reports it as a network error with a hint.
-- GPT-5.x models do not accept a `temperature`; the app never sends one to
-  OpenAI. `reasoning_effort` defaults to `none` for speed and cost and can
-  be raised in Settings.
+- The browser calls `api.mistral.ai`, `api.anthropic.com` and
+  `api.openai.com` directly, which relies on the APIs' CORS headers
+  (Anthropic requires the `anthropic-dangerous-direct-browser-access: true`
+  opt-in header, which the app sends). If a browser ever blocks a call, the
+  app reports it as a network error with a hint.
+- GPT-5.x and current Claude models do not accept a custom `temperature`;
+  the app never sends one to OpenAI or Anthropic. The reasoning effort
+  defaults to `none` (OpenAI `reasoning_effort`; Anthropic
+  `output_config.effort: "low"`, since Claude has no "none") for speed and
+  cost and can be raised in Settings. Claude's adaptive thinking stays on;
+  its thinking blocks are discarded.
+- Anthropic's structured outputs carry no schema name and have no
+  `json_object` mode: schema inference (and the last translation fallback)
+  rely on the prompt and the app's JSON extraction. Only Claude models that
+  accept `effort` (Opus 4.5 and later, Sonnet 4.6 and later, Haiku 5.5) are
+  offered in the model dropdown.
+- Settings saved by an earlier version keep their translation provider, so a
+  browser that already used OpenAI keeps it until you switch in Settings.
 - The API keys live in `localStorage` of this origin, as requested. Anyone
   with access to the browser profile can read them.
-- The vision steps need a model with image input (GPT Luna has it; for the
-  Mistral provider pick a multimodal model). If the model rejects images, the
+- The vision steps need a model with image input (Claude Haiku 5.5 and GPT
+  Luna have it; for the Mistral provider pick a multimodal model). If the model rejects images, the
   translation is retried text-only and the step strip says so.
 - OCR results cached in the browser before this workflow (without images)
   are ignored; the file is OCR'd again once.

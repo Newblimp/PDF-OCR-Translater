@@ -26,9 +26,9 @@ export interface Settings {
   domainHint: string;
   schemaMode: SchemaModeSetting;
   streaming: boolean;
-  /** Mistral only; OpenAI GPT-5.x models do not accept a temperature. */
+  /** Mistral only; OpenAI GPT-5.x and current Claude models do not accept a temperature. */
   temperature: number;
-  /** OpenAI only. "none" keeps translation fast and cheap. */
+  /** OpenAI and Anthropic. "none" keeps translation fast and cheap (Anthropic: lowest effort). */
   reasoningEffort: ReasoningEffort;
   /** Cache OCR results in this browser (IndexedDB) so "Translate only" can reuse them. */
   cacheOcr: boolean;
@@ -66,9 +66,9 @@ const LEGACY_V1_KEY = "pdf-ocr-translater.settings.v1";
 export const SETTINGS_STORAGE_KEY = STORAGE_KEY;
 
 export const DEFAULT_SETTINGS: Settings = {
-  provider: "openai",
+  provider: "anthropic",
   ocrModel: DEFAULT_OCR_MODEL,
-  chatModels: { openai: PROVIDERS.openai.defaultModel, mistral: PROVIDERS.mistral.defaultModel },
+  chatModels: { anthropic: PROVIDERS.anthropic.defaultModel, openai: PROVIDERS.openai.defaultModel, mistral: PROVIDERS.mistral.defaultModel },
   targetLanguage: "English",
   sourceLanguage: "auto",
   domainHint: DEFAULT_DOMAIN_HINT,

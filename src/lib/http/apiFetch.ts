@@ -8,6 +8,10 @@ import { ApiError, type ApiErrorKind, type ApiProvider } from "./apiError";
 export interface ApiFetchOptions {
   provider: ApiProvider;
   apiKey: string;
+  /** Header that carries the key; default `Authorization: Bearer <key>`. */
+  apiKeyHeader?: string;
+  /** Extra provider-specific headers (API version, CORS opt-in). */
+  headers?: Record<string, string>;
   method: "GET" | "POST";
   body?: string;
   signal?: AbortSignal | undefined;
@@ -17,7 +21,8 @@ export interface ApiFetchOptions {
 
 export async function apiFetch(url: string, options: ApiFetchOptions): Promise<Response> {
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${options.apiKey}`,
+    ...options.headers,
+    ...(options.apiKeyHeader ? { [options.apiKeyHeader]: options.apiKey } : { Authorization: `Bearer ${options.apiKey}` }),
     Accept: options.accept ?? "application/json",
   };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";

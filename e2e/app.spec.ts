@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { installStreamingTranslationMock, makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY, type RecordedRequest } from "./helpers";
+import { ANTHROPIC_KEY, chatStep, installStreamingTranslationMock, makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY, systemPrompt, type RecordedRequest } from "./helpers";
 
 const APP_HOST = "localhost:4173";
-const ALLOWED_HOSTS = new Set([APP_HOST, "api.mistral.ai", "api.openai.com"]);
+const ALLOWED_HOSTS = new Set([APP_HOST, "api.mistral.ai", "api.anthropic.com", "api.openai.com"]);
 
 async function setup(page: Page): Promise<{ recorded: RecordedRequest[]; foreign: string[] }> {
   const recorded: RecordedRequest[] = [];
@@ -16,11 +16,11 @@ async function setup(page: Page): Promise<{ recorded: RecordedRequest[]; foreign
   return { recorded, foreign };
 }
 
-async function enterKeys(page: Page, mistral = MISTRAL_KEY, openai = OPENAI_KEY): Promise<void> {
+async function enterKeys(page: Page, mistral = MISTRAL_KEY, anthropic = ANTHROPIC_KEY): Promise<void> {
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   await dialog.getByPlaceholder("Paste your Mistral key").fill(mistral);
-  await dialog.getByPlaceholder("Paste your OpenAI (GPT Luna) key").fill(openai);
+  await dialog.getByPlaceholder("Paste your Anthropic (Claude) key").fill(anthropic);
   await dialog.getByRole("button", { name: "Save and verify" }).click();
 }
 
@@ -29,9 +29,16 @@ function translationSwitch(page: Page) {
   return page.getByRole("checkbox", { name: "Show translation", exact: true });
 }
 
-/** The `response_format.json_schema.name` of a recorded chat request, which says which step it was. */
-function schemaName(request: RecordedRequest): string | undefined {
-  return (request.body?.["response_format"] as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
+/** The pipeline step a recorded chat request belongs to. */
+function step(request: RecordedRequest): string {
+  return chatStep(request.body);
+}
+
+const path = (request: RecordedRequest) => new URL(request.url).pathname;
+
+/** Chat requests of any provider (Anthropic messages, OpenAI/Mistral chat completions). */
+function chatRequests(recorded: RecordedRequest[]): RecordedRequest[] {
+  return recorded.filter((r) => path(r) === "/v1/messages" || path(r) === "/v1/chat/completions");
 }
 
 async function loadPdf(page: Page): Promise<void> {
@@ -44,32 +51,36 @@ async function loadPdf(page: Page): Promise<void> {
 
 test("asks for both API keys once, verifies them and caches them in the browser", async ({ page }) => {
   const { recorded } = await setup(page);
-  await enterKeys(page, MISTRAL_KEY, "wrong-openai-key");
+  await enterKeys(page, MISTRAL_KEY, "wrong-anthropic-key");
   await expect(page.getByRole("dialog").getByText("rejected this key")).toBeVisible();
   await expect(page.getByRole("dialog")).toBeVisible();
 
-  await page.getByRole("dialog").getByPlaceholder("Paste your OpenAI (GPT Luna) key").fill(OPENAI_KEY);
+  await page.getByRole("dialog").getByPlaceholder("Paste your Anthropic (Claude) key").fill(ANTHROPIC_KEY);
   await page.getByRole("dialog").getByRole("button", { name: "Save and verify" }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(page.getByText("Mistral key verified")).toBeVisible();
-  await expect(page.getByText("OpenAI key verified")).toBeVisible();
-  expect(recorded.filter((r) => r.url.endsWith("/v1/models")).map((r) => r.host).sort()).toEqual([
+  await expect(page.getByText("Anthropic key verified")).toBeVisible();
+  expect(recorded.filter((r) => path(r) === "/v1/models").map((r) => r.host).sort()).toEqual([
+    "api.anthropic.com",
+    "api.anthropic.com",
     "api.mistral.ai",
-    "api.openai.com",
-    "api.openai.com",
   ]);
+  // Anthropic takes the key in x-api-key and needs the browser CORS opt-in.
+  const anthropicModels = recorded.find((r) => r.host === "api.anthropic.com" && r.headers["x-api-key"] === ANTHROPIC_KEY)!;
+  expect(anthropicModels.headers).toMatchObject({ "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" });
+  expect(anthropicModels.headers).not.toHaveProperty("authorization");
 
   await page.reload();
   await expect(page.getByRole("dialog")).toBeHidden();
-  await expect(page.getByText("OpenAI key verified")).toBeVisible();
+  await expect(page.getByText("Anthropic key verified")).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.mistral"))).toBe(MISTRAL_KEY);
-  expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.openai"))).toBe(OPENAI_KEY);
+  expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.anthropic"))).toBe(ANTHROPIC_KEY);
 });
 
-test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no other hosts", async ({ page }) => {
+test("OCR + translate: Mistral OCR, Claude Haiku 5.5 translation, browsable JSON, and no other hosts", async ({ page }) => {
   const { recorded, foreign } = await setup(page);
   await enterKeys(page);
-  await expect(page.getByText("OpenAI key verified")).toBeVisible();
+  await expect(page.getByText("Anthropic key verified")).toBeVisible();
 
   await loadPdf(page);
   await expect(page.getByRole("heading", { name: "office-action.pdf" })).toBeVisible();
@@ -84,7 +95,7 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
   await expect(page.getByText("CN202310000001.2").first()).toBeVisible();
   await expect(page.locator(".field-card .prose table")).toBeVisible();
   await expect(page.locator(".field-card table.value-table")).toContainText("CN123456A");
-  await expect(page.locator(".toolbar")).toContainText("OpenAI (GPT Luna) · gpt-6-luna");
+  await expect(page.locator(".toolbar")).toContainText("Anthropic (Claude) · claude-haiku-5-5");
 
   // OCR tab: headers/footers separated, images gone, and the shared "Show translation" switch.
   await page.getByRole("tab", { name: "OCR text" }).click();
@@ -117,29 +128,33 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
   await expect(page.locator(".pipeline-strip")).toContainText("from the text + 2 bounding-box image(s)");
   await expect(page.locator(".pipeline-strip")).toContainText("Structured text in the original language: filled by");
 
-  // Chat on OpenAI: schema inference (json_object), one bbox annotation per box (json_schema), then the translation.
-  const chats = recorded.filter((r) => r.url.endsWith("/v1/chat/completions"));
-  expect(chats.every((c) => c.host === "api.openai.com")).toBe(true);
+  // Chat on Anthropic: schema inference (no JSON Schema), one bbox annotation per box (structured outputs), then the translation.
+  const chats = chatRequests(recorded);
+  expect(chats.every((c) => c.host === "api.anthropic.com" && path(c) === "/v1/messages")).toBe(true);
   // schema inference, 2 bbox annotations, translation, original-language structure, block translations
   expect(chats).toHaveLength(6);
-  expect((chats[0]!.body!["response_format"] as { type: string }).type).toBe("json_object");
-  expect(schemaName(chats.at(-1)!)).toBe("block_translations");
-  expect(chats.map(schemaName)).toContain("original_document");
-  const bboxCalls = chats.filter((c) => schemaName(c) === "bbox_annotation");
+  expect(step(chats[0]!)).toBe("infer_schema");
+  expect(chats[0]!.body!["output_config"]).toEqual({ effort: "low" });
+  expect(step(chats.at(-1)!)).toBe("block_translations");
+  expect(chats.map(step)).toContain("original_document");
+  const bboxCalls = chats.filter((c) => step(c) === "bbox_annotation");
   expect(bboxCalls).toHaveLength(2);
-  const bboxContent = (bboxCalls[0]!.body!["messages"] as Array<{ role: string; content: unknown }>)[1]!.content as Array<{ type: string }>;
-  expect(bboxContent.some((p) => p.type === "image_url")).toBe(true);
-  const translate = chats.find((c) => schemaName(c) === "translated_document")!.body!;
+  const bboxContent = (bboxCalls[0]!.body!["messages"] as Array<{ role: string; content: unknown }>)[0]!.content as Array<{ type: string }>;
+  expect(bboxContent.some((p) => p.type === "image")).toBe(true);
+  const translate = chats.find((c) => step(c) === "translated_document")!.body!;
   expect(translate).toMatchObject({
-    model: "gpt-6-luna",
+    model: "claude-haiku-5-5",
+    max_tokens: 64_000,
     stream: true,
-    stream_options: { include_usage: true },
-    reasoning_effort: "none",
-    response_format: { type: "json_schema", json_schema: { name: "translated_document", strict: true } },
+    output_config: { effort: "low", format: { type: "json_schema" } },
   });
   expect(translate).not.toHaveProperty("temperature");
+  expect(translate).not.toHaveProperty("thinking");
+  expect(typeof translate["system"]).toBe("string");
   // Document annotation input: text part + the bounding-box images, ids referenced in the text.
-  const userContent = (translate["messages"] as Array<{ role: string; content: unknown }>)[1]!.content as Array<{ type: string; text?: string; image_url?: { url: string } }>;
+  const messages = translate["messages"] as Array<{ role: string; content: unknown }>;
+  expect(messages.map((m) => m.role)).toEqual(["user"]);
+  const userContent = messages[0]!.content as Array<{ type: string; text?: string; source?: { type: string; media_type: string; data: string } }>;
   expect(Array.isArray(userContent)).toBe(true);
   const userMessage = userContent[0]!.text!;
   expect(userMessage).toContain("权利要求1不具备创造性");
@@ -147,8 +162,8 @@ test("OCR + translate: Mistral OCR, GPT Luna translation, browsable JSON, and no
   expect(userMessage).toContain('"img-0.jpeg", "img-1.jpeg"');
   expect(userMessage).not.toContain("国家知识产权局"); // header excluded
   expect(userMessage).not.toContain("第 1 页"); // footer excluded
-  expect(userContent.filter((p) => p.type === "image_url")).toHaveLength(2);
-  expect(userContent.find((p) => p.type === "image_url")?.image_url?.url).toMatch(/^data:image\/png;base64,/);
+  expect(userContent.filter((p) => p.type === "image")).toHaveLength(2);
+  expect(userContent.find((p) => p.type === "image")?.source).toMatchObject({ type: "base64", media_type: "image/png" });
   expect(foreign).toEqual([]);
 });
 
@@ -195,9 +210,8 @@ test("German toggle changes the target language of the next translation", async 
   await expect(page.locator(".pipeline-strip")).toContainText("BBox annotation skipped");
   await expect(page.getByRole("tab", { name: "Bounding boxes" })).toHaveCount(0);
 
-  const translate = recorded.filter((r) => r.url.endsWith("/v1/chat/completions")).find((r) => schemaName(r) === "translated_document")!.body!;
-  const system = (translate["messages"] as Array<{ role: string; content: string }>)[0]!.content;
-  expect(system).toContain("into German");
+  const translate = chatRequests(recorded).find((r) => step(r) === "translated_document")!.body!;
+  expect(systemPrompt(translate)).toContain("into German");
   expect(recorded.some((r) => r.url.endsWith("/v1/ocr"))).toBe(false);
 
   await page.reload();
@@ -264,18 +278,18 @@ test("theme switch forces dark or light and persists; system removes the overrid
   await page.waitForFunction(() => document.documentElement.dataset["theme"] === "dark");
 });
 
-test("a Mistral-only user can pick Mistral in the key dialog and never needs an OpenAI key", async ({ page }) => {
+test("a Mistral-only user can pick Mistral in the key dialog and never needs an Anthropic key", async ({ page }) => {
   const { recorded } = await setup(page);
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("button", { name: "Save and verify" })).toBeDisabled();
   await dialog.getByPlaceholder("Paste your Mistral key").fill(MISTRAL_KEY);
-  await expect(dialog.getByRole("button", { name: "Save and verify" })).toBeDisabled(); // OpenAI key still required
+  await expect(dialog.getByRole("button", { name: "Save and verify" })).toBeDisabled(); // Anthropic key still required
   await dialog.getByLabel("Translate with").selectOption("mistral");
   await expect(dialog.getByRole("button", { name: "Save and verify" })).toBeEnabled();
   await dialog.getByRole("button", { name: "Save and verify" }).click();
   await expect(dialog).toBeHidden();
   await expect(page.getByText("Mistral key verified")).toBeVisible();
-  await expect(page.getByText(/OpenAI key/)).toHaveCount(0);
+  await expect(page.getByText(/Anthropic key/)).toHaveCount(0);
 
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
@@ -296,7 +310,7 @@ test("a Mistral-only user can pick Mistral in the key dialog and never needs an 
 
 test("a rejected required key keeps the dialog open and is never used for requests", async ({ page }) => {
   const { recorded } = await setup(page);
-  await enterKeys(page, "wrong-mistral-key", OPENAI_KEY);
+  await enterKeys(page, "wrong-mistral-key", ANTHROPIC_KEY);
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("rejected this key")).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Cancel" })).toHaveCount(0);
@@ -309,13 +323,13 @@ test("a rejected required key keeps the dialog open and is never used for reques
 test("Forget during an in-flight verification does not resurrect the keys", async ({ page }) => {
   await setup(page);
   await enterKeys(page);
-  await expect(page.getByText("OpenAI key verified")).toBeVisible();
+  await expect(page.getByText("Anthropic key verified")).toBeVisible();
   // Slow down the model list so the reload-time verification is still pending when we click Forget.
   await page.route("https://api.mistral.ai/v1/models", async (route) => {
     await new Promise((r) => setTimeout(r, 1500));
     await route.fallback();
   });
-  await page.route("https://api.openai.com/v1/models", async (route) => {
+  await page.route((url) => url.host === "api.anthropic.com" && url.pathname === "/v1/models", async (route) => {
     await new Promise((r) => setTimeout(r, 1500));
     await route.fallback();
   });
@@ -326,7 +340,7 @@ test("Forget during an in-flight verification does not resurrect the keys", asyn
   await page.waitForTimeout(2500);
   await expect(page.getByRole("dialog")).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.mistral"))).toBeNull();
-  expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.openai"))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.anthropic"))).toBeNull();
   await expect(page.getByText(/key verified/)).toHaveCount(0);
 });
 
@@ -339,11 +353,41 @@ test("Mistral can still be chosen as translation provider", async ({ page }) => 
   await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
   await page.getByRole("button", { name: "Translate only" }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
-  const chats = recorded.filter((r) => r.url.endsWith("/v1/chat/completions"));
+  const chats = chatRequests(recorded);
   expect(chats.map((c) => c.host)).toEqual(["api.mistral.ai", "api.mistral.ai", "api.mistral.ai"]);
-  expect(chats.map(schemaName)).toEqual([undefined, "translated_document", "original_document"]);
+  expect(chats.map(step)).toEqual(["infer_schema", "translated_document", "original_document"]);
   expect(chats[1]!.body).toMatchObject({ model: "mistral-large-latest", temperature: 0.2 });
   expect(chats[1]!.body).not.toHaveProperty("reasoning_effort");
+});
+
+test("OpenAI (GPT Luna) can still be chosen as translation provider", async ({ page }) => {
+  const { recorded } = await setup(page);
+  await enterKeys(page);
+  await expect(page.getByText("Anthropic key verified")).toBeVisible();
+  await page.locator(".settings > summary").click();
+  await page.getByLabel("Translation provider").selectOption("openai");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByPlaceholder("Paste your OpenAI (GPT Luna) key").fill(OPENAI_KEY);
+  await dialog.getByRole("button", { name: "Save and verify" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText("OpenAI key verified")).toBeVisible();
+
+  await page.getByRole("button", { name: "…or paste text to translate" }).click();
+  await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
+  await page.getByRole("button", { name: "Translate only" }).click();
+  await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".toolbar")).toContainText("OpenAI (GPT Luna) · gpt-6-luna");
+  const chats = chatRequests(recorded);
+  expect(chats.map((c) => c.host)).toEqual(["api.openai.com", "api.openai.com", "api.openai.com"]);
+  expect(chats.map(step)).toEqual(["infer_schema", "translated_document", "original_document"]);
+  expect(chats[1]!.body).toMatchObject({
+    model: "gpt-6-luna",
+    stream: true,
+    stream_options: { include_usage: true },
+    reasoning_effort: "none",
+    response_format: { type: "json_schema", json_schema: { name: "translated_document", strict: true } },
+  });
+  expect(chats[1]!.body).not.toHaveProperty("temperature");
 });
 
 test("bounding boxes are drawn over the page with the vision model's descriptions", async ({ page }) => {

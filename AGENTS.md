@@ -5,14 +5,15 @@ AI). Keep it current when you change the architecture.
 
 ## Purpose and hard constraints
 
-- Browser-only PDF → OCR (Mistral) → translation (OpenAI GPT Luna, or
-  Mistral) → structured JSON. See README.md for the user-facing description.
+- Browser-only PDF → OCR (Mistral) → translation (Anthropic Claude Haiku
+  5.5 by default, or OpenAI GPT Luna, or Mistral) → structured JSON. See
+  README.md for the user-facing description.
 - **The document may only ever be sent to `https://api.mistral.ai` (OCR), and
   the extracted text plus the OCR's cropped bounding-box images only to the
-  selected translation provider (`https://api.openai.com` or
-  `https://api.mistral.ai`).** There is no server
+  selected translation provider (`https://api.anthropic.com`,
+  `https://api.openai.com` or `https://api.mistral.ai`).** There is no server
   component, no analytics, no third-party scripts. `public/_headers` enforces
-  this with a CSP (`connect-src 'self' https://api.mistral.ai https://api.openai.com`).
+  this with a CSP (`connect-src 'self' https://api.mistral.ai https://api.anthropic.com https://api.openai.com`).
   Do not add Cloudflare Pages Functions, proxies, or remote fonts/scripts
   without an explicit product decision.
 - API keys are stored in `localStorage` only (one per provider). Never put
@@ -27,12 +28,16 @@ AI). Keep it current when you change the architecture.
 
 - [Vite 8](https://vite.dev) + [Preact](https://preactjs.com) (React-compatible
   hooks, ~4 kB) + plain CSS with design tokens (`src/styles/global.css`).
-- No runtime dependency on the Mistral or OpenAI SDKs; the REST calls are
-  hand-written (`src/lib/mistral/client.ts`, `src/lib/openai/client.ts`) on a
-  shared fetch/error/SSE layer (`src/lib/http/`), with wire types derived
-  from the official SDKs.
+- No runtime dependency on the Mistral, OpenAI or Anthropic SDKs; the REST
+  calls are hand-written (`src/lib/mistral/client.ts`,
+  `src/lib/openai/client.ts`, `src/lib/anthropic/client.ts`) on a shared
+  fetch/error/SSE layer (`src/lib/http/`), with wire types derived from the
+  official SDKs. `apiFetch` sends `Authorization: Bearer` unless a client
+  names another key header (Anthropic: `x-api-key`, plus `anthropic-version`
+  and the `anthropic-dangerous-direct-browser-access` CORS opt-in).
 - Tests: Vitest for pure modules, Playwright for end-to-end flows against
-  mocked Mistral and OpenAI APIs (`e2e/helpers.ts`). CI runs both
+  mocked Mistral, Anthropic and OpenAI APIs (`e2e/helpers.ts`; `chatStep()`
+  tells the pipeline steps apart for every provider). CI runs both
   (`.github/workflows/ci.yml`).
 
 ## Code map
@@ -54,6 +59,7 @@ src/
       sse.ts                   pure SSE parser
     llm/
       provider.ts              ChatProvider interface (JSON completions)
+      anthropicProvider.ts     Anthropic implementation (Claude Haiku 5.5, the default)
       openaiProvider.ts        OpenAI implementation (GPT Luna)
       mistralProvider.ts       Mistral implementation
       registry.ts              provider metadata, defaults, factory
@@ -61,6 +67,10 @@ src/
       client.ts                OCR + chat + models REST client
       types.ts                 request/response wire types (snake_case)
       models.ts                Mistral model ids, model-list filtering
+    anthropic/
+      client.ts                Messages API + models REST client
+      types.ts                 wire types
+      models.ts                Claude model ids, default max_tokens, model-list filtering
     openai/
       client.ts                chat completions + models REST client
       types.ts                 wire types
@@ -149,8 +159,8 @@ into `store.ts` and rendered by the components.
   model lists, `initialState`) iterates `PROVIDER_IDS` / `perProvider()`.
 - **Another API host or a proxy**: the clients take `baseUrl`; update the
   CSP accordingly. This changes the privacy model, so document it.
-- **Model line-up changes**: edit `src/lib/openai/models.ts` or
-  `src/lib/mistral/models.ts`. The translation-model dropdown lists whatever
+- **Model line-up changes**: edit `src/lib/anthropic/models.ts`,
+  `src/lib/openai/models.ts` or `src/lib/mistral/models.ts`. The translation-model dropdown lists whatever
   `/v1/models` returns (fallback list when it has not answered); the OCR-model
   dropdown lists `OCR_MODELS`. Both are dropdowns only — no free-text model
   ids — so a model id stored earlier appears as a "(custom)" entry.
@@ -173,8 +183,14 @@ into `store.ts` and rendered by the components.
 - Wire types use the API's snake_case; app types use camelCase.
 - Errors thrown from the clients are `ApiError` with a `kind`, `provider` and
   a user-facing `hint`; the runner converts anything else with `toAppError()`.
-- OpenAI GPT-5.x models reject `temperature`; the OpenAI provider never sends
-  it. `reasoning_effort` is sent only to providers that support it.
+- OpenAI GPT-5.x and current Claude models reject `temperature`; those
+  providers never send it. The reasoning effort is sent only to providers
+  that support it (Anthropic maps "none" to `output_config.effort: "low"`).
+- The Anthropic provider reads only `text` blocks (adaptive thinking adds
+  `thinking` blocks first), maps `stop_reason` onto the pipeline's names
+  (`max_tokens` → "length", `refusal` → "content_filter", or an `ApiError`
+  of kind "refusal" when nothing was produced), and always sends
+  `max_tokens` (required by the API).
 - `Runtime.getState()` (see `App.tsx`) mirrors the reducer synchronously, so
   code in `runner.ts` can read the state right after a `dispatch`. Async
   work that dispatches late must check it is still relevant (see

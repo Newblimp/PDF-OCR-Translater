@@ -8,7 +8,8 @@ describe("settings persistence", () => {
 
   it("returns defaults when nothing is stored", () => {
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
-    expect(loadSettings().provider).toBe("openai");
+    expect(loadSettings().provider).toBe("anthropic");
+    expect(loadSettings().chatModels.anthropic).toBe("claude-haiku-5-5");
     expect(loadSettings().chatModels.openai).toBe("gpt-6-luna");
     expect(loadSettings()).toMatchObject({ sendImages: true, bboxAnnotations: true, maxBboxAnnotations: 20, blockTranslations: true });
   });
@@ -17,7 +18,7 @@ describe("settings persistence", () => {
     saveSettings({ ...DEFAULT_SETTINGS, targetLanguage: "German", theme: "dark" });
     expect(loadSettings()).toMatchObject({ targetLanguage: "German", theme: "dark" });
     localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ targetLanguage: "Klingon", theme: "neon", provider: "nope" }));
-    expect(loadSettings()).toMatchObject({ targetLanguage: "English", theme: "dark", provider: "openai" });
+    expect(loadSettings()).toMatchObject({ targetLanguage: "English", theme: "dark", provider: "anthropic" });
   });
 });
 
@@ -30,9 +31,14 @@ describe("model default migration", () => {
       JSON.stringify({ chatModels: { openai: "gpt-5.6-luna", mistral: "mistral-medium-latest" } }),
     );
     const migrated = loadSettings();
-    expect(migrated.chatModels).toEqual({ openai: "gpt-6-luna", mistral: "mistral-medium-latest" });
+    expect(migrated.chatModels).toEqual({ anthropic: "claude-haiku-5-5", openai: "gpt-6-luna", mistral: "mistral-medium-latest" });
     saveSettings({ ...migrated, chatModels: { ...migrated.chatModels, openai: "gpt-5.6-luna" } });
     expect(loadSettings().chatModels.openai).toBe("gpt-5.6-luna"); // choosing it again sticks
+  });
+
+  it("keeps a saved OpenAI provider choice and adds the Claude default alongside", () => {
+    localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ provider: "openai", chatModels: { openai: "gpt-6-luna", mistral: "mistral-large-latest" } }));
+    expect(loadSettings()).toMatchObject({ provider: "openai", chatModels: { anthropic: "claude-haiku-5-5", openai: "gpt-6-luna" } });
   });
 
   it("leaves other saved models alone", () => {
@@ -64,7 +70,7 @@ describe("settings v1 migration", () => {
     expect(settings.schemaMode).toEqual({ kind: "custom", schemaText: "{\"type\":\"object\"}" });
     expect(settings.temperature).toBe(0.5);
     expect(settings.cacheOcr).toBe(false);
-    expect(settings.provider).toBe("openai");
+    expect(settings.provider).toBe("anthropic");
     expect(localStorage.getItem("pdf-ocr-translater.settings.v1")).toBeNull();
     expect(localStorage.getItem("pdf-ocr-translater.settings.v2")).not.toBeNull();
   });

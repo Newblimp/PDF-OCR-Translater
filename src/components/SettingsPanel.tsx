@@ -152,7 +152,10 @@ export function SettingsPanel({ settings, models, open, onToggle, onChange }: Pr
                 </option>
               ))}
             </select>
-            <span class="muted small">“none” is fastest and cheapest; higher values spend reasoning tokens before answering.</span>
+            <span class="muted small">
+              “none” is fastest and cheapest{settings.provider === "anthropic" ? " (Claude's lowest effort, “low”)" : ""}; higher values spend reasoning tokens
+              before answering.
+            </span>
           </label>
         )}
 

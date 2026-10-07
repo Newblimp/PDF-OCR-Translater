@@ -2,8 +2,10 @@
  * Registry of translation providers. The OCR step is always Mistral; the
  * chat step (schema inference + translation) can use any provider listed here.
  */
+import { DEFAULT_ANTHROPIC_MODEL, FALLBACK_ANTHROPIC_MODELS } from "../anthropic/models";
 import { DEFAULT_CHAT_MODEL, FALLBACK_CHAT_MODELS, type ModelOption } from "../mistral/models";
 import { DEFAULT_OPENAI_MODEL, FALLBACK_OPENAI_MODELS } from "../openai/models";
+import { AnthropicProvider } from "./anthropicProvider";
 import { MistralProvider } from "./mistralProvider";
 import { OpenAIProvider } from "./openaiProvider";
 import type { ChatProvider, ProviderId } from "./provider";
@@ -27,6 +29,20 @@ export interface ProviderInfo {
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
+  anthropic: {
+    id: "anthropic",
+    label: "Anthropic (Claude)",
+    shortLabel: "Anthropic",
+    purpose: "used for translation (Claude Haiku 5.5)",
+    host: "api.anthropic.com",
+    keyLabel: "Anthropic API key",
+    keyUrl: "https://platform.claude.com/settings/keys",
+    defaultModel: DEFAULT_ANTHROPIC_MODEL,
+    fallbackModels: FALLBACK_ANTHROPIC_MODELS,
+    supportsTemperature: false,
+    supportsReasoningEffort: true,
+    create: (apiKey) => AnthropicProvider.fromKey(apiKey),
+  },
   openai: {
     id: "openai",
     label: "OpenAI (GPT Luna)",
@@ -57,7 +73,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
   },
 };
 
-/** All providers, in the order they are offered for translation. */
+/** All providers, in the order they are offered for translation (the default first). */
 export const PROVIDER_IDS: ProviderId[] = Object.keys(PROVIDERS) as ProviderId[];
 
 /** The provider whose key is always required because it performs OCR. */

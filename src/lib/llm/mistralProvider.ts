@@ -13,7 +13,7 @@ function userContent(request: JsonChatRequest): string | ContentChunk[] {
   return chunks;
 }
 
-/** Mistral chat provider (kept as an alternative to OpenAI for translation). */
+/** Mistral chat provider (kept as an alternative to Anthropic and OpenAI for translation). */
 export class MistralProvider implements ChatProvider {
   readonly id = "mistral" as const;
   readonly label = "Mistral";
