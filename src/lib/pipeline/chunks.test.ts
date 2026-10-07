@@ -20,6 +20,14 @@ describe("splitDocument", () => {
     expect(chunks[0]!.text).toBe(`----- Page 1 -----\n\n${"a".repeat(400)}\n\n----- Page 2 -----\n\n${"b".repeat(400)}`);
   });
 
+  it("does not split along the pages of an OCR result that is not the text being split", () => {
+    const ocr = ocrPages(["a".repeat(400), "b".repeat(400), "c".repeat(400)]);
+    const other = ["x".repeat(400), "y".repeat(400), "z".repeat(400)].join("\n\n");
+    const chunks = splitDocument(other, ocr, 250);
+    expect(chunks.every((c) => c.pageIndices === null)).toBe(true);
+    expect(chunks.map((c) => c.text).join("\n\n")).toBe(other);
+  });
+
   it("splits text input on paragraphs", () => {
     const text = ["x".repeat(400), "y".repeat(400), "z".repeat(400)].join("\n\n");
     const chunks = splitDocument(text, undefined, 250);

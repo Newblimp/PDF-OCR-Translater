@@ -23,8 +23,9 @@ export interface DocumentChunk {
 
 /** Split the document into parts of at most `maxTokens` estimated tokens (a single oversized page or paragraph stays whole). */
 export function splitDocument(text: string, ocr: OcrText | undefined, maxTokens = TRANSLATION_CHUNK_TOKENS): DocumentChunk[] {
-  if (estimateTokens(text) <= maxTokens) return [{ text, pageIndices: ocr ? ocr.pages.map((p) => p.index) : null }];
-  if (ocr && ocr.pages.length > 1) return splitPages(ocr, maxTokens);
+  if (estimateTokens(text) <= maxTokens) return [{ text, pageIndices: ocr && ocr.text === text ? ocr.pages.map((p) => p.index) : null }];
+  // Split along pages only when the OCR result is the text being split (not another page selection of the document).
+  if (ocr && ocr.pages.length > 1 && ocr.text === text) return splitPages(ocr, maxTokens);
   return splitParagraphs(text, maxTokens);
 }
 

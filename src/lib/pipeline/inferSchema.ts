@@ -39,8 +39,9 @@ export async function inferSchema(provider: ChatProvider, documentText: string, 
     system: documentSystemPrompt(options),
     context: schemaInferenceContext(documentText),
     user: schemaInferenceInstruction(options),
-    // Same system prompt and document as the translation that follows: without images the prefix can be read back from the cache.
-    cachePrefix: true,
+    // No cache breakpoint: the translation that follows adds a structured-output format (and usually images), so it could
+    // not read this prefix back and the cache write would be paid for nothing.
+    cachePrefix: false,
     format: { type: "json_object" },
     stream: false,
     temperature: options.temperature ?? 0.1,

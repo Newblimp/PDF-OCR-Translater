@@ -138,7 +138,9 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   the task (`*Instruction()`, with the schema) last: keep anything that varies
   between the calls of a run out of the system prompt and the context, or
   the prompt cache stops hitting (`JsonChatRequest.cachePrefix` puts the
-  Anthropic breakpoint on the last shared block).
+  Anthropic breakpoint on the last shared block). Schema inference sets no
+  breakpoint: the translation adds a structured-output format (and usually
+  images), so it cannot read that prefix back.
 - **New pipeline step** (e.g. a review pass): add a module in
   `src/lib/pipeline/`, emit progress with `emit()` from `events.ts` (add a
   `StageId` if needed), expose it from `pipeline.ts`, and compose it in
@@ -204,6 +206,12 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 - **Retries of failed parts**: `runner.retryFailed()` (job kind `"retry"`)
   re-runs `describeBboxes()` / `blockTranslations()` with `onlyIds` and
   merges the results.
+- **Jobs that add to a translation** (original-language structure, retries)
+  pass it to `beginJob(..., forTranslation)`: they run in its target
+  language, with its provider and model while that key is usable, ignore the
+  schema setting, and use the OCR result on screen only when it is the one
+  the translation was made from (`ocrOf()`). After a cancelled or failed job
+  nothing is started automatically (`originalRequested`).
 - **Another translation provider**: (1) widen the `ApiProvider` union in
   `src/lib/http/apiError.ts` (it is the `ProviderId` type); (2) implement
   `ChatProvider` (`src/lib/llm/provider.ts`) on a client in `src/lib/<name>/`;
@@ -269,7 +277,9 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 - `public/theme-init.js` applies the saved theme before the first paint; it
   reads the same localStorage key as `storage/settings.ts` (keep in sync).
 - Anything reaching the DOM from the model goes through `MarkdownText`
-  (marked + DOMPurify) or is rendered as text. Never inject raw HTML.
+  (marked + DOMPurify) or is rendered as text. Never inject raw HTML. Files
+  the app writes (the bilingual export) get no CSP from `public/_headers`:
+  they must not reference anything outside themselves.
 - Keep `README.md` (user-facing) and this file (developer-facing) in sync
   with behaviour changes.
 

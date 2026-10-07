@@ -75,6 +75,22 @@ describe("history", () => {
     expect(state.pasteMode).toBe(true);
     expect(selectSourceText(state)).toEqual({ text: "源文本", origin: "pasted" });
   });
+
+  it("keeps a saved source translatable after it was translated again", () => {
+    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    state = reducer(state, { type: "history/open", ocr: null, translation: translationFixture({ restored: true }), pastedText: null });
+    state = reducer(state, { type: "translation/set", translation: translationFixture({ id: "t2", restored: false }) });
+    expect(selectSourceText(state)).toEqual({ text: "源文本", origin: "saved" });
+  });
+
+  it("drops a reopened OCR result (no document) when switching to pasted text", () => {
+    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    const ocr: OcrState = { source: "cache", model: "m", response: { model: "m", pages: [], usage_info: { pages_processed: 0 } }, text: { text: "源文本", pages: [], bboxes: [], pagesProcessed: 0, chars: 3 }, docId: "saved:t1", requestKey: "", cacheKey: "k" };
+    state = reducer(state, { type: "history/open", ocr, translation: translationFixture({ restored: true }), pastedText: null });
+    expect(selectSourceText(state)?.origin).toBe("ocr");
+    state = reducer(state, { type: "paste/mode", enabled: true });
+    expect(state.ocr).toBeNull();
+  });
 });
 
 describe("key gating", () => {

@@ -606,6 +606,9 @@ test("blocks that came back without a translation can be retried", async ({ page
   await page.getByRole("button", { name: "OCR + Translate" }).click();
   await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
+  // A later change of the target language does not leak into the retry: it runs in the translation's own language.
+  await page.locator(".settings > summary").click();
+  await page.getByRole("radio", { name: "German" }).click();
   await page.getByRole("tab", { name: "OCR text" }).click();
   await page.getByRole("button", { name: "Translate the blocks now" }).click();
   await expect(page.locator(".ocr-page")).toContainText("[EN] 申请号：CN202310000001.2", { timeout: 20_000 });

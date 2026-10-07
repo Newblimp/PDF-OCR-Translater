@@ -255,7 +255,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case "doc/clear":
       return { ...state, doc: null, ocr: null, translation: null, error: null };
     case "paste/mode":
-      return { ...state, pasteMode: action.enabled, error: null };
+      // An OCR result reopened from "Recent translations" belongs to no document; pasted text must not be paired with it.
+      return { ...state, pasteMode: action.enabled, error: null, ocr: action.enabled && !state.doc ? null : state.ocr };
     case "paste/text":
       return { ...state, pastedText: action.text };
     case "ocr/set":
@@ -340,8 +341,8 @@ export function selectSourceText(state: AppState): { text: string; origin: Sourc
     // Without a document: an OCR result reopened from "Recent translations".
     return { text: state.ocr.text.text, origin: "ocr" };
   }
-  if (!state.doc && state.translation?.restored && state.translation.sourceText.trim()) {
-    // A reopened translation whose OCR result is no longer cached: its source text can still be translated again.
+  if (!state.doc && !state.ocr && state.translation?.sourceText.trim()) {
+    // A reopened translation whose OCR result is no longer cached (or a re-translation of it): its source text can be translated again.
     return { text: state.translation.sourceText, origin: "saved" };
   }
   return null;

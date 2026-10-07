@@ -325,10 +325,18 @@ export async function refreshHistory(rt: Runtime): Promise<void> {
   rt.dispatch({ type: "history/set", history: await listSavedTranslations() });
 }
 
+/** Latest "Open" request; an older one that finishes reading later gives way. */
+let openRequest = 0;
+
 /** Reopen a saved translation (with its OCR result when the OCR cache still has it). */
 export async function openSavedTranslation(rt: Runtime, id: string): Promise<void> {
   if (rt.getState().job) return;
+  const request = ++openRequest;
+  const docBefore = rt.getState().doc?.id;
+  // A document loaded or another entry opened while IndexedDB was read is the user's latest action: keep it.
+  const superseded = () => request !== openRequest || rt.getState().doc?.id !== docBefore || !!rt.getState().job;
   const saved = await getSavedTranslation<TranslationState>(id);
+  if (superseded()) return;
   if (!saved) {
     rt.dispatch({ type: "error/set", error: { title: "Saved translation not found", message: "It may have been removed in another tab." } });
     await refreshHistory(rt);
@@ -347,25 +355,32 @@ export async function openSavedTranslation(rt: Runtime, id: string): Promise<voi
       cacheKey: saved.ocrKey,
     };
   }
-  if (rt.getState().job) return;
+  if (superseded()) return;
   releaseDocument(rt);
   const textSource = saved.sourceKind === "pasted" || saved.sourceKind === "text";
   rt.dispatch({ type: "history/open", ocr, translation: { ...saved.translation, restored: true }, pastedText: textSource ? saved.translation.sourceText : null });
 }
 
+/** Saved translations the user deleted: a later job on the same result on screen must not write them back. */
+const deletedIds = new Set<string>();
+
 export async function deleteSaved(rt: Runtime, id: string): Promise<void> {
+  deletedIds.add(id);
   await deleteSavedTranslation(id);
   await refreshHistory(rt);
 }
 
 export async function clearHistory(rt: Runtime): Promise<void> {
+  for (const entry of rt.getState().history) deletedIds.add(entry.id);
+  const current = rt.getState().translation?.id;
+  if (current) deletedIds.add(current);
   await clearSavedTranslations();
   await refreshHistory(rt);
 }
 
 async function saveTranslation(rt: Runtime): Promise<void> {
   const { translation, settings } = rt.getState();
-  if (!translation || !settings.saveTranslations) return;
+  if (!translation || !settings.saveTranslations || deletedIds.has(translation.id)) return;
   await putSavedTranslation({
     id: translation.id,
     version: HISTORY_VERSION,
@@ -393,18 +408,35 @@ interface Job {
   controller: AbortController;
 }
 
-/** Check keys and settings and start a job in the store; null when it cannot start (the reason is shown). */
-function beginJob(rt: Runtime, kind: JobKind, stages: StageId[], needsChat: boolean): Job | null {
+/**
+ * Check keys and settings and start a job in the store; null when it cannot
+ * start (the reason is shown). `forTranslation` runs a job that adds to that
+ * translation (original-language structure, retries) in its own target
+ * language, and with its own provider and model while their key is usable,
+ * whatever Settings say now; such jobs do not use the schema setting.
+ */
+function beginJob(rt: Runtime, kind: JobKind, stages: StageId[], needsChat: boolean, forTranslation?: TranslationState): Job | null {
   const state = rt.getState();
   if (state.job) return null;
+  let settings = state.settings;
+  if (forTranslation) {
+    const own = usableKey(state.keys, forTranslation.provider) !== null;
+    settings = {
+      ...settings,
+      targetLanguage: forTranslation.targetLanguage as Settings["targetLanguage"],
+      // Its schema travels with the translation; an invalid custom schema in Settings must not block it.
+      schemaMode: { kind: "infer" },
+      ...(own ? { provider: forTranslation.provider, chatModels: { ...settings.chatModels, [forTranslation.provider]: forTranslation.model } } : {}),
+    };
+  }
   const mistralKey = usableKey(state.keys, "mistral");
-  const chatKey = usableKey(state.keys, state.settings.provider);
+  const chatKey = usableKey(state.keys, settings.provider);
   const needsOcr = kind === "ocr" || kind === "both";
   if ((needsOcr && !mistralKey) || (needsChat && !chatKey)) {
     rt.dispatch({ type: "key/dialog", open: true });
     return null;
   }
-  const pipelineSettings = toPipelineSettings(state.settings);
+  const pipelineSettings = toPipelineSettings(settings);
   if ("error" in pipelineSettings) {
     rt.dispatch({ type: "error/set", error: pipelineSettings.error });
     return null;
@@ -415,7 +447,7 @@ function beginJob(rt: Runtime, kind: JobKind, stages: StageId[], needsChat: bool
     controller,
     ctx: {
       ocr: new MistralClient({ apiKey: mistralKey ?? "" }),
-      chat: createProvider(state.settings.provider, chatKey ?? mistralKey ?? ""),
+      chat: createProvider(settings.provider, chatKey ?? mistralKey ?? ""),
       settings: pipelineSettings,
       signal: controller.signal,
       onProgress: (event) => rt.dispatch({ type: "job/event", event }),
@@ -425,11 +457,24 @@ function beginJob(rt: Runtime, kind: JobKind, stages: StageId[], needsChat: bool
 
 /** Report a job's failure unless it was cancelled; always ends the job. */
 function endJob(rt: Runtime, job: Job, title: string, err?: unknown): void {
-  if (err !== undefined && !isCancellation(err, job)) {
-    rt.dispatch({ type: "error/set", error: toAppError(err, title) });
-    job.controller.abort(); // stop stages still running in the background
+  if (err !== undefined) {
+    // After a cancelled or failed job, nothing starts by itself: the user decides what runs next.
+    const current = rt.getState().translation?.id;
+    if (current) originalRequested.add(current);
+    if (!isCancellation(err, job)) {
+      rt.dispatch({ type: "error/set", error: toAppError(err, title) });
+      job.controller.abort(); // stop stages still running in the background
+    }
   }
   rt.dispatch({ type: "job/end" });
+}
+
+/** Translations whose original-language structure was already requested or settled (it is not requested again automatically). */
+const originalRequested = new Set<string>();
+
+/** The OCR result on screen, if it is the one `t` was translated from (not another page selection, document or source). */
+function ocrOf(state: AppState, t: TranslationState): OcrText | undefined {
+  return state.ocr && state.ocr.text.text === t.sourceText ? state.ocr.text : undefined;
 }
 
 function isCancellation(err: unknown, job: Job): boolean {
@@ -573,10 +618,11 @@ async function runTranslation(rt: Runtime, job: Job, source: Source): Promise<vo
   const translation = await translateDocument(ctx, source.text, schema.schema, source.ocr);
   controller.signal.throwIfAborted();
   const completedAt = Date.now();
+  const id = crypto.randomUUID();
   rt.dispatch({
     type: "translation/set",
     translation: {
-      id: crypto.randomUUID(),
+      id,
       sourceName: source.name,
       sourceKind: source.kind,
       sourceHash: source.hash,
@@ -612,6 +658,8 @@ async function runTranslation(rt: Runtime, job: Job, source: Source): Promise<vo
     },
   });
   const patch = (p: Partial<TranslationState>) => rt.dispatch({ type: "translation/patch", patch: p });
+  // In "always" mode the stage runs below; whatever its outcome, the view must not request it again by itself.
+  if (ctx.settings.structureOriginal === "always") originalRequested.add(id);
 
   // Follow-ups, side by side; each result shows up as soon as it is in.
   // The original-language structure reads the document prefix the translation just cached.
@@ -636,9 +684,6 @@ async function runTranslation(rt: Runtime, job: Job, source: Source): Promise<vo
   }
 }
 
-/** Translations whose original-language structure was already requested automatically (a failure is not retried in a loop). */
-const originalRequested = new Set<string>();
-
 /**
  * Fill the JSON format in the document's own language for the translation on
  * screen: automatically once when the structured text is viewed with "Show
@@ -649,12 +694,11 @@ export async function ensureOriginalStructure(rt: Runtime, force = false): Promi
   const t = state.translation;
   if (!t || state.job || (t.originalData !== null && t.originalData !== undefined) || state.settings.structureOriginal === "never") return;
   if (!force && originalRequested.has(t.id)) return;
-  originalRequested.add(t.id);
-  const job = beginJob(rt, "original", ["structure_original"], true);
+  const job = beginJob(rt, "original", ["structure_original"], true, t);
   if (!job) return;
+  originalRequested.add(t.id);
   try {
-    // The OCR result on screen is the one the translation was made from (OCR'd sources only).
-    const ocr = t.sourceKind === "pdf" || t.sourceKind === "image" ? state.ocr?.text : undefined;
+    const ocr = ocrOf(state, t);
     const original = await structureOriginal(job.ctx, t.sourceText, t.schema, ocr);
     job.controller.signal.throwIfAborted();
     if (rt.getState().translation?.id === t.id) {
@@ -674,14 +718,14 @@ export async function ensureOriginalStructure(rt: Runtime, force = false): Promi
 export async function retryFailed(rt: Runtime, what: "bboxes" | "blocks"): Promise<void> {
   const state = rt.getState();
   const t = state.translation;
-  const ocr = state.ocr?.text;
+  const ocr = t ? ocrOf(state, t) : undefined;
   if (!t || !ocr || state.job) return;
   const ids =
     what === "bboxes"
       ? new Set(t.bboxAnnotations.filter((a) => !a.data).map((a) => a.id))
       : new Set(ocr.pages.flatMap((p) => textBlocks(p).map((b) => b.id)).filter((id) => !t.blockTranslations[id]?.trim()));
   if (!ids.size) return;
-  const job = beginJob(rt, "retry", [what === "bboxes" ? "bbox_annotate" : "block_translate"], true);
+  const job = beginJob(rt, "retry", [what === "bboxes" ? "bbox_annotate" : "block_translate"], true, t);
   if (!job) return;
   try {
     if (what === "bboxes") {

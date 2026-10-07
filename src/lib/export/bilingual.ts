@@ -2,7 +2,11 @@
  * Bilingual export: one self-contained HTML file with the translation next
  * to the original, field by field (the structured text) and block by block
  * (the OCR pages). It opens in any browser, prints to PDF, and Word and
- * LibreOffice import it. No scripts and no external resources.
+ * LibreOffice import it. No scripts and no external resources: the app's CSP
+ * does not apply to a downloaded file, so every rendered fragment loses
+ * `src`/`srcset`/`background`/`poster` URLs that are not `data:` (a document
+ * or a model could otherwise make the file fetch a remote image whose URL
+ * carries text), and the file declares its own CSP for browsers.
  */
 import type { JsonSchemaObject } from "../mistral/types";
 import { textBlocks } from "../pipeline/blockTranslate";
@@ -26,6 +30,17 @@ export interface BilingualExportInput {
 
 /** Markdown → sanitised HTML (the app's renderer, or an escaping stand-in). */
 export type MarkdownRenderer = (markdown: string) => string;
+
+/** The exported file's own policy: inline styles and embedded images only. */
+export const EXPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:";
+
+/** Attributes that make a browser or word processor fetch a URL when the file is opened. */
+const REMOTE_ATTRIBUTE = /\s(?:src|srcset|background|poster|lowsrc|dynsrc|data)\s*=\s*(?:"(?!\s*data:)[^"]*"|'(?!\s*data:)[^']*'|(?!["'\s])(?!data:)[^\s>]+)/gi;
+
+/** Remove every URL that would be fetched from outside the file (keeps `data:` images). */
+export function stripRemoteResources(html: string): string {
+  return html.replace(REMOTE_ATTRIBUTE, "");
+}
 
 export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -102,11 +117,13 @@ function pagesSection(input: BilingualExportInput, render: MarkdownRenderer): st
   return pages ? `<h2>Page by page</h2>${pages}` : "";
 }
 
-export function bilingualHtml(input: BilingualExportInput, render: MarkdownRenderer): string {
+export function bilingualHtml(input: BilingualExportInput, renderMarkdown: MarkdownRenderer): string {
+  const render: MarkdownRenderer = (markdown) => stripRemoteResources(renderMarkdown(markdown));
   const date = new Date(input.completedAt).toISOString().slice(0, 10);
   return [
     "<!doctype html>",
     '<html lang="en"><head><meta charset="utf-8">',
+    `<meta http-equiv="Content-Security-Policy" content="${EXPORT_CSP}">`,
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(input.title)} — bilingual</title>`,
     `<style>${STYLE}</style>`,

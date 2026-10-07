@@ -72,9 +72,10 @@ anywhere else.
    translated in parts along page boundaries, each with its own images, and
    merged field by field: each request stays well below the output limit and
    below Claude Haiku 5.5's 100k-token price step. The document and its images
-   come first in every request and are identical across the calls of a run,
-   so the providers' prompt caches serve them again at a fraction of the
-   price (an explicit cache breakpoint on Anthropic; automatic on OpenAI).
+   come first in every request, so the translation and the structure in the
+   original language share a prefix that the providers' prompt caches serve
+   again at a fraction of the price (an explicit cache breakpoint on
+   Anthropic; automatic on OpenAI).
 7. **Structured text in the original language** (on demand by default): the
    same JSON format is filled without translating, so the structured fields
    can be read in the document's own wording. It is produced the first time
@@ -107,7 +108,8 @@ anywhere else.
    takes a page selection (e.g. `1-3, 7`) to OCR only part of a PDF.
    **Download bilingual HTML** saves one self-contained page with the
    translation next to the original, field by field and block by block; it
-   prints to PDF and opens in Word.
+   prints to PDF and opens in Word. The file loads nothing from outside
+   (remote image URLs in the text are removed and it carries its own CSP).
 9. **Recent translations**: finished translations are kept in this browser
    (IndexedDB, last 30). They can be reopened from the list (with their OCR
    result while the OCR cache still has it), and loading a document that was
