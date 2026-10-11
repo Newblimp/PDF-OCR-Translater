@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "@/lib/storage/settings";
-import { initialState, missingKeys, reducer, requiredProviders, selectSourceText, usableKey, type OcrState, type TranslationState } from "./store";
+import { dockGroups } from "@/lib/util/dock";
+import { initialState, missingKeys, reducer, requiredProviders, selectSourceText, usableKey, type AppState, type OcrState, type TranslationState } from "./store";
+
+/** The result tab each group shows. */
+function shownTabs(state: AppState): string[] {
+  return dockGroups(state.resultLayout).map((g) => g.active);
+}
 
 function translationFixture(patch: Partial<TranslationState> = {}): TranslationState {
   return {
@@ -16,14 +22,14 @@ function translationFixture(patch: Partial<TranslationState> = {}): TranslationS
 describe("streaming and OCR invalidation", () => {
   it("switches to the Structured text tab when the first stream text arrives", () => {
     let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
-    state = { ...state, activeTab: "ocr" };
+    state = reducer(state, { type: "tab/set", tab: "ocr" });
     state = reducer(state, {
       type: "job/start",
       job: { kind: "translate", startedAt: 0, stages: ["translate"], events: [], receivedChars: {}, streamText: "", controller: new AbortController() },
     });
-    expect(state.activeTab).toBe("ocr");
+    expect(shownTabs(state)).toEqual(["ocr"]);
     state = reducer(state, { type: "job/event", event: { stage: "translate", status: "progress", message: "…", streamText: '{"a":', receivedChars: 5, timestamp: 0 } });
-    expect(state.activeTab).toBe("structured");
+    expect(shownTabs(state)).toEqual(["structured"]);
     expect(state.job?.streamText).toBe('{"a":');
     expect(state.job?.receivedChars).toEqual({ translate: 5 });
   });
@@ -56,12 +62,22 @@ describe("streaming and OCR invalidation", () => {
 describe("result tabs", () => {
   it("starts on the bounding boxes tab and shows the structured text once a translation arrives", () => {
     const state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
-    expect(state.activeTab).toBe("bboxes");
+    expect(shownTabs(state)).toEqual(["bboxes"]);
     expect(state.showTranslation).toBe(true);
     const translation = translationFixture();
     const withTranslation = reducer(state, { type: "translation/set", translation });
-    expect(withTranslation.activeTab).toBe("structured");
+    expect(shownTabs(withTranslation)).toEqual(["structured"]);
     expect(reducer(withTranslation, { type: "view/translation", show: false }).showTranslation).toBe(false);
+  });
+
+  it("shows a requested tab in its own group, leaving the other split views alone, until the layout is reset", () => {
+    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    state = reducer(state, { type: "layout/move", tab: "ocr", target: { group: "g1", side: "right" } });
+    expect(shownTabs(state)).toEqual(["bboxes", "ocr"]);
+    state = reducer(state, { type: "translation/set", translation: translationFixture() });
+    expect(shownTabs(state)).toEqual(["structured", "ocr"]);
+    state = reducer(state, { type: "layout/reset" });
+    expect(dockGroups(state.resultLayout).map((g) => g.tabs)).toEqual([["bboxes", "ocr", "structured", "schema", "json"]]);
   });
 });
 
@@ -69,7 +85,7 @@ describe("history", () => {
   it("opens a saved translation without a document and offers its source text for a new translation", () => {
     let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
     state = reducer(state, { type: "history/open", ocr: null, translation: translationFixture({ restored: true }), pastedText: null });
-    expect(state.activeTab).toBe("structured");
+    expect(shownTabs(state)).toEqual(["structured"]);
     expect(selectSourceText(state)).toEqual({ text: "源文本", origin: "saved" });
     state = reducer(state, { type: "history/open", ocr: null, translation: translationFixture({ restored: true, sourceKind: "pasted" }), pastedText: "源文本" });
     expect(state.pasteMode).toBe(true);

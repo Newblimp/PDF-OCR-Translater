@@ -1,6 +1,6 @@
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { ocrBelongsTo, type AppState, type JobKind, type OcrState, type ResultTab, type TranslationState } from "@/app/store";
+import { defaultResultLayout, ocrBelongsTo, RESULT_TABS, type AppState, type JobKind, type OcrState, type ResultTab, type TranslationState } from "@/app/store";
 import { bilingualHtml } from "@/lib/export/bilingual";
 import type { TokenUsage } from "@/lib/llm/provider";
 import { PROVIDERS } from "@/lib/llm/registry";
@@ -8,16 +8,23 @@ import { loadExportMarkdownRenderer } from "@/lib/markdown";
 import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
 import { textBlocks, translatedPageMarkdown } from "@/lib/pipeline/blockTranslate";
 import type { StructureOriginalMode } from "@/lib/pipeline/pipeline";
+import { sameArrangement, type DockTarget } from "@/lib/util/dock";
 import { isPlainObject, prettyJson } from "@/lib/util/json";
 import { parsePartialJson } from "@/lib/util/partialJson";
 import { estimateTokens, formatNumber } from "@/lib/util/text";
 import { BboxView } from "./BboxView";
+import { Dock } from "./Dock";
 import { JsonBrowser } from "./JsonBrowser/JsonBrowser";
 import { MarkdownText } from "./MarkdownText";
 
 /** Stable callbacks from the app (created once, so the memoised views below skip unrelated re-renders). */
 export interface ResultActions {
+  /** Show a tab (in whichever group of the split views it is). */
   setTab: (tab: ResultTab) => void;
+  /** Drag and drop of a tab: into another group, or into a new split view beside a group. */
+  moveTab: (tab: ResultTab, target: DockTarget) => void;
+  resizeSplit: (split: string, sizes: number[]) => void;
+  resetLayout: () => void;
   /** "Show translation", shared by the OCR text, Structured text and Raw JSON tabs. */
   setShowTranslation: (show: boolean) => void;
   /** The structured text in the original language is on screen but missing: produce it (once per translation). */
@@ -33,6 +40,15 @@ interface Props {
   state: AppState;
   actions: ResultActions;
 }
+
+const TAB_LABELS: Record<ResultTab, string> = {
+  bboxes: "Bounding boxes",
+  ocr: "OCR text",
+  structured: "Structured text",
+  schema: "JSON format",
+  json: "Raw JSON",
+};
+const DEFAULT_LAYOUT = defaultResultLayout();
 
 const NO_ANNOTATIONS: BboxAnnotation[] = [];
 const NO_BLOCK_TRANSLATIONS: Record<string, string> = {};
@@ -77,18 +93,24 @@ function usageText(usage: TokenUsage | null): string {
 export function ResultsPanel({ state, actions }: Props) {
   const { translation, ocr } = state;
   const streamText = state.job?.streamText;
-  const tabs: Array<{ id: ResultTab; label: string; available: boolean }> = [
-    { id: "bboxes", label: "Bounding boxes", available: !!ocr },
-    { id: "ocr", label: "OCR text", available: !!ocr },
-    { id: "structured", label: "Structured text", available: !!translation || !!streamText },
-    { id: "schema", label: "JSON format", available: !!translation },
-    { id: "json", label: "Raw JSON", available: !!translation },
-  ];
-  const active = tabs.find((t) => t.id === state.activeTab && t.available)?.id ?? tabs.find((t) => t.available)?.id ?? null;
+  const available = new Set<ResultTab>(
+    RESULT_TABS.filter((tab) => {
+      switch (tab) {
+        case "bboxes":
+        case "ocr":
+          return !!ocr;
+        case "structured":
+          return !!translation || !!streamText;
+        case "schema":
+        case "json":
+          return !!translation;
+      }
+    }),
+  );
   const name = baseName(state);
   const jobKind = state.job?.kind ?? null;
 
-  if (!active) {
+  if (available.size === 0) {
     return (
       <div class="empty-state">
         <h2>Results appear here</h2>
@@ -105,77 +127,85 @@ export function ResultsPanel({ state, actions }: Props) {
     );
   }
 
+  const renderTab = (tab: ResultTab) => {
+    switch (tab) {
+      case "bboxes":
+        return (
+          ocr && (
+            <BboxView
+              doc={state.doc}
+              ocr={ocr.text}
+              annotations={translation?.bboxAnnotations ?? NO_ANNOTATIONS}
+              blockTranslations={translation?.blockTranslations ?? NO_BLOCK_TRANSLATIONS}
+            />
+          )
+        );
+      case "ocr":
+        return (
+          ocr && (
+            <OcrView
+              ocr={ocr}
+              translation={translation}
+              canRetry={!!translation && ocrBelongsTo(ocr, translation)}
+              showTranslation={state.showTranslation}
+              busy={!!state.job}
+              baseName={name}
+              actions={actions}
+            />
+          )
+        );
+      case "structured":
+        if (streamText) {
+          return (
+            <div class="tab-panel">
+              <StreamingView text={streamText} />
+            </div>
+          );
+        }
+        return (
+          translation && (
+            <StructuredView
+              translation={translation}
+              ocr={ocr}
+              showTranslation={state.showTranslation}
+              jobKind={jobKind}
+              structureMode={state.settings.structureOriginal}
+              baseName={name}
+              actions={actions}
+            />
+          )
+        );
+      case "schema":
+        return translation && <SchemaView translation={translation} actions={actions} />;
+      case "json":
+        return (
+          translation && (
+            <RawJsonView
+              translation={translation}
+              showTranslation={state.showTranslation}
+              jobKind={jobKind}
+              structureMode={state.settings.structureOriginal}
+              baseName={name}
+              actions={actions}
+            />
+          )
+        );
+    }
+  };
+
   return (
-    <div class="results">
-      <div class="tabs" role="tablist">
-        {tabs
-          .filter((t) => t.available)
-          .map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={active === t.id}
-              class={`tab${active === t.id ? " tab-active" : ""}`}
-              onClick={() => actions.setTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-      </div>
-
-      {active === "bboxes" && ocr && (
-        <BboxView
-          doc={state.doc}
-          ocr={ocr.text}
-          annotations={translation?.bboxAnnotations ?? NO_ANNOTATIONS}
-          blockTranslations={translation?.blockTranslations ?? NO_BLOCK_TRANSLATIONS}
-        />
-      )}
-
-      {active === "ocr" && ocr && (
-        <OcrView
-          ocr={ocr}
-          translation={translation}
-          canRetry={!!translation && ocrBelongsTo(ocr, translation)}
-          showTranslation={state.showTranslation}
-          busy={!!state.job}
-          baseName={name}
-          actions={actions}
-        />
-      )}
-
-      {active === "structured" && streamText && (
-        <div class="tab-panel">
-          <StreamingView text={streamText} />
-        </div>
-      )}
-
-      {active === "structured" && translation && !streamText && (
-        <StructuredView
-          translation={translation}
-          ocr={ocr}
-          showTranslation={state.showTranslation}
-          jobKind={jobKind}
-          structureMode={state.settings.structureOriginal}
-          baseName={name}
-          actions={actions}
-        />
-      )}
-
-      {active === "schema" && translation && <SchemaView translation={translation} actions={actions} />}
-
-      {active === "json" && translation && (
-        <RawJsonView
-          translation={translation}
-          showTranslation={state.showTranslation}
-          jobKind={jobKind}
-          structureMode={state.settings.structureOriginal}
-          baseName={name}
-          actions={actions}
-        />
-      )}
-    </div>
+    <Dock
+      layout={state.resultLayout}
+      tabs={RESULT_TABS}
+      labels={TAB_LABELS}
+      available={available}
+      renderTab={renderTab}
+      customised={!sameArrangement(state.resultLayout, DEFAULT_LAYOUT)}
+      onActivate={actions.setTab}
+      onMove={actions.moveTab}
+      onResize={actions.resizeSplit}
+      onReset={actions.resetLayout}
+    />
   );
 }
 

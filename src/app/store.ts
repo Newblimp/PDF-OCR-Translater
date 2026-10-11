@@ -16,6 +16,7 @@ import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
 import type { FileKind } from "@/lib/files/fileKind";
 import type { SavedTranslationSummary, SourceKind } from "@/lib/storage/history";
 import type { Settings } from "@/lib/storage/settings";
+import { activateTab, moveTab, resizeSplit, singleGroup, type DockNode, type DockTarget } from "@/lib/util/dock";
 
 /**
  * "ocr", "translate" and "both" are the three action buttons; "original" fills
@@ -23,8 +24,14 @@ import type { Settings } from "@/lib/storage/settings";
  * the bounding boxes or text blocks that failed.
  */
 export type JobKind = "ocr" | "translate" | "both" | "original" | "retry";
-/** Result tabs, in the order they are shown. "bboxes" is the default. */
-export type ResultTab = "bboxes" | "ocr" | "structured" | "schema" | "json";
+/** Result tabs, in their default order. "bboxes" is shown first. */
+export const RESULT_TABS = ["bboxes", "ocr", "structured", "schema", "json"] as const;
+export type ResultTab = (typeof RESULT_TABS)[number];
+
+/** All result tabs in one group, as before the user arranges them. */
+export function defaultResultLayout(): DockNode<ResultTab> {
+  return singleGroup(RESULT_TABS);
+}
 
 export type KeyStatus = "missing" | "unverified" | "checking" | "valid" | "invalid";
 
@@ -159,7 +166,11 @@ export interface AppState {
   translation: TranslationState | null;
   job: JobState | null;
   error: AppError | null;
-  activeTab: ResultTab;
+  /**
+   * The result tabs arranged in groups and split views (dragged around like
+   * VS Code's editor tabs); each group shows one of its tabs.
+   */
+  resultLayout: DockNode<ResultTab>;
   /**
    * Whether the OCR text and the structured text are shown translated or in
    * the document's own language ("Show translation" in both tabs).
@@ -188,7 +199,11 @@ export type Action =
   | { type: "job/event"; event: ProgressEvent }
   | { type: "job/end" }
   | { type: "error/set"; error: AppError | null }
+  /** Show a result tab (in whichever group it is). */
   | { type: "tab/set"; tab: ResultTab }
+  | { type: "layout/move"; tab: ResultTab; target: DockTarget }
+  | { type: "layout/resize"; split: string; sizes: number[] }
+  | { type: "layout/reset" }
   | { type: "view/translation"; show: boolean }
   | { type: "history/set"; history: SavedTranslationSummary[] }
   | { type: "history/open"; ocr: OcrState | null; translation: TranslationState; pastedText: string | null };
@@ -213,7 +228,7 @@ export function missingKeys(state: AppState, settings: Settings = state.settings
   return requiredProviders(settings).filter((p) => !usableKey(state.keys, p));
 }
 
-export function initialState(keys: Record<ProviderId, string | null>, settings: Settings): AppState {
+export function initialState(keys: Record<ProviderId, string | null>, settings: Settings, resultLayout = defaultResultLayout()): AppState {
   const state: AppState = {
     keys: perProvider((id) => keyState(keys[id])),
     keyDialogOpen: false,
@@ -227,7 +242,7 @@ export function initialState(keys: Record<ProviderId, string | null>, settings: 
     translation: null,
     job: null,
     error: null,
-    activeTab: "bboxes",
+    resultLayout,
     showTranslation: true,
     history: [],
   };
@@ -253,7 +268,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "settings/toggle":
       return { ...state, settingsOpen: action.open ?? !state.settingsOpen };
     case "doc/set":
-      return { ...state, doc: action.doc, pasteMode: false, ocr: null, translation: null, error: null, activeTab: "bboxes" };
+      return { ...state, doc: action.doc, pasteMode: false, ocr: null, translation: null, error: null, resultLayout: activateTab(state.resultLayout, "bboxes") };
     case "doc/patch":
       if (!state.doc || state.doc.id !== action.id) return state;
       return { ...state, doc: { ...state.doc, ...action.patch } };
@@ -273,7 +288,7 @@ export function reducer(state: AppState, action: Action): AppState {
         // An OCR result reopened from "Recent translations" (no document) leaves with the translation it came with
         // when a translation of something else (pasted text) replaces it.
         ocr: !state.doc && state.ocr && action.translation && !ocrBelongsTo(state.ocr, action.translation) ? null : state.ocr,
-        activeTab: action.translation ? "structured" : state.activeTab,
+        resultLayout: action.translation ? activateTab(state.resultLayout, "structured") : state.resultLayout,
         // The finished translation replaces the live stream view while follow-ups run.
         job: state.job && action.translation ? { ...state.job, streamText: "" } : state.job,
       };
@@ -285,7 +300,7 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!state.job) return state;
       const ev = action.event;
       // The live stream lives in the Structured text tab: switch to it when streaming starts.
-      const activeTab: ResultTab = ev.streamText && !state.job.streamText && !state.translation ? "structured" : state.activeTab;
+      const resultLayout = ev.streamText && !state.job.streamText && !state.translation ? activateTab(state.resultLayout, "structured") : state.resultLayout;
       // Stages run concurrently: a progress event replaces the previous event of its stage when that was progress too.
       const events = [...state.job.events];
       let previous = events.length - 1;
@@ -296,7 +311,7 @@ export function reducer(state: AppState, action: Action): AppState {
       events.push(stored);
       return {
         ...state,
-        activeTab,
+        resultLayout,
         job: {
           ...state.job,
           events,
@@ -310,7 +325,13 @@ export function reducer(state: AppState, action: Action): AppState {
     case "error/set":
       return { ...state, error: action.error };
     case "tab/set":
-      return { ...state, activeTab: action.tab };
+      return { ...state, resultLayout: activateTab(state.resultLayout, action.tab) };
+    case "layout/move":
+      return { ...state, resultLayout: moveTab(state.resultLayout, action.tab, action.target) };
+    case "layout/resize":
+      return { ...state, resultLayout: resizeSplit(state.resultLayout, action.split, action.sizes) };
+    case "layout/reset":
+      return { ...state, resultLayout: defaultResultLayout() };
     case "view/translation":
       return { ...state, showTranslation: action.show };
     case "history/set":
@@ -324,7 +345,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ocr: action.ocr,
         translation: action.translation,
         error: null,
-        activeTab: "structured",
+        resultLayout: activateTab(state.resultLayout, "structured"),
       };
     default:
       return state;

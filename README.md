@@ -102,6 +102,17 @@ anywhere else.
    - **JSON format**: the schema that was used.
    - **Raw JSON**: the result as text.
 
+   The tabs can be arranged in **split views**, like editor tabs in VS Code:
+   drag a tab onto a side of another view to open it beside or below it,
+   onto the middle of a view or onto another tab bar to join that group, or
+   along a tab bar to reorder. Drag the bar between two views to resize them
+   (or focus it and use the arrow keys; double-click shares the space
+   equally). The buttons next to a group's tabs move the shown tab into a
+   new group on the right or below without dragging, and the reset button
+   puts all tabs back in one group. Moving tabs around keeps each view as it
+   was (page, scroll position, switches). The arrangement is saved in this
+   browser. On narrow screens the groups are stacked.
+
    A **Show translation** switch in the OCR text, Structured text and Raw JSON
    toolbars flips all three between the translation and the document's own
    language; it is one shared setting, not one per tab. The document card

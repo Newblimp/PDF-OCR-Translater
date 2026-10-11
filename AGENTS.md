@@ -68,6 +68,7 @@ src/
   components/                  presentational Preact components (memoised; handlers come from App, created once)
     JsonBrowser/               browsable view of the translated JSON
     BboxView.tsx               bounding boxes drawn over the rendered page
+    Dock.tsx                   result tabs in groups and split views (drag and drop, splitters)
     HistoryPanel.tsx           "Recent translations" (saved in IndexedDB)
   lib/
     http/
@@ -113,9 +114,10 @@ src/
     export/bilingual.ts        bilingual HTML export (translation next to the original)
     markdown.ts                lazy marked + DOMPurify renderers (app view; export without remote resources)
     files/                     hashing, data-URL encoding, pdf.js preview (WebP object URLs), page render cache, file kinds
-    storage/                   localStorage/sessionStorage (keys, settings, theme); IndexedDB (db.ts):
+    storage/                   localStorage/sessionStorage (keys, settings, theme, result layout); IndexedDB (db.ts):
                                OCR cache (ocrCache.ts), saved translations (history.ts)
-    util/                      JSON extraction, partial-JSON parser for streaming, page selection, text helpers, worker pool
+    util/                      JSON extraction, partial-JSON parser for streaming, page selection, text helpers, worker pool,
+                               dock.ts (split-view layout model)
   styles/global.css
 e2e/                           Playwright specs + API mock
 public/_headers                Cloudflare Pages headers (CSP etc.)
@@ -161,9 +163,25 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `ResultsPanel`'s `PipelineStrip` tells the user what ran; `BboxView` draws
   `OcrText.bboxes` and `OcrCleanPage.blocks` over the page rendered by
   `renderPdfPage()`.
-- **Result tabs**: `ResultTab` in `store.ts` fixes the order — Bounding boxes
-  (the default), OCR text, Structured text, JSON format, Raw JSON. There is no
-  separate translation tab: `AppState.showTranslation` ("Show translation", one
+- **Result tabs**: `RESULT_TABS` in `store.ts` fixes the default order —
+  Bounding boxes (shown first), OCR text, Structured text, JSON format, Raw
+  JSON. The user arranges them in split views like VS Code's editor groups:
+  `AppState.resultLayout` is a `DockNode` tree (`util/dock.ts`: splits with
+  relative `sizes`, leaves are groups with their `tabs` and `active` tab;
+  every tab in exactly one group). The reducer applies `activateTab()`
+  (`tab/set`, and wherever the app switches tabs itself), `moveTab()`
+  (`layout/move`), `resizeSplit()` and the reset; `App.tsx` saves the layout
+  (`storage/layout.ts`, repaired by `parseDock()` on load). `Dock.tsx` hides
+  tabs with nothing to show (`visibleDock()`; empty groups give their room
+  away) and places frames, views and splitters as absolutely positioned
+  siblings from `dockGeometry()`, with the views in the fixed `RESULT_TABS`
+  order, so rearranging never remounts a view. Drag and drop is native HTML
+  (dragenter and dragover both cancelled; a custom data type, not text);
+  splitters use pointer capture and commit on release. Below 960px the
+  groups are stacked (CSS `order`), and views size themselves by their
+  group with container queries (`.dock-view` is the container), not the
+  window. On wide screens `.app` is a fixed-height shell: the input pane and
+  each view scroll on their own. There is no separate translation tab: `AppState.showTranslation` ("Show translation", one
   switch rendered in several toolbars) decides whether the OCR text, the
   structured text and the raw JSON are shown translated or in the document's
   own language.

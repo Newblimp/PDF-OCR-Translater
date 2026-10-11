@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "preact/hooks";
 import { loadApiKey } from "@/lib/storage/apiKeys";
+import { loadDockLayout, saveDockLayout } from "@/lib/storage/layout";
 import { loadSettings, type Settings, type ThemeSetting } from "@/lib/storage/settings";
 import type { ProviderId } from "@/lib/llm/provider";
+import type { DockTarget } from "@/lib/util/dock";
 import { perProvider, PROVIDER_IDS } from "@/lib/llm/registry";
 import { estimateRun, formatUsd, TOKENS_PER_PAGE_GUESS } from "@/lib/pipeline/estimate";
 import { parsePageSelection } from "@/lib/util/pageSelection";
@@ -35,10 +37,23 @@ import {
   verifyAndSaveApiKey,
   type Runtime,
 } from "./runner";
-import { canRunOcr, initialState, missingKeys, reducer, requiredProviders, selectSourceText, type Action, type AppState, type ResultTab } from "./store";
+import {
+  canRunOcr,
+  initialState,
+  missingKeys,
+  reducer,
+  requiredProviders,
+  RESULT_TABS,
+  selectSourceText,
+  type Action,
+  type AppState,
+  type ResultTab,
+} from "./store";
 
 export function App() {
-  const [state, dispatchRaw] = useReducer(reducer, null, () => initialState(perProvider((id) => loadApiKey(id)), loadSettings()));
+  const [state, dispatchRaw] = useReducer(reducer, null, () =>
+    initialState(perProvider((id) => loadApiKey(id)), loadSettings(), loadDockLayout(RESULT_TABS) ?? undefined),
+  );
 
   // A stable runtime object lets async operations read the latest state.
   // The reducer is pure, so we mirror it synchronously: `getState()` reflects
@@ -85,6 +100,9 @@ export function App() {
   const results = useMemo<ResultActions>(
     () => ({
       setTab: (tab: ResultTab) => dispatch({ type: "tab/set", tab }),
+      moveTab: (tab: ResultTab, target: DockTarget) => dispatch({ type: "layout/move", tab, target }),
+      resizeSplit: (split: string, sizes: number[]) => dispatch({ type: "layout/resize", split, sizes }),
+      resetLayout: () => dispatch({ type: "layout/reset" }),
       setShowTranslation: (show: boolean) => dispatch({ type: "view/translation", show }),
       requestOriginal: () => void ensureOriginalStructure(rt),
       produceOriginal: () => void ensureOriginalStructure(rt, true),
@@ -105,6 +123,9 @@ export function App() {
     }
     void refreshHistory(rt);
   }, [rt]);
+
+  // The arrangement of the result tabs is kept for the next visit.
+  useEffect(() => saveDockLayout(state.resultLayout), [state.resultLayout]);
 
   const sourceText = selectSourceText(state);
   const ocrPossible = canRunOcr(state);
