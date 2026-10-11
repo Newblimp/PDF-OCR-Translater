@@ -68,6 +68,8 @@ src/
   components/                  presentational Preact components (memoised; handlers come from App, created once)
     JsonBrowser/               browsable view of the translated JSON
     BboxView.tsx               bounding boxes drawn over the rendered page
+    pageImages.ts              hooks: the document's page renderer, pages rendered so far
+    useLinkedScroll.ts         scrolls two page columns together (OCR text beside the PDF)
     Dock.tsx                   result tabs in groups and split views (drag and drop, splitters)
     HistoryPanel.tsx           "Recent translations" (saved in IndexedDB)
   lib/
@@ -117,7 +119,7 @@ src/
     storage/                   localStorage/sessionStorage (keys, settings, theme, result layout); IndexedDB (db.ts):
                                OCR cache (ocrCache.ts), saved translations (history.ts)
     util/                      JSON extraction, partial-JSON parser for streaming, page selection, text helpers, worker pool,
-                               dock.ts (split-view layout model)
+                               dock.ts (split-view layout model), linkedScroll.ts (page-by-page scroll mapping)
   styles/global.css
 e2e/                           Playwright specs + API mock
 public/_headers                Cloudflare Pages headers (CSP etc.)
@@ -202,7 +204,18 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   translation" is on.
 - **Page rendering**: `files/pageRenderCache.ts` keeps one pdf.js document
   open per loaded file, renders on demand and pre-renders the rest in the
-  background (`PREFETCH_LIMIT`); `BboxView` subscribes to it.
+  background (`PREFETCH_LIMIT`); `BboxView` and the OCR text view's pages
+  get it through `usePageRenderer()` (`components/pageImages.ts`, one
+  `PAGE_RENDER_WIDTH` for both, since the renderer is shared).
+- **OCR text beside the PDF**: `Settings.ocrShowPdf` / `ocrLinkScroll`
+  (toolbar switches, saved). `OcrView` then lays out two scrolling columns
+  whose pages are direct children marked `data-page` (`PdfPages` renders the
+  visible ones first with an IntersectionObserver, placeholders keep each
+  page's aspect ratio). `useLinkedScroll()` measures both columns on scroll
+  and applies `linkedScrollTop()` (`util/linkedScroll.ts`): the reading point
+  runs from the top of the view to its bottom, so both columns start and end
+  together, and is mapped page by page in between. Only shown while the
+  document the OCR result was made from is loaded.
 - **Page selection**: `DocState.pageSelection` (1-based text) is parsed by
   `util/pageSelection.ts` into the OCR API's 0-based `pages`; the OCR cache
   key includes it.

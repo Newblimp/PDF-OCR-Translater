@@ -33,6 +33,14 @@ describe("newer settings", () => {
     localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ structureOriginal: "always", glossary: 42, rememberKeys: "yes" }));
     expect(loadSettings()).toMatchObject({ structureOriginal: "always", glossary: "", rememberKeys: true });
   });
+
+  it("keeps the OCR text tab's page view choices, repairing invalid ones", () => {
+    expect(loadSettings()).toMatchObject({ ocrShowPdf: false, ocrLinkScroll: true });
+    saveSettings({ ...DEFAULT_SETTINGS, ocrShowPdf: true, ocrLinkScroll: false });
+    expect(loadSettings()).toMatchObject({ ocrShowPdf: true, ocrLinkScroll: false });
+    localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ ocrShowPdf: "yes", ocrLinkScroll: 0 }));
+    expect(loadSettings()).toMatchObject({ ocrShowPdf: false, ocrLinkScroll: true });
+  });
 });
 
 describe("model default migration", () => {

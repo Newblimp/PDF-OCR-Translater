@@ -1,12 +1,14 @@
 import { memo } from "preact/compat";
-import { useEffect, useMemo, useState } from "preact/hooks";
-import { defaultResultLayout, ocrBelongsTo, RESULT_TABS, type AppState, type JobKind, type OcrState, type ResultTab, type TranslationState } from "@/app/store";
+import type { RefObject } from "preact";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { defaultResultLayout, ocrBelongsTo, RESULT_TABS, type AppState, type DocState, type JobKind, type OcrState, type ResultTab, type TranslationState } from "@/app/store";
 import { bilingualHtml } from "@/lib/export/bilingual";
 import type { TokenUsage } from "@/lib/llm/provider";
 import { PROVIDERS } from "@/lib/llm/registry";
 import { loadExportMarkdownRenderer } from "@/lib/markdown";
 import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
 import { textBlocks, translatedPageMarkdown } from "@/lib/pipeline/blockTranslate";
+import type { OcrCleanPage } from "@/lib/pipeline/ocrText";
 import type { StructureOriginalMode } from "@/lib/pipeline/pipeline";
 import { sameArrangement, type DockTarget } from "@/lib/util/dock";
 import { isPlainObject, prettyJson } from "@/lib/util/json";
@@ -16,6 +18,8 @@ import { BboxView } from "./BboxView";
 import { Dock } from "./Dock";
 import { JsonBrowser } from "./JsonBrowser/JsonBrowser";
 import { MarkdownText } from "./MarkdownText";
+import { usePageRenderer, useRenderedPages } from "./pageImages";
+import { useLinkedScroll } from "./useLinkedScroll";
 
 /** Stable callbacks from the app (created once, so the memoised views below skip unrelated re-renders). */
 export interface ResultActions {
@@ -34,6 +38,10 @@ export interface ResultActions {
   /** Run the bounding boxes or text blocks that failed again. */
   retry: (what: "bboxes" | "blocks") => void;
   useSchema: (schemaText: string) => void;
+  /** OCR text tab: show the document's pages beside the text (saved with the settings). */
+  setOcrShowPdf: (show: boolean) => void;
+  /** OCR text tab: scroll the pages and the text together. */
+  setOcrLinkScroll: (link: boolean) => void;
 }
 
 interface Props {
@@ -145,6 +153,9 @@ export function ResultsPanel({ state, actions }: Props) {
           ocr && (
             <OcrView
               ocr={ocr}
+              doc={state.doc}
+              showPdf={state.settings.ocrShowPdf}
+              linkScroll={state.settings.ocrLinkScroll}
               translation={translation}
               canRetry={!!translation && ocrBelongsTo(ocr, translation)}
               showTranslation={state.showTranslation}
@@ -547,6 +558,9 @@ const StreamingView = memo(function StreamingView({ text }: { text: string }) {
 
 const OcrView = memo(function OcrView({
   ocr,
+  doc,
+  showPdf,
+  linkScroll,
   translation,
   canRetry,
   showTranslation: wantTranslation,
@@ -555,6 +569,10 @@ const OcrView = memo(function OcrView({
   actions,
 }: {
   ocr: OcrState;
+  /** The loaded document, for its pages beside the text. */
+  doc: DocState | null;
+  showPdf: boolean;
+  linkScroll: boolean;
   translation: TranslationState | null;
   /** The translation was made from this OCR result, so its blocks can be (re)translated into it. */
   canRetry: boolean;
@@ -582,9 +600,30 @@ const OcrView = memo(function OcrView({
   const fullText = showTranslation ? pages.map((p) => p.text).join("\n\n") : ocr.text.text;
   const tokens = useMemo(() => estimateTokens(ocr.text.text), [ocr]);
   const hasTextBlocks = useMemo(() => ocr.text.pages.some((p) => textBlocks(p).length > 0), [ocr]);
+  // The pages can be shown while the document this OCR result was made from is loaded.
+  const pagesAvailable = !!doc && doc.id === ocr.docId && (doc.kind === "pdf" || doc.kind === "image");
+  const comparing = showPdf && pagesAvailable;
+  const pdfColumn = useRef<HTMLDivElement>(null);
+  const textColumn = useRef<HTMLDivElement>(null);
+  useLinkedScroll(pdfColumn, textColumn, comparing && linkScroll);
+
+  const textPages = (
+    <div class={`ocr-pages${comparing ? " ocr-compare-col" : ""}`} ref={textColumn} aria-label={comparing ? "OCR text" : undefined}>
+      {pages.map(({ page, text, total }) => (
+        <section class="ocr-page" key={page.index} id={`ocr-page-${page.index + 1}`} data-page={page.index}>
+          <h3 class="ocr-page-title muted small">Page {page.index + 1}</h3>
+          {showTranslation && total === 0 ? (
+            <p class="muted small">The OCR API returned no text blocks for this page, so it cannot be shown translated.</p>
+          ) : (
+            <MarkdownText text={text || "(no text)"} markdown={markdown} />
+          )}
+        </section>
+      ))}
+    </div>
+  );
 
   return (
-    <div class="tab-panel">
+    <div class={`tab-panel${comparing ? " tab-panel-fill" : ""}`}>
       <div class="toolbar">
         <span class="muted small">
           {ocr.model} · {ocr.text.pagesProcessed} page(s) · {ocr.text.chars.toLocaleString()} characters (~{formatNumber(tokens)} tokens)
@@ -598,6 +637,21 @@ const OcrView = memo(function OcrView({
             <input type="checkbox" checked={markdown} onChange={(e) => setMarkdown((e.target as HTMLInputElement).checked)} />
             <span>Render Markdown</span>
           </label>
+          <label class="checkbox small" title={pagesAvailable ? "Show the document's pages beside the text" : "Load the document to see its pages beside the text"}>
+            <input
+              type="checkbox"
+              checked={comparing}
+              disabled={!pagesAvailable}
+              onChange={(e) => actions.setOcrShowPdf((e.target as HTMLInputElement).checked)}
+            />
+            <span>Show {doc?.kind === "image" ? "image" : "PDF"}</span>
+          </label>
+          {comparing && (
+            <label class="checkbox small" title="Scroll the pages and the text together, page by page">
+              <input type="checkbox" checked={linkScroll} onChange={(e) => actions.setOcrLinkScroll((e.target as HTMLInputElement).checked)} />
+              <span>Lock scrolling</span>
+            </label>
+          )}
           <button type="button" class="btn btn-ghost small" onClick={() => void copy(fullText)}>
             Copy text
           </button>
@@ -652,18 +706,70 @@ const OcrView = memo(function OcrView({
           </ul>
         </details>
       )}
-      <div class="ocr-pages">
-        {pages.map(({ page, text, total }) => (
-          <section class="ocr-page" key={page.index} id={`ocr-page-${page.index + 1}`}>
+      {comparing && doc ? (
+        <div class="ocr-compare">
+          <PdfPages doc={doc} pages={ocr.text.pages} column={pdfColumn} />
+          {textPages}
+        </div>
+      ) : (
+        textPages
+      )}
+    </div>
+  );
+});
+
+/**
+ * The document's pages, rendered in the background (visible ones first),
+ * laid out like the OCR text beside them: a title, then the page.
+ */
+const PdfPages = memo(function PdfPages({ doc, pages, column }: { doc: DocState; pages: OcrCleanPage[]; column: RefObject<HTMLDivElement> }) {
+  const renderer = usePageRenderer(doc);
+  const indexes = useMemo(() => pages.map((p) => p.index), [pages]);
+  const rendered = useRenderedPages(renderer, indexes);
+  const [errors, setErrors] = useState<Record<number, string>>({});
+
+  // Pages coming into view render first; the rest follow in the background.
+  useEffect(() => {
+    const root = column.current;
+    if (!renderer || !root) return;
+    let cancelled = false;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const index = Number((entry.target as HTMLElement).dataset["page"]);
+          if (!entry.isIntersecting || renderer.peek(index)) continue;
+          renderer.get(index).catch((err: unknown) => {
+            if (!cancelled) setErrors((e) => ({ ...e, [index]: err instanceof Error ? err.message : String(err) }));
+          });
+        }
+      },
+      { root, rootMargin: "100% 0px" },
+    );
+    for (const el of root.querySelectorAll(":scope > [data-page]")) observer.observe(el);
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
+  }, [renderer, column, indexes]);
+
+  return (
+    <div class="ocr-compare-col ocr-pdf-pages" ref={column} aria-label="Document pages">
+      {pages.map((page) => {
+        const url = rendered[page.index];
+        const error = errors[page.index];
+        return (
+          <section class="ocr-pdf-page" key={page.index} data-page={page.index}>
             <h3 class="ocr-page-title muted small">Page {page.index + 1}</h3>
-            {showTranslation && total === 0 ? (
-              <p class="muted small">The OCR API returned no text blocks for this page, so it cannot be shown translated.</p>
-            ) : (
-              <MarkdownText text={text || "(no text)"} markdown={markdown} />
-            )}
+            <div class="ocr-pdf-sheet" style={`aspect-ratio:${page.width ?? 1000}/${page.height ?? 1414}`}>
+              {url ? (
+                <img src={url} alt={`Page ${page.index + 1}`} />
+              ) : (
+                <div class="ocr-pdf-placeholder small">{error ? `Page could not be rendered: ${error}` : "Rendering page…"}</div>
+              )}
+            </div>
           </section>
-        ))}
-      </div>
+        );
+      })}
     </div>
   );
 });

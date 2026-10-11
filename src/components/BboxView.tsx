@@ -1,12 +1,12 @@
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { getPageRenderer } from "@/lib/files/pageRenderCache";
 import type { OcrBlock } from "@/lib/mistral/types";
 import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
 import { blockId } from "@/lib/pipeline/blockTranslate";
 import type { OcrBbox, OcrText } from "@/lib/pipeline/ocrText";
 import type { DocState } from "@/app/store";
 import { MarkdownText } from "./MarkdownText";
+import { usePageRenderer } from "./pageImages";
 
 interface Props {
   doc: DocState | null;
@@ -33,7 +33,6 @@ const BLOCK_COLORS: Record<string, string> = {
   aside_text: "#adb5bd",
 };
 const IMAGE_COLOR = "#d6336c";
-const RENDER_WIDTH = 1000;
 
 type Selected = { kind: "bbox"; bbox: OcrBbox } | { kind: "block"; block: OcrBlock; id: string } | null;
 
@@ -60,14 +59,7 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
   const pageBlocks = page?.blocks ?? [];
   const annotationById = useMemo(() => new Map(annotations.map((a) => [a.id, a])), [annotations]);
 
-  // One renderer per document; it keeps the PDF open and pre-renders pages in the background.
-  // An image document waits for its preview URL, which the renderer shows as the page.
-  const imageUrl = doc?.kind === "image" ? (doc.previews[0] ?? null) : null;
-  const renderer = useMemo(
-    () => (doc && (doc.kind !== "image" || imageUrl) ? getPageRenderer(doc.id, doc.file, doc.kind === "image" ? "image" : "pdf", imageUrl, RENDER_WIDTH) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one renderer per document id; the file never changes for an id
-    [doc?.id, imageUrl],
-  );
+  const renderer = usePageRenderer(doc);
 
   useEffect(() => {
     if (!renderer) return;

@@ -787,3 +787,72 @@ test("result tabs are arranged in split views by drag and drop, and the arrangem
   await expect(page.getByRole("tablist")).toHaveCount(1);
   await expect(page.getByRole("tablist").getByRole("tab")).toHaveText(["Bounding boxes", "OCR text", "Structured text", "JSON format", "Raw JSON"], { ignoreCase: true });
 });
+
+test("the OCR text is shown beside the PDF pages, with the scrolling of both locked together", async ({ page }) => {
+  await setup(page);
+  await enterKeys(page);
+  await page.locator('input[type="file"]').first().setInputFiles({
+    name: "long.pdf",
+    mimeType: "application/pdf",
+    buffer: makePdf("Page one", ["Page two", "Page three", "Page four", "Page five", "Page six"]),
+  });
+  await page.getByRole("button", { name: "OCR only" }).click();
+  await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
+  await expect(page.getByRole("checkbox", { name: "Lock scrolling" })).toHaveCount(0);
+
+  await page.getByRole("checkbox", { name: "Show PDF" }).check();
+  const pdf = page.locator(".ocr-pdf-pages");
+  const text = page.locator(".ocr-pages");
+  await expect(pdf.locator("img")).toHaveCount(6, { timeout: 20_000 }); // rendered by pdf.js
+  const pdfBox = (await pdf.boundingBox())!;
+  const textBox = (await text.boundingBox())!;
+  expect(pdfBox.x + pdfBox.width).toBeLessThan(textBox.x); // the pages on the left, the text on the right
+  const lock = page.getByRole("checkbox", { name: "Lock scrolling" });
+  await expect(lock).toBeChecked();
+
+  const scrollTo = (column: typeof pdf, top: number | "end") =>
+    column.evaluate((el, to) => {
+      el.scrollTop = to === "end" ? el.scrollHeight : to;
+    }, top);
+  const scrolled = (column: typeof pdf) => column.evaluate((el) => ({ top: el.scrollTop, max: el.scrollHeight - el.clientHeight }));
+  /** The page (0-based) at the middle of a column's view. */
+  const pageInView = (column: typeof pdf) =>
+    column.evaluate((el) => {
+      const middle = el.getBoundingClientRect().top + el.clientHeight / 2;
+      const pages = Array.from(el.querySelectorAll<HTMLElement>(":scope > [data-page]"));
+      return Number(pages.filter((p) => p.getBoundingClientRect().top <= middle).pop()?.dataset["page"] ?? -1);
+    });
+
+  // Scrolling the text scrolls the pages to the same page, and both reach their end together.
+  expect((await scrolled(text)).max).toBeGreaterThan(200);
+  await text.evaluate((el) => {
+    const page4 = el.querySelector<HTMLElement>('[data-page="3"]')!;
+    el.scrollTop += page4.getBoundingClientRect().top - el.getBoundingClientRect().top - el.clientHeight / 3;
+  });
+  await expect.poll(() => pageInView(pdf)).toBe(await pageInView(text));
+  await scrollTo(text, "end");
+  await expect.poll(async () => {
+    const s = await scrolled(pdf);
+    return s.max - s.top;
+  }).toBeLessThan(2);
+
+  // And the other way round.
+  await scrollTo(pdf, 0);
+  await expect.poll(async () => (await scrolled(text)).top).toBeLessThan(2);
+
+  // Unlocked, each column scrolls on its own; locking again lines the pages up with the text.
+  await lock.uncheck();
+  await scrollTo(text, "end");
+  await page.waitForTimeout(100);
+  expect((await scrolled(pdf)).top).toBe(0);
+  await lock.check();
+  await expect.poll(async () => {
+    const s = await scrolled(pdf);
+    return s.max - s.top;
+  }).toBeLessThan(2);
+
+  // Switched off, the text is back on its own.
+  await page.getByRole("checkbox", { name: "Show PDF" }).uncheck();
+  await expect(pdf).toHaveCount(0);
+  await expect(text.locator(".ocr-page")).toHaveCount(6);
+});
