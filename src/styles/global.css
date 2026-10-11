@@ -194,6 +194,12 @@ kbd {
   display: flex;
   flex-direction: column;
 }
+/* Wide screens: an app shell like an editor's. The header on top; the input pane and the results each scroll on their own. */
+@media (min-width: 961px) {
+  .app {
+    height: 100vh;
+  }
+}
 
 /* TOP BAR */
 .header {
@@ -252,14 +258,17 @@ kbd {
 
 .layout {
   flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: clamp(300px, 30%, 400px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 0;
-  align-items: start;
 }
 @media (max-width: 960px) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    align-items: start;
   }
 }
 .pane {
@@ -270,21 +279,18 @@ kbd {
   padding: 12px;
 }
 .pane-input {
-  position: sticky;
-  top: 52px;
-  max-height: calc(100vh - 52px);
   overflow-y: auto;
   background: var(--surface);
   border-right: 1px solid var(--border);
   scrollbar-gutter: stable;
 }
+/* The results fill the window beside the input pane, like an editor area: each split view scrolls on its own. */
 .pane-results {
   padding-left: 14px;
+  min-height: 0;
 }
 @media (max-width: 960px) {
   .pane-input {
-    position: static;
-    max-height: none;
     overflow: visible;
     border-right: none;
     border-bottom: 1px solid var(--border);
@@ -854,17 +860,10 @@ input[aria-invalid="true"] {
   font-size: 13px;
   color: var(--text-muted);
 }
-.results {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  min-height: 60vh;
-}
 /* Tabs read as refcheck pane titles: small uppercase labels, the active one underlined in the accent. */
 .tabs {
   display: flex;
   gap: 2px;
-  border-bottom: 1px solid var(--border);
   padding: 0 8px;
   overflow-x: auto;
 }
@@ -890,6 +889,186 @@ input[aria-invalid="true"] {
 .tab-active {
   color: var(--accent);
   border-bottom-color: var(--accent);
+}
+
+/* -------------------------------------------------------------- split views */
+/*
+ * The result tabs in groups, arranged like VS Code's editor groups (Dock.tsx).
+ * Frames (border + tab bar), views and splitters are absolutely positioned
+ * children of .dock, placed with --l/--t/--w/--h (lengths relative to the
+ * dock). Narrow screens stack the groups in reading order (--order) instead.
+ */
+.dock {
+  --dock-head: 36px; /* frame border + tab bar */
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.dock-frame {
+  position: absolute;
+  left: var(--l);
+  top: var(--t);
+  width: var(--w);
+  height: var(--h);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.dock-tabbar {
+  display: flex;
+  height: calc(var(--dock-head) - 1px);
+  border-bottom: 1px solid var(--border);
+}
+.dock-tabbar .tabs {
+  flex: 1;
+  min-width: 0;
+  scrollbar-width: none;
+}
+.dock-tabbar .tab {
+  flex: 0 1 auto;
+  min-width: 4.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-dragging {
+  opacity: 0.45;
+}
+.dock-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+}
+.dock-action {
+  padding: 4px 5px;
+  line-height: 0;
+  color: var(--text-dim);
+}
+.dock-action:hover {
+  color: var(--text);
+}
+.dock-view {
+  position: absolute;
+  left: calc(var(--l) + 1px);
+  top: calc(var(--t) + var(--dock-head));
+  width: calc(var(--w) - 2px);
+  height: calc(var(--h) - var(--dock-head) - 1px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px);
+  /* Views lay themselves out by the width of their group, not of the window. */
+  container-type: size;
+}
+.dock-splitter {
+  position: absolute;
+  left: var(--l);
+  top: var(--t);
+  width: var(--w);
+  height: var(--h);
+  touch-action: none;
+}
+.dock-splitter::after {
+  content: "";
+  position: absolute;
+  border-radius: 1px;
+  transition: background 0.12s;
+}
+.dock-splitter-row {
+  cursor: col-resize;
+}
+.dock-splitter-row::after {
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 1px);
+  width: 2px;
+}
+.dock-splitter-column {
+  cursor: row-resize;
+}
+.dock-splitter-column::after {
+  left: 0;
+  right: 0;
+  top: calc(50% - 1px);
+  height: 2px;
+}
+.dock-splitter:hover::after,
+.dock-splitter:active::after,
+.dock-splitter:focus-visible::after {
+  background: var(--accent);
+}
+.dock-splitter:focus-visible {
+  outline: none;
+}
+.dock-resizing {
+  user-select: none;
+}
+.dock-resizing-row {
+  cursor: col-resize;
+}
+.dock-resizing-column {
+  cursor: row-resize;
+}
+.dock-resizing .dock-frame,
+.dock-resizing .dock-view {
+  pointer-events: none;
+}
+/* Where a dragged tab would land: an area (split or join a group) or an insertion mark in a tab bar. */
+.dock-drop {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  background: var(--accent-glow);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius);
+  transition:
+    left 0.08s,
+    top 0.08s,
+    width 0.08s,
+    height 0.08s;
+}
+.dock-drop-line {
+  background: var(--accent);
+  border: none;
+  border-radius: 1px;
+}
+@media (max-width: 960px) {
+  .dock {
+    display: flex;
+    flex-direction: column;
+  }
+  .dock-frame,
+  .dock-view {
+    position: static;
+    width: auto;
+    height: auto;
+    order: var(--order);
+  }
+  .dock-frame {
+    border-bottom: none;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+  /* Stacked, the tab bar can grow: tabs wrap instead of being cut short. */
+  .dock-tabbar {
+    height: auto;
+  }
+  .dock-tabbar .tabs {
+    flex-wrap: wrap;
+  }
+  .dock-tabbar .tab {
+    min-width: 0;
+  }
+  .dock-view {
+    overflow: visible;
+    margin-bottom: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    container-type: inline-size;
+  }
+  .dock-splitter {
+    display: none;
+  }
 }
 .tab-panel {
   padding: 10px 12px 18px;
@@ -1003,22 +1182,28 @@ input[aria-invalid="true"] {
   gap: 12px;
   align-items: start;
 }
-@media (max-width: 720px) {
+@container (max-width: 560px) {
   .json-browser {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/* Sticks to the top of its split view (or of the window, when the views are stacked on a narrow screen). */
 .outline {
   position: sticky;
-  top: 60px;
-  max-height: calc(100vh - 72px);
+  top: 8px;
+  max-height: calc(100cqh - 16px);
   overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding-right: 2px;
 }
-@media (max-width: 720px) {
+@media (max-width: 960px) {
+  .outline {
+    max-height: calc(100vh - 16px);
+  }
+}
+@container (max-width: 560px) {
   .outline {
     position: static;
     max-height: none;
@@ -1168,7 +1353,7 @@ input[aria-invalid="true"] {
 .field-body {
   padding-left: 20px;
 }
-@media (max-width: 520px) {
+@container (max-width: 480px) {
   .field-body {
     padding-left: 0;
   }
@@ -1352,7 +1537,7 @@ input[aria-invalid="true"] {
   gap: 12px;
   align-items: start;
 }
-@media (max-width: 900px) {
+@container (max-width: 600px) {
   .bbox-layout {
     grid-template-columns: minmax(0, 1fr);
   }

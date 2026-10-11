@@ -45,3 +45,24 @@ export const MoonIcon = () => (
     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
   </svg>
 );
+
+export const SplitRightIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" {...stroke} aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M12 4v16" />
+  </svg>
+);
+
+export const SplitDownIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" {...stroke} aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M3 12h18" />
+  </svg>
+);
+
+export const ResetLayoutIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" {...stroke} aria-hidden="true">
+    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+    <path d="M3 3v5h5" />
+  </svg>
+);

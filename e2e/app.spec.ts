@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { ANTHROPIC_KEY, chatStep, installStreamingTranslationMock, jsonBody, makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY, systemPrompt, type RecordedRequest } from "./helpers";
 
 const APP_HOST = "localhost:4173";
@@ -47,6 +47,14 @@ async function loadPdf(page: Page): Promise<void> {
     mimeType: "application/pdf",
     buffer: makePdf("Hello patent office"),
   });
+}
+
+/** Drags a result tab onto a side (or the centre) of a view, as a user arranging split views would. */
+async function dragTab(page: Page, name: string, target: Locator, side: "left" | "right" | "top" | "bottom" | "center"): Promise<void> {
+  const box = (await target.boundingBox())!;
+  const x = side === "left" ? 10 : side === "right" ? box.width - 10 : box.width / 2;
+  const y = side === "top" ? 10 : side === "bottom" ? box.height - 10 : box.height / 2;
+  await page.getByRole("tab", { name }).dragTo(target, { targetPosition: { x, y } });
 }
 
 test("asks for both API keys once, verifies them and caches them in the browser", async ({ page }) => {
@@ -700,4 +708,82 @@ test("the bilingual export holds the translation next to the original", async ({
   expect(html).toContain("<h2>Page by page</h2>");
   expect(html).toContain("[EN] 申请号：CN202310000001.2");
   expect(html).not.toMatch(/<script/i);
+});
+
+test("result tabs are arranged in split views by drag and drop, and the arrangement is kept", async ({ page }) => {
+  await setup(page);
+  await enterKeys(page);
+  await loadPdf(page);
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
+  await expect(page.getByRole("tablist")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Reset the layout" })).toHaveCount(0);
+
+  // "OCR text" dropped on the right edge of the structured text: both side by side.
+  const structured = page.locator("#dock-panel-structured");
+  const ocr = page.locator("#dock-panel-ocr");
+  await dragTab(page, "OCR text", structured, "right");
+  await expect(page.getByRole("tablist")).toHaveCount(2);
+  await expect(structured.locator(".pipeline-strip")).toBeVisible();
+  await expect(ocr.locator(".ocr-page")).toBeVisible();
+  let left = (await structured.boundingBox())!;
+  let right = (await ocr.boundingBox())!;
+  expect(right.x).toBeGreaterThan(left.x + left.width);
+  expect(Math.abs(right.y - left.y)).toBeLessThan(2);
+
+  // "Bounding boxes" below the OCR text; the OCR view keeps its state (it is not rebuilt).
+  await ocr.getByLabel("Render Markdown").uncheck();
+  await dragTab(page, "Bounding boxes", ocr, "bottom");
+  await expect(page.getByRole("tablist")).toHaveCount(3);
+  const bboxes = page.locator("#dock-panel-bboxes");
+  await expect(bboxes.locator(".bbox-stage img")).toBeVisible();
+  const top = (await ocr.boundingBox())!;
+  const bottom = (await bboxes.boundingBox())!;
+  expect(bottom.y).toBeGreaterThan(top.y + top.height);
+  expect(Math.abs(bottom.x - top.x)).toBeLessThan(2);
+  await expect(ocr.getByLabel("Render Markdown")).not.toBeChecked();
+
+  // Within a tab bar, a tab dropped on the left half of another goes before it.
+  await page.getByRole("tab", { name: "Raw JSON" }).dragTo(page.getByRole("tab", { name: "Structured text" }), { targetPosition: { x: 4, y: 10 } });
+  await expect(page.getByRole("tablist").first().getByRole("tab")).toHaveText(["Raw JSON", "Structured text", "JSON format"], { ignoreCase: true });
+  await expect(page.getByRole("tab", { name: "Raw JSON" })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", { name: "Structured text" }).click();
+
+  // The splitter between the columns resizes them, by pointer and by keyboard.
+  const splitter = page.getByRole("separator").first();
+  const handle = (await splitter.boundingBox())!;
+  const width = (await structured.boundingBox())!.width;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2 - 100, handle.y + handle.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await structured.boundingBox())!.width).toBeLessThan(width - 90);
+  expect((await structured.boundingBox())!.width).toBeGreaterThan(width - 110);
+  const narrowed = (await structured.boundingBox())!.width;
+  await splitter.press("ArrowRight");
+  await expect.poll(async () => (await structured.boundingBox())!.width).toBeGreaterThan(narrowed + 30);
+
+  // Kept after a reload.
+  await page.reload();
+  await expect(page.getByText("Anthropic key verified")).toBeVisible();
+  const history = page.locator(".history");
+  await history.locator("summary").click();
+  await history.getByRole("button", { name: "Open" }).click();
+  await expect(page.getByRole("tablist")).toHaveCount(3);
+  left = (await structured.boundingBox())!;
+  right = (await ocr.boundingBox())!;
+  expect(right.x).toBeGreaterThan(left.x + left.width);
+
+  // Dropped in the centre of a view, a tab joins that group; the empty group closes.
+  await dragTab(page, "OCR text", structured, "center");
+  await expect(page.getByRole("tablist")).toHaveCount(2);
+  await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true");
+
+  // The split buttons do the same without dragging, and one click puts everything back in one group.
+  await page.getByRole("button", { name: "Move OCR text to a new group on the right" }).click();
+  await expect(page.getByRole("tablist")).toHaveCount(3);
+  await page.getByRole("button", { name: "Reset the layout" }).click();
+  await expect(page.getByRole("tablist")).toHaveCount(1);
+  await expect(page.getByRole("tablist").getByRole("tab")).toHaveText(["Bounding boxes", "OCR text", "Structured text", "JSON format", "Raw JSON"], { ignoreCase: true });
 });
