@@ -93,7 +93,10 @@ anywhere else.
      translation above the original. Pages render in the background so
      browsing is instant.
    - **OCR text**: the Markdown per page, either as OCR'd or rebuilt from the
-     per-block translations.
+     per-block translations. **Show PDF** puts the document's pages beside
+     the text, each side scrolling on its own; **Lock scrolling** (on by
+     default) scrolls both together page by page, so the same page stays in
+     view on both sides. Both choices are remembered.
    - **Structured text**: an outline of the fields, one collapsible card per
      field (expand/collapse all), long text collapsible and rendered as
      Markdown (tables, lists), arrays as lists or grids, full-text search

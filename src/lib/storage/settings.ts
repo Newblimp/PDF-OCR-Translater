@@ -69,6 +69,10 @@ export interface Settings {
   rememberKeys: boolean;
   /** Keep finished translations in this browser (IndexedDB) for the "Recent translations" list. */
   saveTranslations: boolean;
+  /** OCR text tab: show the document's pages beside the text. */
+  ocrShowPdf: boolean;
+  /** OCR text tab: scroll the pages and the text together, page by page. */
+  ocrLinkScroll: boolean;
   /** Last model-default migration applied (see MODEL_DEFAULT_MIGRATIONS); runs each one once. */
   modelDefaultsRevision: number;
 }
@@ -111,6 +115,8 @@ export const DEFAULT_SETTINGS: Settings = {
   glossary: "",
   rememberKeys: true,
   saveTranslations: true,
+  ocrShowPdf: false,
+  ocrLinkScroll: true,
   modelDefaultsRevision: MODEL_DEFAULT_MIGRATIONS.length,
 };
 
@@ -146,6 +152,8 @@ function normalise(parsed: Partial<Settings>): Settings {
   if (typeof merged.glossary !== "string") merged.glossary = DEFAULT_SETTINGS.glossary;
   if (typeof merged.rememberKeys !== "boolean") merged.rememberKeys = DEFAULT_SETTINGS.rememberKeys;
   if (typeof merged.saveTranslations !== "boolean") merged.saveTranslations = DEFAULT_SETTINGS.saveTranslations;
+  if (typeof merged.ocrShowPdf !== "boolean") merged.ocrShowPdf = DEFAULT_SETTINGS.ocrShowPdf;
+  if (typeof merged.ocrLinkScroll !== "boolean") merged.ocrLinkScroll = DEFAULT_SETTINGS.ocrLinkScroll;
   return merged;
 }
 

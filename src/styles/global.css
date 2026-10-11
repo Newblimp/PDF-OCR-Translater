@@ -1524,6 +1524,63 @@ input[aria-invalid="true"] {
   text-transform: uppercase;
   color: var(--text-dim);
 }
+
+/* "Show PDF": the pages and the text side by side, each column scrolling on its own (or locked together). */
+.tab-panel-fill {
+  height: 100%;
+}
+.ocr-compare {
+  flex: 1;
+  min-height: 260px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 14px;
+}
+@media (max-width: 960px) {
+  .tab-panel-fill {
+    height: auto;
+  }
+  .ocr-compare {
+    flex: none;
+    height: 75vh;
+  }
+}
+.ocr-compare-col {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+.ocr-pdf-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ocr-pdf-page {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.ocr-pdf-sheet {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ocr-pdf-sheet img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ocr-pdf-placeholder {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 12px;
+  text-align: center;
+  color: var(--text-dim);
+  background: var(--surface);
+}
 .hf-list {
   margin: 4px 0 0;
   padding-left: 18px;

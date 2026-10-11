@@ -103,6 +103,8 @@ export function App() {
       moveTab: (tab: ResultTab, target: DockTarget) => dispatch({ type: "layout/move", tab, target }),
       resizeSplit: (split: string, sizes: number[]) => dispatch({ type: "layout/resize", split, sizes }),
       resetLayout: () => dispatch({ type: "layout/reset" }),
+      setOcrShowPdf: (ocrShowPdf: boolean) => updateSettings(rt, { ocrShowPdf }),
+      setOcrLinkScroll: (ocrLinkScroll: boolean) => updateSettings(rt, { ocrLinkScroll }),
       setShowTranslation: (show: boolean) => dispatch({ type: "view/translation", show }),
       requestOriginal: () => void ensureOriginalStructure(rt),
       produceOriginal: () => void ensureOriginalStructure(rt, true),
