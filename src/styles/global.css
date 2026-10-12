@@ -811,6 +811,15 @@ input[aria-invalid="true"] {
 .pages-field {
   margin: 4px 0 8px;
 }
+/* Above the settings: the target language and the glossary. */
+.quick-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.quick-options .segmented {
+  align-self: flex-start;
+}
 /* "JSON output": everything about the JSON format sits under one switch at the bottom of the settings. */
 .settings-json {
   border-top: 1px solid var(--border);
@@ -1255,9 +1264,6 @@ input[aria-invalid="true"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.estimate {
-  margin-top: 4px;
 }
 
 /* ---------------------------------------------------------- pipeline strip */

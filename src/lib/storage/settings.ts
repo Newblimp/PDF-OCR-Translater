@@ -39,7 +39,7 @@ export interface Settings {
   streaming: boolean;
   /** Mistral only; OpenAI GPT-5.x and current Claude models do not accept a temperature. */
   temperature: number;
-  /** OpenAI and Anthropic. "none" keeps translation fast and cheap (Anthropic: lowest effort). */
+  /** Every provider (Mistral offers "none" and "high"; Anthropic's lowest is "low"). "none", the default, keeps translation fast and cheap. */
   reasoningEffort: ReasoningEffort;
   /** Cache OCR results in this browser (IndexedDB) so "Translate only" can reuse them. */
   cacheOcr: boolean;

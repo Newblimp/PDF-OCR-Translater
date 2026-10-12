@@ -5,10 +5,7 @@ import { loadSettings, type Settings, type ThemeSetting } from "@/lib/storage/se
 import type { ProviderId } from "@/lib/llm/provider";
 import type { DockTarget } from "@/lib/util/dock";
 import { perProvider, PROVIDER_IDS } from "@/lib/llm/registry";
-import { estimateRun, formatUsd, TOKENS_PER_PAGE_GUESS } from "@/lib/pipeline/estimate";
 import type { OcrCleanPage } from "@/lib/pipeline/ocrText";
-import { parsePageSelection } from "@/lib/util/pageSelection";
-import { estimateTokens, formatNumber } from "@/lib/util/text";
 import { ActionBar } from "@/components/ActionBar";
 import { ApiKeyDialog } from "@/components/ApiKeyDialog";
 import { DocumentCard } from "@/components/DocumentCard";
@@ -19,6 +16,7 @@ import { HistoryPanel } from "@/components/HistoryPanel";
 import { JobStatus } from "@/components/JobStatus";
 import { PasteBox } from "@/components/PasteBox";
 import { ResultsPanel, type ResultActions } from "@/components/ResultsPanel";
+import { QuickOptions } from "@/components/QuickOptions";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { SideRail } from "@/components/SideRail";
 import {
@@ -143,11 +141,6 @@ export function App() {
 
   const sourceText = selectSourceText(state);
   const ocrPossible = canRunOcr(state);
-  const estimate = useMemo(
-    () => estimateLabel(state, sourceText?.text ?? null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- recomputed only when an input to the estimate changes
-    [sourceText?.text, state.doc?.pageCount, state.doc?.pageSelection, state.doc?.kind, state.ocr, state.pasteMode, state.settings],
-  );
   const busy = !!state.job;
   const collapsed = state.settings.sidePanelCollapsed;
 
@@ -190,7 +183,6 @@ export function App() {
               canTranslate={!busy && !!sourceText}
               translateSource={sourceText?.origin ?? null}
               hasDocument={!!state.doc || state.pasteMode}
-              estimate={estimate}
               onRun={on.run}
               onCancel={on.cancel}
             />
@@ -198,6 +190,7 @@ export function App() {
             {state.job && <JobStatus job={state.job} />}
             {state.error && <ErrorBanner error={state.error} onDismiss={on.dismissError} />}
 
+            <QuickOptions targetLanguage={state.settings.targetLanguage} glossary={state.settings.glossary} onChange={on.changeSettings} />
             <SettingsPanel
               settings={state.settings}
               models={state.models}
@@ -236,44 +229,4 @@ export function App() {
       )}
     </div>
   );
-}
-
-/** "≈ 25k input + 18k output tokens over 6 calls ≈ $0.012" for the translation the action bar would start. */
-function estimateLabel(state: AppState, sourceText: string | null): string | null {
-  const { settings, doc, ocr } = state;
-  let sourceTokens: number;
-  let assumed = false;
-  if (sourceText) {
-    sourceTokens = estimateTokens(sourceText);
-  } else if (doc && (doc.kind === "pdf" || doc.kind === "image") && doc.pageCount) {
-    const selection = parsePageSelection(doc.pageSelection, doc.pageCount);
-    sourceTokens = (selection.pages?.length ?? doc.pageCount) * TOKENS_PER_PAGE_GUESS;
-    assumed = true;
-  } else {
-    return null;
-  }
-  const fromOcr = !!ocr && (!doc || ocr.docId === doc.id) && !state.pasteMode;
-  const ocrable = !!doc && (doc.kind === "pdf" || doc.kind === "image") && !state.pasteMode;
-  const model = settings.chatModels[settings.provider];
-  const result = estimateRun({
-    sourceTokens,
-    boxes: fromOcr ? ocr.text.bboxes.filter((b) => b.dataUrl).length : 0,
-    // Without the JSON format, text input is translated paragraph by paragraph.
-    hasBlocks: fromOcr || ocrable || !settings.jsonOutput,
-    model,
-    structured: settings.jsonOutput,
-    inferSchema: settings.schemaMode.kind === "infer",
-    sendImages: settings.sendImages,
-    bboxAnnotations: settings.bboxAnnotations,
-    maxBboxAnnotations: settings.maxBboxAnnotations,
-    blockTranslations: settings.blockTranslations,
-    structureOriginalAlways: settings.structureOriginal === "always",
-  });
-  const tokens = `≈ ${formatNumber(Math.round(result.inputTokens / 100) * 100)} input + ${formatNumber(Math.round(result.outputTokens / 100) * 100)} output tokens over ${result.calls} call(s)`;
-  const cost = result.cost !== null ? ` ≈ ${formatUsd(result.cost)} with ${model}` : ` with ${model} (price not known to the app)`;
-  const notes = [
-    assumed ? `assuming ~${TOKENS_PER_PAGE_GUESS} tokens per page until OCR has run` : "",
-    ocrable && !fromOcr ? "Mistral bills OCR per page on top" : "",
-  ].filter(Boolean);
-  return `Translation estimate: ${tokens}${cost}${notes.length ? ` (${notes.join("; ")})` : ""}. Rough figure: thinking and the actual translation length vary.`;
 }

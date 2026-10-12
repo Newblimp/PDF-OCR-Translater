@@ -359,9 +359,15 @@ test("Mistral is the default: one key, Mistral Small translates block by block, 
   await expect(page.getByText(/Anthropic key/)).toHaveCount(0);
   await expect(page.locator(".header-title p")).toHaveText("OCR and translation by Mistral. Runs in your browser; documents go only to api.mistral.ai.");
 
+  // Settings start closed; the target language (English or German) and the glossary sit above them.
+  expect(await page.locator(".settings").evaluate((el) => (el as HTMLDetailsElement).open)).toBe(false);
+  const options = page.getByRole("region", { name: "Translation options" });
+  await expect(options.getByRole("radio", { name: "English" })).toHaveAttribute("aria-checked", "true");
+  await expect(options.getByLabel("Glossary")).toBeVisible();
+
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
-  await expect(page.getByText(/Translation estimate: .* ≈ \$[\d.]+ with mistral-small-latest/)).toBeVisible(); // Mistral Small's price is known
+  await expect(page.getByText(/estimate|≈ \$/)).toHaveCount(0); // no cost hint
   await page.getByRole("button", { name: "Translate only" }).click();
   await expect(page.locator(".ocr-page")).toContainText("[EN] 权利要求1不具备创造性。", { timeout: 20_000 });
   expect(recorded.every((r) => r.host === "api.mistral.ai")).toBe(true);
@@ -369,13 +375,23 @@ test("Mistral is the default: one key, Mistral Small translates block by block, 
   expect(chats.map(step)).toEqual(["block_translations"]);
   expect(chats[0]!.body).toMatchObject({
     model: "mistral-small-latest",
+    reasoning_effort: "none", // the default
     response_format: { type: "json_schema", json_schema: { name: "block_translations", strict: true } },
   });
-  expect(chats[0]!.body).not.toHaveProperty("reasoning_effort");
   expect(foreign).toEqual([]);
 
-  // Switching to OpenAI without a key asks for it immediately; the dialog can be cancelled.
+  // The reasoning effort offers what Mistral Small takes: "none" and "high".
   await page.locator(".settings > summary").click();
+  const effort = page.getByLabel("Reasoning effort");
+  await expect(effort).toHaveValue("none");
+  await expect(effort.locator("option")).toHaveText(["none (fastest)", "high"]);
+  await effort.selectOption("high");
+  await page.getByRole("button", { name: "Translate only" }).click();
+  await expect.poll(() => chatRequests(recorded).length).toBe(2);
+  expect(chatRequests(recorded)[1]!.body).toMatchObject({ reasoning_effort: "high" });
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
+
+  // Switching to OpenAI without a key asks for it immediately; the dialog can be cancelled. (The settings are still open.)
   await page.getByLabel("Translation provider").selectOption("openai");
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByRole("dialog").getByRole("button", { name: "Cancel" })).toHaveCount(0);
@@ -435,8 +451,7 @@ test("with the JSON output, Mistral Small infers the JSON format and fills it", 
   const chats = chatRequests(recorded);
   expect(chats.map((c) => c.host)).toEqual(["api.mistral.ai", "api.mistral.ai"]);
   expect(chats.map(step)).toEqual(["infer_schema", "translated_document"]);
-  expect(chats[1]!.body).toMatchObject({ model: "mistral-small-latest", temperature: 0.2 });
-  expect(chats[1]!.body).not.toHaveProperty("reasoning_effort");
+  expect(chats[1]!.body).toMatchObject({ model: "mistral-small-latest", temperature: 0.2, reasoning_effort: "none" });
 });
 
 test("OpenAI (GPT Luna) can still be chosen as translation provider", async ({ page }) => {
@@ -693,7 +708,6 @@ test("OCR + Translate reuses the OCR result already loaded, and results are kept
   await loadPdf(page);
   await page.getByRole("button", { name: "OCR only" }).click();
   await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
-  await expect(page.getByText(/Translation estimate: ≈ .* tokens over \d+ call\(s\) ≈ \$/)).toBeVisible();
   await page.getByRole("button", { name: "OCR + Translate" }).click();
   await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
@@ -725,7 +739,7 @@ test("the glossary and other target languages reach the translation prompt", asy
   const { recorded } = await setup(page, { json: true });
   await enterKeys(page);
   await page.locator(".settings > summary").click();
-  await page.getByLabel("Other target language").selectOption("French");
+  await page.getByLabel("Target language (all languages)").selectOption("French");
   await page.getByLabel("Glossary").fill("审查员 = examinateur\n# a comment\n驳回 = rejet");
   await page.getByLabel("Glossary").blur();
   await expect(page.getByText("2 term(s) the translation must use.")).toBeVisible();
