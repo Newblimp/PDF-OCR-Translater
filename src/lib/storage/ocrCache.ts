@@ -5,6 +5,7 @@
  * and survives page reloads. Nothing here leaves the browser.
  */
 import type { OcrResponse } from "../mistral/types";
+import type { BlockEdits } from "../pipeline/blockEdits";
 import { evictOldest, OCR_STORE, requestToPromise, withStore } from "./db";
 
 /** Bump when the cached response shape changes; older entries are ignored. */
@@ -21,6 +22,8 @@ export interface OcrCacheEntry {
   model: string;
   createdAt: number;
   response: OcrResponse;
+  /** The user's block edits of this result ("Edit bounding boxes"), applied on top of `response`. */
+  edits?: BlockEdits | null;
 }
 
 export function ocrCacheKey(fileHash: string, model: string, pages: number[] | null = null): string {

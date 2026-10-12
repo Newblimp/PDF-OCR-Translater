@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { DocState } from "@/app/store";
-import { getPageRenderer, type PageRenderer } from "@/lib/files/pageRenderCache";
+import { getPageRenderer, PAGE_RENDER_WIDTH, type PageRenderer } from "@/lib/files/pageRenderCache";
 
-/** Width pages render at; one renderer serves every view of a document, so they all use it. */
-export const PAGE_RENDER_WIDTH = 1000;
+export { PAGE_RENDER_WIDTH };
 
 /**
  * The page renderer of the loaded document: it keeps the PDF open and

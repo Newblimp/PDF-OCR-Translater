@@ -4,7 +4,9 @@ import { dockGroups } from "@/lib/util/dock";
 import {
   excludedBlocks,
   initialState,
+  makeOcrState,
   missingKeys,
+  ocrBelongsTo,
   reducer,
   requiredProviders,
   selectSourceText,
@@ -29,6 +31,7 @@ function translationFixture(patch: Partial<TranslationState> = {}): TranslationS
     sourceKind: "pdf",
     sourceHash: null,
     ocrKey: null,
+    ocrFingerprint: null,
     sourceText: "源文本",
     pages: null,
     data: {},
@@ -115,15 +118,15 @@ describe("streaming and OCR invalidation", () => {
     let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
     const translation = translationFixture();
     state = reducer(state, { type: "translation/set", translation });
-    const ocr: OcrState = {
+    const ocr: OcrState = makeOcrState({
       source: "cache",
       model: "m",
       response: { model: "m", pages: [], usage_info: { pages_processed: 0 } },
-      text: { text: "", pages: [], bboxes: [], pagesProcessed: 0, chars: 0 },
+      base: { text: "", pages: [], bboxes: [], pagesProcessed: 0, chars: 0 },
       docId: "d",
       requestKey: "m|all",
       cacheKey: null,
-    };
+    });
     state = reducer(state, { type: "ocr/set", ocr });
     expect(state.translation).not.toBeNull();
     state = reducer(state, { type: "ocr/set", ocr: { ...ocr, source: "api" } });
@@ -157,7 +160,7 @@ describe("result tabs", () => {
     state = reducer(state, { type: "translation/set", translation: translationFixture() });
     expect(shownTabs(state)).toEqual(["structured", "ocr"]);
     state = reducer(state, { type: "layout/reset" });
-    expect(dockGroups(state.resultLayout).map((g) => g.tabs)).toEqual([["bboxes", "ocr", "structured", "schema", "json"]]);
+    expect(dockGroups(state.resultLayout).map((g) => g.tabs)).toEqual([["bboxes", "edit", "ocr", "structured", "schema", "json"]]);
   });
 });
 
@@ -186,15 +189,15 @@ describe("history", () => {
 
   it("keeps a reopened OCR result (no document) until a translation of something else replaces its translation", () => {
     let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
-    const ocr: OcrState = {
+    const ocr: OcrState = makeOcrState({
       source: "cache",
       model: "m",
       response: { model: "m", pages: [], usage_info: { pages_processed: 0 } },
-      text: { text: "源文本", pages: [], bboxes: [], pagesProcessed: 0, chars: 3 },
+      base: { text: "源文本", pages: [], bboxes: [], pagesProcessed: 0, chars: 3 },
       docId: "saved:t1",
       requestKey: "",
       cacheKey: "k",
-    };
+    });
     state = reducer(state, { type: "history/open", ocr, translation: translationFixture({ restored: true }), pastedText: null });
     expect(selectSourceText(state)?.origin).toBe("ocr");
     // Opening and closing the paste box loses nothing.
@@ -232,20 +235,70 @@ describe("block selection", () => {
 
   it("shows the blocks of a translation without its OCR result in the OCR text tab", () => {
     const pages = [page];
-    const ocr: OcrState = {
+    const ocr: OcrState = makeOcrState({
       source: "api",
       model: "m",
       response: { model: "m", pages: [], usage_info: { pages_processed: 0 } },
-      text: { text: "源文本", pages: [{ ...page }], bboxes: [], pagesProcessed: 1, chars: 3 },
+      base: { text: "源文本", pages: [{ ...page }], bboxes: [], pagesProcessed: 1, chars: 3 },
       docId: "d",
       requestKey: "",
       cacheKey: null,
-    };
+    });
     expect(selectTextPages({ ocr: null, translation: translationFixture({ pages }) })).toEqual({ pages, fromOcr: false });
     // Its own OCR result on screen: the OCR pages (where blocks are picked).
     expect(selectTextPages({ ocr, translation: translationFixture({ pages }) })).toEqual({ pages: ocr.text.pages, fromOcr: true });
     expect(selectTextPages({ ocr, translation: translationFixture({ pages, sourceText: "别的" }) })).toEqual({ pages, fromOcr: false });
     expect(selectTextPages({ ocr: null, translation: translationFixture() })).toBeNull();
+  });
+});
+
+describe("box edits", () => {
+  const block = (content: string, y: number) => ({ type: "text", top_left_x: 0, top_left_y: y, bottom_right_x: 10, bottom_right_y: y + 5, content });
+  const base = {
+    text: "甲\n\n乙",
+    pages: [{ index: 0, markdown: "甲\n\n乙", header: null, footer: null, imageCount: 0, width: 10, height: 20, blocks: [block("甲", 0), block("乙", 10)] }],
+    bboxes: [],
+    pagesProcessed: 1,
+    chars: 3,
+  };
+  const ocrState = () =>
+    makeOcrState({
+      source: "api",
+      model: "m",
+      response: { model: "m", pages: [], usage_info: { pages_processed: 1 } },
+      base,
+      docId: "d",
+      requestKey: "",
+      cacheKey: null,
+    });
+
+  it("applies edits on top of the OCR result, undoes them, and keeps blocks left out one by one", () => {
+    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    state = reducer(state, { type: "ocr/set", ocr: ocrState() });
+    state = reducer(state, { type: "blocks/toggle", pages: state.ocr!.text.pages, id: "0:0" });
+    const edits = { pages: { 0: [{ ...block("丙", 10), id: "0:e1" }] }, images: [], next: 2 };
+    state = reducer(state, { type: "ocr/edit", edits });
+    expect(state.ocr!.text.text).toBe("丙");
+    expect(state.ocr!.base).toBe(base);
+    expect([...excludedBlocks(state, state.ocr!.text.pages)]).toEqual(["0:0"]);
+    state = reducer(state, { type: "ocr/undo" });
+    expect(state.ocr!.text.text).toBe("甲\n\n乙");
+    expect(state.ocr!.edits).toBeNull();
+    expect(reducer(state, { type: "ocr/undo" })).toBe(state); // nothing left to undo
+  });
+
+  it("keeps a translation with its OCR result whatever was edited since", () => {
+    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    const ocr = ocrState();
+    state = reducer(state, { type: "ocr/set", ocr });
+    state = reducer(state, { type: "ocr/edit", edits: { pages: { 0: [{ ...block("丙", 10), id: "0:e1" }] }, images: [], next: 2 } });
+    const edited = state.ocr!;
+    // Made from the edited text, or from the text as returned: both belong; another OCR result does not.
+    expect(ocrBelongsTo(edited, translationFixture({ sourceText: "丙", ocrFingerprint: ocr.fingerprint }))).toBe(true);
+    expect(ocrBelongsTo(edited, translationFixture({ sourceText: "甲\n\n乙", ocrFingerprint: ocr.fingerprint }))).toBe(true);
+    expect(ocrBelongsTo(edited, translationFixture({ sourceText: "丙", ocrFingerprint: "other" }))).toBe(false);
+    // Saved before translations remembered the OCR result: by the text as returned.
+    expect(ocrBelongsTo(edited, translationFixture({ sourceText: "甲\n\n乙", ocrFingerprint: null }))).toBe(true);
   });
 });
 

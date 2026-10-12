@@ -24,7 +24,9 @@ import { sameArrangement, type DockTarget } from "@/lib/util/dock";
 import { isPlainObject, prettyJson } from "@/lib/util/json";
 import { parsePartialJson } from "@/lib/util/partialJson";
 import { formatNumber } from "@/lib/util/text";
+import type { BoxEdit } from "@/lib/pipeline/blockEdits";
 import { BboxView } from "./BboxView";
+import { EditBoxesView } from "./EditBoxesView";
 import { Dock } from "./Dock";
 import { JsonBrowser } from "./JsonBrowser/JsonBrowser";
 import { OcrView } from "./OcrView";
@@ -61,6 +63,10 @@ export interface ResultActions {
   toggleBlock: (pages: readonly OcrCleanPage[], id: string) => void;
   /** Take back every block left out one by one. */
   includeAllBlocks: () => void;
+  /** "Edit bounding boxes": an edit of a page's blocks, undo, and back to the OCR as returned (one page or all). */
+  editBoxes: (edit: BoxEdit) => void;
+  undoBoxEdit: () => void;
+  resetBoxEdits: (pageIndex?: number) => void;
 }
 
 interface Props {
@@ -70,6 +76,7 @@ interface Props {
 
 const TAB_LABELS: Record<ResultTab, string> = {
   bboxes: "Bounding boxes",
+  edit: "Edit bounding boxes",
   ocr: "OCR text",
   structured: "Structured text",
   schema: "JSON format",
@@ -102,6 +109,7 @@ export function ResultsPanel({ state, actions }: Props) {
     RESULT_TABS.filter((tab) => {
       switch (tab) {
         case "bboxes":
+        case "edit":
           return !!ocr;
         case "ocr":
           return !!text;
@@ -146,6 +154,19 @@ export function ResultsPanel({ state, actions }: Props) {
               ocr={ocr.text}
               annotations={translation?.bboxAnnotations ?? NO_ANNOTATIONS}
               blockTranslations={translation && ocrBelongsTo(ocr, translation) ? translation.blockTranslations : NO_BLOCK_TRANSLATIONS}
+            />
+          )
+        );
+      case "edit":
+        return (
+          ocr && (
+            <EditBoxesView
+              doc={state.doc}
+              ocr={ocr}
+              busy={!!state.job}
+              onEdit={actions.editBoxes}
+              onUndo={actions.undoBoxEdit}
+              onReset={actions.resetBoxEdits}
             />
           )
         );

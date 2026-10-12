@@ -112,6 +112,21 @@ anywhere else.
      vision model's description for each box; clicking a text block shows its
      translation above the original. Pages render in the background so
      browsing is instant.
+   - **Edit bounding boxes**: fix what the OCR got wrong, on the page. Drag
+     a rectangle (like a rectangular marquee) or click a block, then:
+     **Cut out of the blocks** takes the area out of every block it touches
+     (blocks inside it go; a text block it crosses keeps the rest, its text
+     read again by Mistral OCR from an image of that rest with the area
+     blanked; made for margin line numbers and stamps over text); **Make a
+     block** reads the area as one block of the type you pick (an image
+     keeps it as a picture) and cuts it out of the blocks around it, which
+     also merges or splits blocks; **Delete** removes blocks; a selected
+     block's type and text can be changed by hand or read again by OCR.
+     Undo (Ctrl+Z) and reset per page or for all pages. The edits apply to
+     every view and to the next translation; they are kept with the OCR
+     result in this browser's cache. A translation made before stays: the
+     blocks that were not changed keep their translations, and the changed
+     ones are translated with one click ("Translate them").
    - **OCR text**: the text block by block, page by page, as OCR'd or
      translated, with the cropped figures where they are in the text. One
      switch per **block type** found in the document (title, text, list,
@@ -260,6 +275,11 @@ All defaults live in code so they can be changed in one place:
   keeps terms consistent across batches. "Match page layout" shrinks the
   font of a block whose translation is longer than the original; at the
   smallest size the block scrolls (marked with a line at its bottom).
+- Reading an area again sends an image of it (rendered in the browser from
+  the loaded document) to `api.mistral.ai`, like the document itself; each
+  area is one OCR page for Mistral. It needs the document loaded; a result
+  reopened from "Recent translations" without it can still have blocks
+  deleted or changed by hand.
 - The blocks left out one by one are not saved with a translation: they are
   kept for the document on screen until another OCR result or document is
   loaded.

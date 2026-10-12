@@ -8,6 +8,9 @@
  */
 import type { OcrBlock, OcrResponse } from "../mistral/types";
 
+/** A block of a page; on a page whose blocks were edited it carries its id (which then no longer follows its position). */
+export type PageBlock = OcrBlock & { id?: string };
+
 export interface OcrCleanPage {
   /** 0-based page index as reported by the API. */
   index: number;
@@ -19,7 +22,7 @@ export interface OcrCleanPage {
   /** Pixel size of the page image the coordinates refer to. */
   width: number | null;
   height: number | null;
-  blocks: OcrBlock[];
+  blocks: PageBlock[];
 }
 
 /** One bounding box extracted by the OCR model (a figure, chart, stamp, ...). */
@@ -92,6 +95,11 @@ export function toImageDataUrl(value: string | null | undefined): string | null 
   return `data:${mime};base64,${value}`;
 }
 
+/** The text of the pages as the model sees it: one page as is, several separated by page delimiters. */
+export function joinPages(pages: readonly OcrCleanPage[]): string {
+  return pages.length === 1 ? (pages[0]?.markdown ?? "") : pages.map((p) => `${pageDelimiter(p.index + 1)}\n\n${p.markdown}`).join("\n\n");
+}
+
 export function buildOcrText(response: OcrResponse): OcrText {
   const pages: OcrCleanPage[] = [];
   const bboxes: OcrBbox[] = [];
@@ -127,7 +135,7 @@ export function buildOcrText(response: OcrResponse): OcrText {
   pages.sort((a, b) => a.index - b.index);
   bboxes.sort((a, b) => a.pageIndex - b.pageIndex || a.y0 - b.y0 || a.x0 - b.x0);
 
-  const text = pages.length === 1 ? (pages[0]?.markdown ?? "") : pages.map((p) => `${pageDelimiter(p.index + 1)}\n\n${p.markdown}`).join("\n\n");
+  const text = joinPages(pages);
 
   return {
     text,

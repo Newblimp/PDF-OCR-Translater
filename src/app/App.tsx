@@ -5,6 +5,7 @@ import { loadSettings, type Settings, type ThemeSetting } from "@/lib/storage/se
 import type { ProviderId } from "@/lib/llm/provider";
 import type { DockTarget } from "@/lib/util/dock";
 import { perProvider, PROVIDER_IDS } from "@/lib/llm/registry";
+import type { BoxEdit } from "@/lib/pipeline/blockEdits";
 import type { OcrCleanPage } from "@/lib/pipeline/ocrText";
 import { ActionBar } from "@/components/ActionBar";
 import { ApiKeyDialog } from "@/components/ApiKeyDialog";
@@ -24,15 +25,18 @@ import {
   clearDocument,
   clearHistory,
   deleteSaved,
+  editBoxes,
   ensureOriginalStructure,
   forgetApiKeys,
   loadDocument,
   openSavedTranslation,
   refreshHistory,
+  resetBoxEdits,
   retryFailed,
   runJob,
   setPageSelection,
   submitApiKeys,
+  undoBoxEdit,
   updateSettings,
   verifyAndSaveApiKey,
   type Runtime,
@@ -115,6 +119,9 @@ export function App() {
       setOcrPickBlocks: (ocrPickBlocks: boolean) => updateSettings(rt, { ocrPickBlocks }),
       toggleBlock: (pages: readonly OcrCleanPage[], id: string) => dispatch({ type: "blocks/toggle", pages, id }),
       includeAllBlocks: () => dispatch({ type: "blocks/includeAll" }),
+      editBoxes: (edit: BoxEdit) => void editBoxes(rt, edit),
+      undoBoxEdit: () => undoBoxEdit(rt),
+      resetBoxEdits: (pageIndex?: number) => resetBoxEdits(rt, pageIndex),
       setShowTranslation: (show: boolean) => dispatch({ type: "view/translation", show }),
       requestOriginal: () => void ensureOriginalStructure(rt),
       produceOriginal: () => void ensureOriginalStructure(rt, true),

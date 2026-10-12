@@ -56,9 +56,14 @@ export const BLOCK_TRANSLATIONS_SCHEMA: JsonSchemaObject = {
   additionalProperties: false,
 };
 
-/** Id used for a block in the translations map and the bounding-box view. */
+/** Id of an OCR block in the translations map and the views: its page and its position in the OCR result. */
 export function blockId(pageIndex: number, blockIndex: number): string {
   return `${pageIndex}:${blockIndex}`;
+}
+
+/** Id of a page's block: its own on an edited page (`blockEdits.ts`), else from its position. */
+export function pageBlockId(page: OcrCleanPage, blockIndex: number): string {
+  return page.blocks[blockIndex]?.id ?? blockId(page.index, blockIndex);
 }
 
 const MAX_BLOCKS_PER_BATCH = 40;
@@ -70,7 +75,7 @@ export function textBlocks(page: OcrCleanPage): Array<{ id: string; text: string
   page.blocks.forEach((block, i) => {
     const text = block.content?.trim();
     if (!text || block.type === "image") return;
-    items.push({ id: blockId(page.index, i), text });
+    items.push({ id: pageBlockId(page, i), text });
   });
   return items;
 }

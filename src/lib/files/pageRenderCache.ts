@@ -3,7 +3,10 @@
  * The PDF is opened once; pages render on demand and, in the background, in
  * reading order so that navigating to the next page is instant.
  */
-import { openPdfPreview, type PdfPreview } from "./pdfPreview";
+import { openPdfPreview, regionImage, type PageRect, type PdfPreview } from "./pdfPreview";
+
+/** Width pages render at; one renderer serves every view of a document, so they all use it. */
+export const PAGE_RENDER_WIDTH = 1000;
 
 export interface PageRenderer {
   /** Object URL of a rendered page (0-based index), rendering it if needed. Valid until `dispose()`. */
@@ -12,6 +15,12 @@ export interface PageRenderer {
   peek(pageIndex: number): string | null;
   /** Render every page, starting at `startIndex`, in the background. */
   prefetchAll(startIndex: number): void;
+  /**
+   * A region of a page as a PNG data URL, in the coordinates of a page image
+   * `pageWidth` px wide (the OCR's), with `blank` areas painted white: what
+   * "Edit bounding boxes" sends to OCR again.
+   */
+  region(pageIndex: number, pageWidth: number, region: PageRect, blank: PageRect[]): Promise<string>;
   /** Subscribe to "a page finished rendering"; returns an unsubscribe function. */
   subscribe(listener: (pageIndex: number) => void): () => void;
   readonly renderedCount: number;
@@ -109,6 +118,21 @@ function createRenderer(file: Blob, kind: "pdf" | "image", imageUrl: string | nu
     },
     peek(pageIndex) {
       return rendered.get(pageIndex) ?? null;
+    },
+    async region(pageIndex, pageWidth, region, blank) {
+      if (kind === "image") {
+        if (!imageUrl) throw new Error("The image is not loaded");
+        const image = new Image();
+        image.src = imageUrl;
+        await image.decode();
+        const k = image.naturalWidth / pageWidth;
+        return regionImage(region, blank, async (context, _canvas, dx, dy) => {
+          context.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight, dx, dy, image.naturalWidth / k, image.naturalHeight / k);
+        });
+      }
+      const preview = await open();
+      if (disposed) throw new Error("Renderer disposed");
+      return preview.renderRegion(pageIndex + 1, pageWidth, region, blank);
     },
     prefetchAll(startIndex) {
       if (kind === "image") return;

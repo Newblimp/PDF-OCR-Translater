@@ -81,6 +81,9 @@ export const OCR_PAGE = {
   ],
 };
 
+/** What the mocked OCR reads in an area of a page sent again ("Edit bounding boxes"). */
+export const REGION_TEXT = "【重新识别】权利要求1不具备创造性。";
+
 export const BBOX_ANNOTATION = {
   image_type: "stamp",
   short_description: "Official seal of the patent office.",
@@ -171,6 +174,11 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
     }
 
     if (url.endsWith("/v1/ocr")) {
+      // An area of a page read again: an image, without blocks or images asked for.
+      if ((body?.["document"] as { type?: string } | undefined)?.type === "image_url" && body?.["include_blocks"] !== true) {
+        const page = { index: 0, markdown: REGION_TEXT, images: [], dimensions: { dpi: 200, height: 100, width: 400 } };
+        return json(route, 200, { model: "mistral-ocr-latest", pages: [page], usage_info: { pages_processed: 1, doc_size_bytes: 100 } });
+      }
       const requested = body?.["pages"] as number[] | undefined;
       // Without a selection, "OCR" every page of the uploaded PDF (count the page objects in the data URL).
       const documentUrl = String((body?.["document"] as { document_url?: string } | undefined)?.document_url ?? "");

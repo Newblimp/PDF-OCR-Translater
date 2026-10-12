@@ -53,3 +53,17 @@ export function humanizeKey(key: string): string {
 export function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
+
+/**
+ * Short identity of a text (FNV-1a and its length): tells whether two texts
+ * are the same, e.g. which OCR result a translation was made from, without
+ * keeping the text itself. Not for anything security-related.
+ */
+export function textFingerprint(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${(hash >>> 0).toString(16).padStart(8, "0")}:${text.length}`;
+}
