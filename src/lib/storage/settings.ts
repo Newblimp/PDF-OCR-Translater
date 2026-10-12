@@ -163,11 +163,20 @@ function normalise(parsed: Partial<Settings>): Settings {
     ...parsed,
     chatModels: { ...DEFAULT_SETTINGS.chatModels, ...(parsed.chatModels ?? {}) },
   };
-  if (!(TARGET_LANGUAGES as readonly string[]).includes(merged.targetLanguage)) merged.targetLanguage = DEFAULT_SETTINGS.targetLanguage;
-  if (!(merged.provider in PROVIDERS)) merged.provider = DEFAULT_SETTINGS.provider;
-  if (!["system", "light", "dark"].includes(merged.theme)) merged.theme = DEFAULT_SETTINGS.theme;
-  if (!["none", "low", "medium", "high"].includes(merged.reasoningEffort)) merged.reasoningEffort = DEFAULT_SETTINGS.reasoningEffort;
+  const fallBack = <K extends keyof Settings>(key: K) => (merged[key] = structuredClone(DEFAULT_SETTINGS[key]));
+  // A switch or a text stored as something else (an older release, a hand-edited entry) falls back to its default.
+  for (const key of Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>) {
+    const type = typeof DEFAULT_SETTINGS[key];
+    if ((type === "boolean" || type === "string") && typeof merged[key] !== type) fallBack(key);
+  }
+  if (!(TARGET_LANGUAGES as readonly string[]).includes(merged.targetLanguage)) fallBack("targetLanguage");
+  if (!(merged.provider in PROVIDERS)) fallBack("provider");
+  if (!["system", "light", "dark"].includes(merged.theme)) fallBack("theme");
+  if (!["none", "low", "medium", "high"].includes(merged.reasoningEffort)) fallBack("reasoningEffort");
   if (typeof merged.maxOutputTokens !== "number" || !Number.isFinite(merged.maxOutputTokens) || merged.maxOutputTokens <= 0) merged.maxOutputTokens = null;
+  if (!Number.isInteger(merged.maxBboxAnnotations) || merged.maxBboxAnnotations < 0) fallBack("maxBboxAnnotations");
+  if (!Array.isArray(merged.ocrHiddenTypes) || !merged.ocrHiddenTypes.every((t) => typeof t === "string")) fallBack("ocrHiddenTypes");
+  merged.structureOriginal = structureOriginalMode(parsed.structureOriginal as unknown);
   const revision = typeof parsed.modelDefaultsRevision === "number" ? parsed.modelDefaultsRevision : 0;
   for (const m of DEFAULT_MIGRATIONS.slice(revision)) {
     if (m.kind === "provider") {
@@ -177,19 +186,6 @@ function normalise(parsed: Partial<Settings>): Settings {
     }
   }
   merged.modelDefaultsRevision = DEFAULT_MIGRATIONS.length;
-  if (!Number.isInteger(merged.maxBboxAnnotations) || merged.maxBboxAnnotations < 0) merged.maxBboxAnnotations = DEFAULT_SETTINGS.maxBboxAnnotations;
-  merged.structureOriginal = structureOriginalMode(parsed.structureOriginal as unknown);
-  if (typeof merged.glossary !== "string") merged.glossary = DEFAULT_SETTINGS.glossary;
-  if (typeof merged.rememberKeys !== "boolean") merged.rememberKeys = DEFAULT_SETTINGS.rememberKeys;
-  if (typeof merged.saveTranslations !== "boolean") merged.saveTranslations = DEFAULT_SETTINGS.saveTranslations;
-  if (typeof merged.ocrShowPdf !== "boolean") merged.ocrShowPdf = DEFAULT_SETTINGS.ocrShowPdf;
-  if (typeof merged.ocrLinkScroll !== "boolean") merged.ocrLinkScroll = DEFAULT_SETTINGS.ocrLinkScroll;
-  if (typeof merged.jsonOutput !== "boolean") merged.jsonOutput = DEFAULT_SETTINGS.jsonOutput;
-  if (!Array.isArray(merged.ocrHiddenTypes) || !merged.ocrHiddenTypes.every((t) => typeof t === "string"))
-    merged.ocrHiddenTypes = [...DEFAULT_SETTINGS.ocrHiddenTypes];
-  if (typeof merged.ocrMatchLayout !== "boolean") merged.ocrMatchLayout = DEFAULT_SETTINGS.ocrMatchLayout;
-  if (typeof merged.ocrPickBlocks !== "boolean") merged.ocrPickBlocks = DEFAULT_SETTINGS.ocrPickBlocks;
-  if (typeof merged.sidePanelCollapsed !== "boolean") merged.sidePanelCollapsed = DEFAULT_SETTINGS.sidePanelCollapsed;
   return merged;
 }
 

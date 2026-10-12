@@ -1,6 +1,6 @@
 import { memo } from "preact/compat";
 import { useEffect, useMemo } from "preact/hooks";
-import { ocrBelongsTo, type JobKind, type OcrState, type TranslationState } from "@/app/store";
+import { hasOriginal, ocrBelongsTo, type JobKind, type OcrState, type TranslationState } from "@/app/store";
 import { bilingualHtml } from "@/lib/export/bilingual";
 import { PROVIDERS } from "@/lib/llm/registry";
 import { loadExportMarkdownRenderer } from "@/lib/markdown";
@@ -84,11 +84,6 @@ function useShownJson({ translation, showTranslation: want, jobKind, structureMo
     data: translated ? translation.data : translation.originalData,
     fileName: `${baseName}.${translated ? "translation" : "original"}.json`,
   };
-}
-
-/** True when the original-language structured text is available for the toggle. */
-function hasOriginal(translation: TranslationState): boolean {
-  return translation.originalData !== null && translation.originalData !== undefined;
 }
 
 /** Bilingual HTML: the translation next to the original, field by field and block by block. */
