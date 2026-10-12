@@ -1,6 +1,6 @@
 import { memo } from "preact/compat";
 import type { AppError, JobKind } from "@/app/store";
-import { SidePanelIcon } from "./icons";
+import { PanelCloseIcon, PanelOpenIcon } from "./icons";
 
 interface Props {
   /** The job running, if any: the rail says so and can cancel it while the panel is folded away. */
@@ -23,7 +23,7 @@ export const SideRail = memo(function SideRail({ running, error, onExpand, onCan
         aria-controls="side-panel"
         onClick={onExpand}
       >
-        <SidePanelIcon />
+        <PanelOpenIcon />
         <span class="side-rail-label">Document &amp; settings</span>
       </button>
       {running && (
@@ -54,6 +54,26 @@ export const SideRail = memo(function SideRail({ running, error, onExpand, onCan
           !
         </button>
       )}
+    </div>
+  );
+});
+
+/** The unfolded side panel's title bar, with the button that folds the panel into the rail. */
+export const SidePanelHead = memo(function SidePanelHead({ onCollapse }: { onCollapse: () => void }) {
+  return (
+    <div class="side-panel-head">
+      <span class="side-panel-title">Document &amp; settings</span>
+      <button
+        type="button"
+        class="btn btn-ghost side-panel-collapse"
+        aria-label="Hide the side panel"
+        title="Hide the side panel (document, actions, settings)"
+        aria-expanded={true}
+        aria-controls="side-panel"
+        onClick={onCollapse}
+      >
+        <PanelCloseIcon />
+      </button>
     </div>
   );
 });

@@ -190,8 +190,8 @@ file, the OCR model and the pages) so translating the same file again costs
 no OCR credits. The OCR cache and the saved translations can be cleared from
 the UI. Mistral and OpenAI requests that hit a rate limit (429), a server
 error (5xx) or a dropped connection are retried twice with backoff, as the
-Anthropic SDK does for Anthropic. The panel button at the left of the
-header folds the side panel (document, actions, settings, recent
+Anthropic SDK does for Anthropic. The panel button in the side panel's
+title bar folds the side panel (document, actions, settings, recent
 translations) into a narrow rail, leaving the width to the results; the rail
 shows a running job (with Cancel) and an error, and the choice is
 remembered. The header also offers a

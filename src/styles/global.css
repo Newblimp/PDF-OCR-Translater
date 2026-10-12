@@ -214,13 +214,6 @@ kbd {
   top: 0;
   z-index: 5;
 }
-.header-panel-toggle {
-  padding: 5px 7px;
-  color: var(--text-dim);
-}
-.header-panel-toggle.is-on {
-  color: var(--accent);
-}
 /* The title takes the free space (pushing the keys to the right) and shortens its tagline rather than wrapping the bar. */
 .header-title {
   flex: 1 1 320px;
@@ -291,25 +284,54 @@ kbd {
   min-width: 0;
   padding: 12px;
 }
+/* The input pane: its title bar on top, the content scrolling below it. */
 .pane-input {
-  overflow-y: auto;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
   background: var(--surface);
   border-right: 1px solid var(--border);
-  scrollbar-gutter: stable;
 }
 .pane-body {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .pane-body[hidden] {
   display: none;
 }
+/* The unfolded panel's title bar (it stays put while the content scrolls): its button folds the panel. */
+.side-panel-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.side-panel-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.side-panel-collapse {
+  display: grid;
+  place-items: center;
+  padding: 5px 7px;
+  color: var(--text-muted);
+}
 .layout-side-collapsed .pane-input {
   padding: 8px 4px;
-  overflow: hidden;
-  scrollbar-gutter: auto;
 }
 .side-rail {
   display: flex;
@@ -384,6 +406,11 @@ kbd {
   .side-rail-label {
     writing-mode: horizontal-tb;
   }
+  /* The panel sits above the results here: it folds upwards. */
+  .side-panel-collapse svg,
+  .side-rail-expand svg {
+    transform: rotate(90deg);
+  }
 }
 /* For screen readers only. */
 .visually-hidden {
@@ -400,8 +427,11 @@ kbd {
   min-height: 0;
 }
 @media (max-width: 960px) {
-  .pane-input {
+  .pane-input,
+  .pane-body {
     overflow: visible;
+  }
+  .pane-input {
     border-right: none;
     border-bottom: 1px solid var(--border);
   }
@@ -447,6 +477,13 @@ kbd {
   background: var(--surface2);
   color: var(--text-muted);
   white-space: nowrap;
+}
+/* Badges sit in the narrow side panel: a long one wraps (dot on the first line) instead of running past the card. */
+.badge {
+  align-items: baseline;
+  border-radius: 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .badge::before,
 .pill::before {

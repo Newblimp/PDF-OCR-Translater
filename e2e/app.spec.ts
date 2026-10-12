@@ -724,6 +724,10 @@ test("OCR + Translate reuses the OCR result already loaded, and results are kept
   const before = recorded.length;
   await loadPdf(page);
   await expect(page.getByText("OCR result from this browser's cache")).toBeVisible();
+  // The long badge wraps inside the narrow document card rather than running past its border.
+  const badge = (await page.locator(".document-card .badge").boundingBox())!;
+  const card = (await page.locator(".document-card").boundingBox())!;
+  expect(badge.x + badge.width).toBeLessThanOrEqual(card.x + card.width);
   await expect(page.getByText("The examiner finds claim 1 lacks inventive step.")).toBeVisible();
   await expect(page.locator(".toolbar").first()).toContainText("saved in this browser");
   expect(recorded.slice(before).filter((r) => path(r) !== "/v1/models")).toEqual([]);
@@ -990,7 +994,9 @@ test("the side panel folds into a rail that shows a running job, and stays folde
   const width = (await results.boundingBox())!.width;
   await page.getByRole("button", { name: "OCR only" }).click();
 
-  await page.getByRole("button", { name: "Hide the side panel" }).click();
+  // The button that folds the panel is part of the panel, not of the header.
+  await expect(page.locator("header").getByRole("button", { name: "Hide the side panel" })).toHaveCount(0);
+  await page.getByRole("region", { name: "Input" }).getByRole("button", { name: "Hide the side panel" }).click();
   await expect(page.getByRole("button", { name: "OCR + Translate" })).toBeHidden();
   await expect.poll(async () => (await results.boundingBox())!.width).toBeGreaterThan(width + 200);
   const rail = page.locator(".side-rail");

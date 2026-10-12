@@ -67,10 +67,18 @@ export const ResetLayoutIcon = () => (
   </svg>
 );
 
-/** The side panel toggle: a window with its left column marked. */
-export const SidePanelIcon = () => (
+/** The side panel toggles: a window with its left column marked, and an arrow folding it away or out. */
+export const PanelCloseIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" {...stroke} aria-hidden="true">
     <rect x="3" y="4" width="18" height="16" rx="2" />
     <path d="M9 4v16" />
+    <path d="m16 15-3-3 3-3" />
+  </svg>
+);
+export const PanelOpenIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" {...stroke} aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M9 4v16" />
+    <path d="m13 9 3 3-3 3" />
   </svg>
 );
