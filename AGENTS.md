@@ -76,7 +76,7 @@ src/
     resultControls.tsx         download, clipboard, "Show translation" switch, token usage (shared by the views)
     QuickOptions.tsx           above the settings: target language (English / German) and glossary
     DraftText.tsx              text input that commits on blur / Enter (settings, glossary)
-    SideRail.tsx               the side panel folded into a rail (running job, error)
+    SideRail.tsx               the side panel's title bar (fold button) and the panel folded into a rail (running job, error)
     useFitText.ts              "Match page layout": text sized to fill each block's box (cqw units, fitted once per content)
     blockColors.ts             colour per OCR block type (bounding-box view, OCR text view)
     BboxView.tsx               bounding boxes drawn over the rendered page
@@ -271,10 +271,11 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   pages again after filters or the layout change it. Locked, both columns
   get `overscroll-behavior: none` (`.ocr-compare-locked`): an elastic bounce
   cannot be mirrored on the other column by script.
-- **Side panel**: `Settings.sidePanelCollapsed` (the header's panel button,
-  or the rail) folds the input pane into `SideRail` (a running job with
-  Cancel, an error). The pane's content stays mounted in a hidden
-  `.pane-body`, so drafts and open sections survive folding.
+- **Side panel**: `Settings.sidePanelCollapsed` (the button in the panel's
+  own title bar, `SidePanelHead`, or the rail) folds the input pane
+  into `SideRail` (a running job with Cancel, an error). The pane's content
+  stays mounted in a hidden `.pane-body`, so drafts and open sections
+  survive folding.
 - **Page rendering**: `files/pageRenderCache.ts` keeps one pdf.js document
   open per loaded file, renders on demand and pre-renders the rest in the
   background (`PREFETCH_LIMIT`); `BboxView` and the OCR text view's pages

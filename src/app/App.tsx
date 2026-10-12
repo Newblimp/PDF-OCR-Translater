@@ -19,7 +19,7 @@ import { PasteBox } from "@/components/PasteBox";
 import { ResultsPanel, type ResultActions } from "@/components/ResultsPanel";
 import { QuickOptions } from "@/components/QuickOptions";
 import { SettingsPanel } from "@/components/SettingsPanel";
-import { SideRail } from "@/components/SideRail";
+import { SidePanelHead, SideRail } from "@/components/SideRail";
 import {
   cancelJob,
   clearDocument,
@@ -160,13 +160,15 @@ export function App() {
         onChangeKeys={on.openKeys}
         onForgetKeys={on.forgetKeys}
         onTheme={on.setTheme}
-        sidePanelCollapsed={collapsed}
-        onToggleSidePanel={on.toggleSidePanel}
       />
 
       <main class={`layout${collapsed ? " layout-side-collapsed" : ""}`}>
         <section id="side-panel" class="pane pane-input" aria-label="Input">
-          {collapsed && <SideRail running={state.job?.kind ?? null} error={state.error} onExpand={on.toggleSidePanel} onCancel={on.cancel} />}
+          {collapsed ? (
+            <SideRail running={state.job?.kind ?? null} error={state.error} onExpand={on.toggleSidePanel} onCancel={on.cancel} />
+          ) : (
+            <SidePanelHead onCollapse={on.toggleSidePanel} />
+          )}
           {/* Folded away, not unmounted: drafts and open sections stay as they were. */}
           <div class="pane-body" hidden={collapsed}>
             {state.doc && !state.pasteMode ? (
