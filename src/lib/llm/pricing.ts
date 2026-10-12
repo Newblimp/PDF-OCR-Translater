@@ -1,7 +1,7 @@
 /**
  * List prices of the models the cost estimate knows, in USD per million
- * tokens (https://platform.claude.com/docs/en/about-claude/pricing). Models
- * not listed get a token estimate only.
+ * tokens (https://platform.claude.com/docs/en/about-claude/pricing,
+ * https://mistral.ai/pricing/). Models not listed get a token estimate only.
  */
 export interface ModelPrice {
   input: number;
@@ -18,6 +18,9 @@ const PRICES: Record<string, ModelPrice> = {
   "claude-haiku-5-5": { input: 0.1, output: 0.5, longPromptThreshold: 100_000, longInput: 0.5, longOutput: 2.5, cacheRead: 0.1 },
   "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.1 },
   "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.05 },
+  // Mistral Small 4; the alias is priced as the release it points to (update both when it moves).
+  "mistral-small-latest": { input: 0.15, output: 0.6, cacheRead: 0.1 },
+  "mistral-small-2603": { input: 0.15, output: 0.6, cacheRead: 0.1 },
 };
 
 export function modelPrice(model: string): ModelPrice | null {

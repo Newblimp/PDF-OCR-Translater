@@ -8,7 +8,8 @@ describe("settings persistence", () => {
 
   it("returns defaults when nothing is stored", () => {
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
-    expect(loadSettings().provider).toBe("anthropic");
+    expect(loadSettings().provider).toBe("mistral");
+    expect(loadSettings().chatModels.mistral).toBe("mistral-small-latest");
     expect(loadSettings().chatModels.anthropic).toBe("claude-haiku-5-5");
     expect(loadSettings().chatModels.openai).toBe("gpt-6-luna");
     expect(loadSettings()).toMatchObject({ sendImages: true, bboxAnnotations: true, maxBboxAnnotations: 20, blockTranslations: true });
@@ -18,7 +19,7 @@ describe("settings persistence", () => {
     saveSettings({ ...DEFAULT_SETTINGS, targetLanguage: "German", theme: "dark" });
     expect(loadSettings()).toMatchObject({ targetLanguage: "German", theme: "dark" });
     localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ targetLanguage: "Klingon", theme: "neon", provider: "nope" }));
-    expect(loadSettings()).toMatchObject({ targetLanguage: "English", theme: "dark", provider: "anthropic" });
+    expect(loadSettings()).toMatchObject({ targetLanguage: "English", theme: "dark", provider: "mistral" });
   });
 });
 
@@ -82,6 +83,17 @@ describe("model default migration", () => {
     expect(loadSettings()).toMatchObject({ provider: "openai", chatModels: { anthropic: "claude-haiku-5-5", openai: "gpt-6-luna" } });
   });
 
+  it("moves the old defaults (Anthropic, Mistral Large) to Mistral Small once; choosing them again sticks", () => {
+    localStorage.setItem(
+      "pdf-ocr-translater.settings.v2",
+      JSON.stringify({ provider: "anthropic", chatModels: { anthropic: "claude-haiku-5-5", mistral: "mistral-large-latest" }, modelDefaultsRevision: 1 }),
+    );
+    const migrated = loadSettings();
+    expect(migrated).toMatchObject({ provider: "mistral", chatModels: { anthropic: "claude-haiku-5-5", mistral: "mistral-small-latest" } });
+    saveSettings({ ...migrated, provider: "anthropic", chatModels: { ...migrated.chatModels, mistral: "mistral-large-latest" } });
+    expect(loadSettings()).toMatchObject({ provider: "anthropic", chatModels: { mistral: "mistral-large-latest" } });
+  });
+
   it("leaves other saved models alone", () => {
     localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ chatModels: { openai: "gpt-5.6-terra" } }));
     expect(loadSettings().chatModels.openai).toBe("gpt-5.6-terra");
@@ -111,7 +123,7 @@ describe("settings v1 migration", () => {
     expect(settings.schemaMode).toEqual({ kind: "custom", schemaText: '{"type":"object"}' });
     expect(settings.temperature).toBe(0.5);
     expect(settings.cacheOcr).toBe(false);
-    expect(settings.provider).toBe("anthropic");
+    expect(settings.provider).toBe("mistral");
     expect(localStorage.getItem("pdf-ocr-translater.settings.v1")).toBeNull();
     expect(localStorage.getItem("pdf-ocr-translater.settings.v2")).not.toBeNull();
   });

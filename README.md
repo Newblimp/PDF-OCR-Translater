@@ -6,11 +6,12 @@ CNIPA) into a translation, block by block (paragraphs, titles, tables,
 figures), that can be filtered and laid out like the page, and optionally
 into a structured JSON document, using
 [Mistral Document AI](https://docs.mistral.ai/capabilities/document_ai/basic_ocr)
-for OCR and Anthropic's Claude Haiku 5.5
-([`claude-haiku-5-5`](https://platform.claude.com/docs/en/models/haiku-5-5/overview))
-with JSON-schema structured outputs for translation. OpenAI's GPT Luna
-(`gpt-6-luna`) and Mistral chat models remain available as alternative
-translation providers.
+for OCR and Mistral Small
+([`mistral-small-latest`](https://mistral.ai/news/mistral-small-4/), Mistral
+Small 4) with JSON-schema structured outputs for translation, so one Mistral
+key does everything. Anthropic's Claude Haiku 5.5 (`claude-haiku-5-5`),
+OpenAI's GPT Luna (`gpt-6-luna`) and the other Mistral chat models remain
+available as alternative translation models.
 
 **Privacy model:** the site is a static bundle. The document is read in your
 browser, base64-encoded there and sent **only** to `https://api.mistral.ai`
@@ -18,8 +19,8 @@ browser, base64-encoded there and sent **only** to `https://api.mistral.ai`
 OCR returns** (figures, stamps, seals; up to 8 with the translation request
 and up to the configured limit for per-box descriptions, both can be turned
 off in Settings) are then sent **only** to the translation provider
-(`https://api.anthropic.com` by default, or `https://api.openai.com` /
-`https://api.mistral.ai` when selected). Nothing is uploaded to GitHub,
+(`https://api.mistral.ai` by default, the same host as the OCR, or
+`https://api.anthropic.com` / `https://api.openai.com` when selected). Nothing is uploaded to GitHub,
 Cloudflare, or any other server. A Content-Security-Policy header
 (`public/_headers`) enforces this in production: the page cannot connect
 anywhere else.
@@ -163,12 +164,12 @@ anywhere else.
    result while the OCR cache still has it), and loading a document that was
    translated before shows its last translation right away.
 
-Two API keys are requested on first use (Mistral for OCR, Anthropic for
-translation), verified against each provider's `GET /v1/models`, and kept in
-this browser's `localStorage`, or only for the tab's session when "Remember
-keys" is switched off in the key dialog. The key dialog also lets you pick
-OpenAI or Mistral as the translation provider; with Mistral only the Mistral
-key is needed. "Forget" in the header removes all keys.
+One API key is requested on first use, Mistral's (for OCR and translation),
+verified against the provider's `GET /v1/models` and kept in this browser's
+`localStorage`, or only for the tab's session when "Remember keys" is
+switched off in the key dialog. The key dialog also lets you pick Anthropic
+(Claude) or OpenAI as the translation provider; its key is then needed as
+well. "Forget" in the header removes all keys.
 OCR results are cached in the browser's IndexedDB (keyed by a SHA-256 of the
 file, the OCR model and the pages) so translating the same file again costs
 no OCR credits. The OCR cache and the saved translations can be cleared from
@@ -228,8 +229,8 @@ All defaults live in code so they can be changed in one place:
 | Setting                                                | Default                                                                                                                             | Where                                                                                  |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | OCR model                                              | `mistral-ocr-latest` (dropdown of `OCR_MODELS`)                                                                                     | `src/lib/mistral/models.ts`                                                            |
-| Translation provider                                   | Anthropic (Claude Haiku 5.5); OpenAI and Mistral selectable                                                                         | `src/lib/llm/registry.ts`                                                              |
-| Translation model                                      | `claude-haiku-5-5` (Anthropic) / `gpt-6-luna` (OpenAI) / `mistral-large-latest` (Mistral); dropdown of the models from `/v1/models` | `src/lib/anthropic/models.ts`, `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
+| Translation provider                                   | Mistral (Mistral Small); Anthropic and OpenAI selectable                                                                            | `src/lib/llm/registry.ts`                                                              |
+| Translation model                                      | `mistral-small-latest` (Mistral) / `claude-haiku-5-5` (Anthropic) / `gpt-6-luna` (OpenAI); dropdown of the models from `/v1/models` | `src/lib/anthropic/models.ts`, `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
 | Reasoning effort (Anthropic, OpenAI)                   | `none` (Anthropic: effort `low`, its lowest)                                                                                        | Settings panel                                                                         |
 | JSON output                                            | off: the text blocks are translated one by one; on: JSON format + document annotation, and the JSON tabs                            | Settings panel (last option); `src/lib/storage/settings.ts` (`jsonOutput`)             |
 | Block types left out of the OCR text                   | page headers and footers                                                                                                            | OCR text tab; `src/lib/storage/settings.ts` (`ocrHiddenTypes`)                         |
@@ -243,7 +244,7 @@ All defaults live in code so they can be changed in one place:
 | Long documents                                         | split above ~40k estimated tokens (`TRANSLATION_CHUNK_TOKENS`)                                                                      | `src/lib/pipeline/chunks.ts`                                                           |
 | Saved translations                                     | on, last 30                                                                                                                         | Settings panel; `src/lib/storage/history.ts`                                           |
 | Mistral / OpenAI retries                               | 2 with backoff, honouring `retry-after`                                                                                             | `src/lib/http/apiFetch.ts`                                                             |
-| Model prices for the estimate                          | Claude Haiku/Sonnet/Opus 5.5                                                                                                        | `src/lib/llm/pricing.ts`                                                               |
+| Model prices for the estimate                          | Mistral Small 4, Claude Haiku/Sonnet/Opus 5.5                                                                                       | `src/lib/llm/pricing.ts`                                                               |
 | Pages to OCR                                           | all                                                                                                                                 | Document card (`src/lib/util/pageSelection.ts`)                                        |
 | Target / source language                               | English or German in one click, eight more in a dropdown / auto-detect                                                              | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`)                                     |
 | JSON format (JSON output)                              | inferred from document; built-in `patent_communication`; custom                                                                     | `src/lib/pipeline/schemas/`                                                            |
@@ -291,15 +292,19 @@ All defaults live in code so they can be changed in one place:
   rely on the prompt and the app's JSON extraction. Only Claude models that
   accept `effort` (Opus 4.5 and later, Sonnet 4.6 and later, Haiku 5.5) are
   offered in the model dropdown.
-- Settings saved by an earlier version keep their translation provider, so a
-  browser that already used OpenAI keeps it until you switch in Settings.
+- Settings saved before Mistral Small became the default move over once:
+  Anthropic (the previous default provider) to Mistral, and Mistral Large
+  (the previous Mistral default) to Mistral Small. Picking them again in
+  Settings sticks; a browser that used OpenAI keeps it.
+- Mistral Small 4 accepts a reasoning effort, but the app sends none to
+  Mistral (as before), so the model's own default applies.
 - The API keys live in `localStorage` of this origin (or `sessionStorage`
   with "Remember keys" off). Anyone with access to the browser profile can
   read them.
 - Saved translations and the OCR cache stay in this browser's IndexedDB until
   cleared; they contain the document's text.
-- The vision steps need a model with image input (Claude Haiku 5.5 and GPT
-  Luna have it; for the Mistral provider pick a multimodal model). If the model rejects images, the
+- The vision steps need a model with image input (Mistral Small 4, Claude
+  Haiku 5.5 and GPT Luna have it; another Mistral model may not). If the model rejects images, the
   translation is retried text-only and the step strip says so.
 - OCR results cached in the browser before this workflow (without images)
   are ignored; the file is OCR'd again once.

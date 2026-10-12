@@ -31,7 +31,8 @@ export const Header = memo(function Header({ keys, activeProvider, theme, onChan
   const shown: ProviderId[] = activeProvider === "mistral" ? ["mistral"] : ["mistral", activeProvider];
   const anyKey = shown.some((p) => keys[p].value);
   // Shortened with an ellipsis when the bar is narrow; the tooltip keeps it whole.
-  const tagline = `OCR by Mistral, translation by ${PROVIDERS[activeProvider].label}. Runs in your browser; documents go only to ${shown.map((p) => PROVIDERS[p].host).join(" and ")}.`;
+  const by = activeProvider === "mistral" ? "OCR and translation by Mistral" : `OCR by Mistral, translation by ${PROVIDERS[activeProvider].label}`;
+  const tagline = `${by}. Runs in your browser; documents go only to ${shown.map((p) => PROVIDERS[p].host).join(" and ")}.`;
   return (
     <header class="header">
       <button
