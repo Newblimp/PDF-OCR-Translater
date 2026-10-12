@@ -93,7 +93,13 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
         <span>Settings</span>
         <span class="muted small">
           {chatModel} · → {settings.targetLanguage} ·{" "}
-          {schemaKind === "infer" ? "inferred JSON format" : schemaKind === "builtin" ? "built-in schema" : "custom schema"}
+          {!settings.jsonOutput
+            ? "block by block"
+            : schemaKind === "infer"
+              ? "JSON: inferred format"
+              : schemaKind === "builtin"
+                ? "JSON: built-in schema"
+                : "JSON: custom schema"}
         </span>
       </summary>
 
@@ -199,22 +205,6 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
         )}
 
         <label class="field">
-          <span>Max output tokens (optional)</span>
-          <input
-            type="number"
-            min={1}
-            step={1000}
-            placeholder="provider default"
-            value={settings.maxOutputTokens ?? ""}
-            onChange={(e) => {
-              const n = Number((e.target as HTMLInputElement).value);
-              onChange({ maxOutputTokens: Number.isFinite(n) && n > 0 ? Math.round(n) : null });
-            }}
-          />
-          <span class="muted small">Leave empty to allow the model's maximum. Set it if translations get cut off unexpectedly.</span>
-        </label>
-
-        <label class="field">
           <span>OCR model (Mistral)</span>
           <select
             value={ocrModelInList ? settings.ocrModel : "__custom"}
@@ -238,78 +228,8 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
           <span class="muted small">“auto” lets the model detect it.</span>
         </label>
 
-        <fieldset class="field field-wide">
-          <legend>JSON format of the translation</legend>
-          <label class="radio">
-            <input type="radio" name="schema" checked={schemaKind === "infer"} onChange={() => onChange({ schemaMode: { kind: "infer" } })} />
-            <span>
-              Infer from the document <span class="muted small">(one extra model call designs the fields)</span>
-            </span>
-          </label>
-          <label class="radio">
-            <input
-              type="radio"
-              name="schema"
-              checked={schemaKind === "builtin"}
-              onChange={() => onChange({ schemaMode: { kind: "builtin", id: BUILTIN_SCHEMAS[0]?.id ?? "patent_communication" } })}
-            />
-            <span>Built-in schema</span>
-          </label>
-          {schemaKind === "builtin" && (
-            <select
-              value={settings.schemaMode.kind === "builtin" ? settings.schemaMode.id : ""}
-              onChange={(e) => onChange({ schemaMode: { kind: "builtin", id: (e.target as HTMLSelectElement).value } })}
-            >
-              {BUILTIN_SCHEMAS.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label} — {s.description}
-                </option>
-              ))}
-            </select>
-          )}
-          <label class="radio">
-            <input
-              type="radio"
-              name="schema"
-              checked={schemaKind === "custom"}
-              onChange={() =>
-                onChange({
-                  schemaMode: {
-                    kind: "custom",
-                    schemaText:
-                      settings.schemaMode.kind === "custom" && settings.schemaMode.schemaText
-                        ? settings.schemaMode.schemaText
-                        : prettyJson(BUILTIN_SCHEMAS[0]?.schema ?? {}),
-                  },
-                })
-              }
-            />
-            <span>Custom JSON Schema</span>
-          </label>
-          {schemaKind === "custom" && (
-            <DraftText
-              class="code-area"
-              rows={12}
-              spellcheck={false}
-              value={settings.schemaMode.kind === "custom" ? settings.schemaMode.schemaText : ""}
-              onCommit={(schemaText) => onChange({ schemaMode: { kind: "custom", schemaText } })}
-            />
-          )}
-        </fieldset>
-
         <div class="field field-wide">
           <span>Behaviour</span>
-          <label class="checkbox">
-            <input type="checkbox" checked={settings.streaming} onChange={(e) => onChange({ streaming: (e.target as HTMLInputElement).checked })} />
-            <span>Stream the translation (shows progress while it is generated)</span>
-          </label>
-          <label class="checkbox">
-            <input type="checkbox" checked={settings.sendImages} onChange={(e) => onChange({ sendImages: (e.target as HTMLInputElement).checked })} />
-            <span>
-              Document annotation with images: send the first 8 bounding-box images extracted by Mistral OCR together with the
-              text to the vision model (Mistral's annotation workflow).
-            </span>
-          </label>
           <label class="checkbox">
             <input
               type="checkbox"
@@ -336,17 +256,6 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
             </span>
           </label>
           <label class="checkbox">
-            <input
-              type="checkbox"
-              checked={settings.blockTranslations}
-              onChange={(e) => onChange({ blockTranslations: (e.target as HTMLInputElement).checked })}
-            />
-            <span>
-              Translate each OCR text block after the main translation, so the bounding-box view shows a translation per block and the OCR
-              text can be shown translated.
-            </span>
-          </label>
-          <label class="checkbox">
             <input type="checkbox" checked={settings.cacheOcr} onChange={(e) => onChange({ cacheOcr: (e.target as HTMLInputElement).checked })} />
             <span>Keep OCR results in this browser so the same file is not OCR'd twice</span>
           </label>
@@ -367,24 +276,6 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
             </button>
           </div>
         </div>
-
-        <label class="field field-wide">
-          <span>Structured text in the original language</span>
-          <select
-            value={settings.structureOriginal}
-            onChange={(e) => onChange({ structureOriginal: (e.target as HTMLSelectElement).value as StructureOriginalMode })}
-          >
-            {STRUCTURE_ORIGINAL.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <span class="muted small">
-            Fills the same JSON format without translating, so the Structured text tab can show the document's own wording. It reads the
-            document from the prompt cache when it runs soon after the translation.
-          </span>
-        </label>
 
         <label class="field field-wide">
           <span>Glossary (optional)</span>
@@ -408,6 +299,138 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
           <span>Document family hint (shown to the model)</span>
           <DraftText rows={3} value={settings.domainHint} fallback={DEFAULT_SETTINGS.domainHint} onCommit={(domainHint) => onChange({ domainHint })} />
         </label>
+
+        <fieldset class="field field-wide settings-json">
+          <legend>JSON output</legend>
+          <label class="checkbox">
+            <input type="checkbox" checked={settings.jsonOutput} onChange={(e) => onChange({ jsonOutput: (e.target as HTMLInputElement).checked })} />
+            <span>
+              Fill a JSON format with the translation: the Structured text, JSON format and Raw JSON tabs.{" "}
+              <span class="muted small">
+                Off, the OCR text is translated block by block (the OCR text tab), without a JSON format, a summary or the extra calls.
+              </span>
+            </span>
+          </label>
+          {settings.jsonOutput && (
+            <div class="settings-json-body">
+              <fieldset class="field field-wide">
+                <legend>JSON format of the translation</legend>
+                <label class="radio">
+                  <input type="radio" name="schema" checked={schemaKind === "infer"} onChange={() => onChange({ schemaMode: { kind: "infer" } })} />
+                  <span>
+                    Infer from the document <span class="muted small">(one extra model call designs the fields)</span>
+                  </span>
+                </label>
+                <label class="radio">
+                  <input
+                    type="radio"
+                    name="schema"
+                    checked={schemaKind === "builtin"}
+                    onChange={() => onChange({ schemaMode: { kind: "builtin", id: BUILTIN_SCHEMAS[0]?.id ?? "patent_communication" } })}
+                  />
+                  <span>Built-in schema</span>
+                </label>
+                {schemaKind === "builtin" && (
+                  <select
+                    value={settings.schemaMode.kind === "builtin" ? settings.schemaMode.id : ""}
+                    onChange={(e) => onChange({ schemaMode: { kind: "builtin", id: (e.target as HTMLSelectElement).value } })}
+                  >
+                    {BUILTIN_SCHEMAS.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label} — {s.description}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <label class="radio">
+                  <input
+                    type="radio"
+                    name="schema"
+                    checked={schemaKind === "custom"}
+                    onChange={() =>
+                      onChange({
+                        schemaMode: {
+                          kind: "custom",
+                          schemaText:
+                            settings.schemaMode.kind === "custom" && settings.schemaMode.schemaText
+                              ? settings.schemaMode.schemaText
+                              : prettyJson(BUILTIN_SCHEMAS[0]?.schema ?? {}),
+                        },
+                      })
+                    }
+                  />
+                  <span>Custom JSON Schema</span>
+                </label>
+                {schemaKind === "custom" && (
+                  <DraftText
+                    class="code-area"
+                    rows={12}
+                    spellcheck={false}
+                    value={settings.schemaMode.kind === "custom" ? settings.schemaMode.schemaText : ""}
+                    onCommit={(schemaText) => onChange({ schemaMode: { kind: "custom", schemaText } })}
+                  />
+                )}
+              </fieldset>
+              <label class="field field-wide">
+                <span>Structured text in the original language</span>
+                <select
+                  value={settings.structureOriginal}
+                  onChange={(e) => onChange({ structureOriginal: (e.target as HTMLSelectElement).value as StructureOriginalMode })}
+                >
+                  {STRUCTURE_ORIGINAL.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                <span class="muted small">
+                  Fills the same JSON format without translating, so the Structured text tab can show the document's own wording. It reads the
+                  document from the prompt cache when it runs soon after the translation.
+                </span>
+              </label>
+              <label class="field">
+                <span>Max output tokens (optional)</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1000}
+                  placeholder="provider default"
+                  value={settings.maxOutputTokens ?? ""}
+                  onChange={(e) => {
+                    const n = Number((e.target as HTMLInputElement).value);
+                    onChange({ maxOutputTokens: Number.isFinite(n) && n > 0 ? Math.round(n) : null });
+                  }}
+                />
+                <span class="muted small">Leave empty to allow the model's maximum. Set it if translations get cut off unexpectedly.</span>
+              </label>
+              <div class="field field-wide">
+                <span>JSON behaviour</span>
+                <label class="checkbox">
+                  <input type="checkbox" checked={settings.streaming} onChange={(e) => onChange({ streaming: (e.target as HTMLInputElement).checked })} />
+                  <span>Stream the translation (shows progress while it is generated)</span>
+                </label>
+                <label class="checkbox">
+                  <input type="checkbox" checked={settings.sendImages} onChange={(e) => onChange({ sendImages: (e.target as HTMLInputElement).checked })} />
+                  <span>
+                    Document annotation with images: send the first 8 bounding-box images extracted by Mistral OCR together with the
+                    text to the vision model (Mistral's annotation workflow).
+                  </span>
+                </label>
+                <label class="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={settings.blockTranslations}
+                    onChange={(e) => onChange({ blockTranslations: (e.target as HTMLInputElement).checked })}
+                  />
+                  <span>
+                    Also translate each OCR text block after the JSON translation, so the OCR text and the bounding-box view can be shown
+                    translated.
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
+        </fieldset>
       </div>
     </details>
   );

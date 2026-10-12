@@ -1,8 +1,10 @@
 /**
  * Translates the paragraph-level blocks returned by OCR (`include_blocks`),
- * so the bounding-box view can show each block's translation next to its
- * original text. Blocks are sent in batches as JSON and come back as JSON
- * keyed by block id, using the provider's strict structured output.
+ * or the paragraphs of text input (`blocks.textPages()`): the OCR text view
+ * and the bounding-box view show each block's translation, and without the
+ * JSON format this is the translation. Blocks are sent in batches as JSON
+ * and come back as JSON keyed by block id, using the provider's strict
+ * structured output.
  */
 import { ApiError } from "../http/apiError";
 import { addUsage, emptyUsage, type ChatProvider, type ReasoningEffort, type TokenUsage } from "../llm/provider";
@@ -17,8 +19,10 @@ export interface BlockTranslateOptions extends PromptContext {
   model: string;
   reasoningEffort?: ReasoningEffort | undefined;
   concurrency?: number | undefined;
-  /** Only translate these block ids (retrying the ones without a translation); every text block when undefined. */
+  /** Only translate these block ids (the blocks the filter keeps, or the ones without a translation); every text block when undefined. */
   onlyIds?: ReadonlySet<string> | undefined;
+  /** Called with each batch's translations as soon as it is in, so they can be shown while the rest is translated. */
+  onTranslated?: ((translations: Record<string, string>) => void) | undefined;
   signal?: AbortSignal | undefined;
   onProgress?: ProgressListener | undefined;
 }
@@ -71,25 +75,6 @@ export function textBlocks(page: OcrCleanPage): Array<{ id: string; text: string
   return items;
 }
 
-/**
- * The page as translated Markdown, built from the per-block translations
- * (the OCR text view with the translation toggle on). Blocks without a
- * translation keep their original text so nothing disappears.
- */
-export function translatedPageMarkdown(page: OcrCleanPage, translations: Record<string, string>): { text: string; total: number; translated: number } {
-  const blocks = textBlocks(page);
-  let translated = 0;
-  const parts = blocks.map((b) => {
-    const t = translations[b.id];
-    if (t?.trim()) {
-      translated++;
-      return t.trim();
-    }
-    return b.text;
-  });
-  return { text: parts.join("\n\n"), total: blocks.length, translated };
-}
-
 export function batchBlocks(ocr: OcrText, onlyIds?: ReadonlySet<string>): Array<Array<{ id: string; text: string }>> {
   const items: Array<{ id: string; text: string }> = [];
   for (const page of ocr.pages) {
@@ -140,9 +125,12 @@ export async function translateBlocks(provider: ChatProvider, ocr: OcrText, opti
       const parsed = parseModelJson<{ translations?: Array<{ id?: unknown; text?: unknown }> }>(result.content);
       if (parsed.ok && Array.isArray(parsed.value.translations)) {
         const wanted = new Set(batch.map((b) => b.id));
+        const received: Record<string, string> = {};
         for (const t of parsed.value.translations) {
-          if (typeof t.id === "string" && typeof t.text === "string" && wanted.has(t.id)) translations[t.id] = t.text;
+          if (typeof t.id === "string" && typeof t.text === "string" && wanted.has(t.id)) received[t.id] = t.text;
         }
+        Object.assign(translations, received);
+        if (Object.keys(received).length) options.onTranslated?.(received);
       }
       addUsage(usage, result.usage);
     } catch (err) {

@@ -1,25 +1,34 @@
 import { memo } from "preact/compat";
-import type { RefObject } from "preact";
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { defaultResultLayout, ocrBelongsTo, RESULT_TABS, type AppState, type DocState, type JobKind, type OcrState, type ResultTab, type TranslationState } from "@/app/store";
+import { useEffect, useMemo } from "preact/hooks";
+import {
+  defaultResultLayout,
+  excludedBlocks,
+  hasStructure,
+  ocrBelongsTo,
+  RESULT_TABS,
+  selectTextPages,
+  type AppState,
+  type JobKind,
+  type OcrState,
+  type ResultTab,
+  type TranslationState,
+} from "@/app/store";
 import { bilingualHtml } from "@/lib/export/bilingual";
-import type { TokenUsage } from "@/lib/llm/provider";
 import { PROVIDERS } from "@/lib/llm/registry";
 import { loadExportMarkdownRenderer } from "@/lib/markdown";
+import type { JsonSchemaObject } from "@/lib/mistral/types";
 import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
-import { textBlocks, translatedPageMarkdown } from "@/lib/pipeline/blockTranslate";
 import type { OcrCleanPage } from "@/lib/pipeline/ocrText";
 import type { StructureOriginalMode } from "@/lib/pipeline/pipeline";
 import { sameArrangement, type DockTarget } from "@/lib/util/dock";
 import { isPlainObject, prettyJson } from "@/lib/util/json";
 import { parsePartialJson } from "@/lib/util/partialJson";
-import { estimateTokens, formatNumber } from "@/lib/util/text";
+import { formatNumber } from "@/lib/util/text";
 import { BboxView } from "./BboxView";
 import { Dock } from "./Dock";
 import { JsonBrowser } from "./JsonBrowser/JsonBrowser";
-import { MarkdownText } from "./MarkdownText";
-import { usePageRenderer, useRenderedPages } from "./pageImages";
-import { useLinkedScroll } from "./useLinkedScroll";
+import { OcrView } from "./OcrView";
+import { copy, download, TranslationToggle, usageText } from "./resultControls";
 
 /** Stable callbacks from the app (created once, so the memoised views below skip unrelated re-renders). */
 export interface ResultActions {
@@ -42,6 +51,16 @@ export interface ResultActions {
   setOcrShowPdf: (show: boolean) => void;
   /** OCR text tab: scroll the pages and the text together. */
   setOcrLinkScroll: (link: boolean) => void;
+  /** OCR text tab: the block types left out of the text (saved with the settings). */
+  setOcrHiddenTypes: (types: string[]) => void;
+  /** OCR text tab: place the blocks as on the page. */
+  setOcrMatchLayout: (match: boolean) => void;
+  /** OCR text tab: pick blocks on the pages beside the text. */
+  setOcrPickBlocks: (pick: boolean) => void;
+  /** Leave a block of these pages out of the OCR text, or take it back. */
+  toggleBlock: (pages: readonly OcrCleanPage[], id: string) => void;
+  /** Take back every block left out one by one. */
+  includeAllBlocks: () => void;
 }
 
 interface Props {
@@ -61,24 +80,6 @@ const DEFAULT_LAYOUT = defaultResultLayout();
 const NO_ANNOTATIONS: BboxAnnotation[] = [];
 const NO_BLOCK_TRANSLATIONS: Record<string, string> = {};
 
-function download(name: string, content: string, type: string): void {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-async function copy(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    // ignore
-  }
-}
-
 function baseName(state: AppState): string {
   const name = state.doc?.name ?? state.translation?.sourceName ?? "document";
   return name.replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]+/g, "_") || "document";
@@ -89,29 +90,26 @@ function hasOriginal(translation: TranslationState): boolean {
   return translation.originalData !== null && translation.originalData !== undefined;
 }
 
-/** "1,234 in / 567 out tokens (1,000 cached, 50 reasoning)". */
-function usageText(usage: TokenUsage | null): string {
-  const extras = [
-    usage?.cache_read_tokens ? `${formatNumber(usage.cache_read_tokens)} cached` : "",
-    usage?.reasoning_tokens ? `${formatNumber(usage.reasoning_tokens)} reasoning` : "",
-  ].filter(Boolean);
-  return `${formatNumber(usage?.prompt_tokens)} in / ${formatNumber(usage?.completion_tokens)} out tokens${extras.length ? ` (${extras.join(", ")})` : ""}`;
-}
-
 export function ResultsPanel({ state, actions }: Props) {
-  const { translation, ocr } = state;
+  const { translation, ocr, settings } = state;
   const streamText = state.job?.streamText;
+  // The JSON tabs only with "JSON output" on in Settings, and for a translation that filled a JSON format.
+  const structured = settings.jsonOutput && translation && hasStructure(translation) ? translation : null;
+  const text = selectTextPages(state);
+  // The translation made from the pages shown in the OCR text tab (its block translations fit them).
+  const textTranslation = translation && text && (!text.fromOcr || (ocr && ocrBelongsTo(ocr, translation))) ? translation : null;
   const available = new Set<ResultTab>(
     RESULT_TABS.filter((tab) => {
       switch (tab) {
         case "bboxes":
-        case "ocr":
           return !!ocr;
+        case "ocr":
+          return !!text;
         case "structured":
-          return !!translation || !!streamText;
+          return !!structured || (settings.jsonOutput && !!streamText);
         case "schema":
         case "json":
-          return !!translation;
+          return !!structured;
       }
     }),
   );
@@ -125,7 +123,10 @@ export function ResultsPanel({ state, actions }: Props) {
         <ol>
           <li>Drop a PDF (for example a CNIPA office action).</li>
           <li>Choose “OCR + Translate”.</li>
-          <li>Browse the bounding boxes, the OCR text and the structured text — original or translated.</li>
+          <li>
+            Browse the bounding boxes and the OCR text, original or translated block by block; leave out block types or single blocks.
+            {settings.jsonOutput ? " The structured text fills a JSON format with the translation." : " Turn on “JSON output” in Settings for structured text."}
+          </li>
         </ol>
         <p class="muted small">
           The file is encoded in your browser and sent to api.mistral.ai for OCR; the OCR text and the cropped figure images it returns go to
@@ -144,20 +145,25 @@ export function ResultsPanel({ state, actions }: Props) {
               doc={state.doc}
               ocr={ocr.text}
               annotations={translation?.bboxAnnotations ?? NO_ANNOTATIONS}
-              blockTranslations={translation?.blockTranslations ?? NO_BLOCK_TRANSLATIONS}
+              blockTranslations={translation && ocrBelongsTo(ocr, translation) ? translation.blockTranslations : NO_BLOCK_TRANSLATIONS}
             />
           )
         );
       case "ocr":
         return (
-          ocr && (
+          text && (
             <OcrView
-              ocr={ocr}
+              pages={text.pages}
+              ocr={text.fromOcr ? ocr : null}
               doc={state.doc}
-              showPdf={state.settings.ocrShowPdf}
-              linkScroll={state.settings.ocrLinkScroll}
-              translation={translation}
-              canRetry={!!translation && ocrBelongsTo(ocr, translation)}
+              translation={textTranslation}
+              showPdf={settings.ocrShowPdf}
+              linkScroll={settings.ocrLinkScroll}
+              matchLayout={settings.ocrMatchLayout}
+              pickBlocks={settings.ocrPickBlocks}
+              hiddenTypes={settings.ocrHiddenTypes}
+              excluded={excludedBlocks(state, text.pages)}
+              canRetry={!!textTranslation}
               showTranslation={state.showTranslation}
               busy={!!state.job}
               baseName={name}
@@ -174,9 +180,9 @@ export function ResultsPanel({ state, actions }: Props) {
           );
         }
         return (
-          translation && (
+          structured && (
             <StructuredView
-              translation={translation}
+              translation={structured}
               ocr={ocr}
               showTranslation={state.showTranslation}
               jobKind={jobKind}
@@ -187,12 +193,12 @@ export function ResultsPanel({ state, actions }: Props) {
           )
         );
       case "schema":
-        return translation && <SchemaView translation={translation} actions={actions} />;
+        return structured && <SchemaView translation={structured} actions={actions} />;
       case "json":
         return (
-          translation && (
+          structured && (
             <RawJsonView
-              translation={translation}
+              translation={structured}
               showTranslation={state.showTranslation}
               jobKind={jobKind}
               structureMode={state.settings.structureOriginal}
@@ -220,7 +226,10 @@ export function ResultsPanel({ state, actions }: Props) {
   );
 }
 
-const SchemaView = memo(function SchemaView({ translation, actions }: { translation: TranslationState; actions: ResultActions }) {
+/** A translation that filled a JSON format. */
+type StructuredTranslation = TranslationState & { schema: JsonSchemaObject };
+
+const SchemaView = memo(function SchemaView({ translation, actions }: { translation: StructuredTranslation; actions: ResultActions }) {
   const text = useMemo(() => prettyJson(translation.schema), [translation.schema]);
   return (
     <div class="tab-panel">
@@ -254,36 +263,6 @@ const SchemaView = memo(function SchemaView({ translation, actions }: { translat
 });
 
 /**
- * "Show translation": switches the OCR text and the structured text between
- * the document's own language and the translation. One shared state, so all
- * tabs always show the same language.
- */
-function TranslationToggle({
-  show,
-  available,
-  onShowTranslation,
-  label = "Show translation",
-}: {
-  show: boolean;
-  /** False when nothing translated is at hand yet: the switch stays off and explains itself. */
-  available: boolean;
-  onShowTranslation: (show: boolean) => void;
-  label?: string;
-}) {
-  return (
-    <label class="checkbox small" title={available ? "Switch between the document's language and the translation" : "Nothing translated yet"}>
-      <input
-        type="checkbox"
-        checked={show && available}
-        disabled={!available}
-        onChange={(e) => onShowTranslation((e.target as HTMLInputElement).checked)}
-      />
-      <span>{label}</span>
-    </label>
-  );
-}
-
-/**
  * With "Show translation" off, a view of the structured text needs it in the
  * original language: ask for it once (on-demand mode), rather than on every
  * flip of the switch in the OCR tab, which does not need it.
@@ -296,7 +275,7 @@ function useOriginalOnDemand(translation: TranslationState, wantTranslation: boo
 }
 
 /** Bilingual HTML: the translation next to the original, field by field and block by block. */
-async function downloadBilingual(translation: TranslationState, ocr: OcrState | null, name: string): Promise<void> {
+async function downloadBilingual(translation: StructuredTranslation, ocr: OcrState | null, name: string): Promise<void> {
   const render = await loadExportMarkdownRenderer().catch(() => null);
   const html = bilingualHtml(
     {
@@ -325,7 +304,7 @@ const StructuredView = memo(function StructuredView({
   baseName: name,
   actions,
 }: {
-  translation: TranslationState;
+  translation: StructuredTranslation;
   ocr: OcrState | null;
   showTranslation: boolean;
   jobKind: JobKind | null;
@@ -552,224 +531,6 @@ const StreamingView = memo(function StreamingView({ text }: { text: string }) {
         {text.slice(-400)}
       </pre>
       {partial !== undefined && isPlainObject(partial) && Object.keys(partial).length > 0 && <JsonBrowser data={partial} schema={null} streaming />}
-    </div>
-  );
-});
-
-const OcrView = memo(function OcrView({
-  ocr,
-  doc,
-  showPdf,
-  linkScroll,
-  translation,
-  canRetry,
-  showTranslation: wantTranslation,
-  busy,
-  baseName: name,
-  actions,
-}: {
-  ocr: OcrState;
-  /** The loaded document, for its pages beside the text. */
-  doc: DocState | null;
-  showPdf: boolean;
-  linkScroll: boolean;
-  translation: TranslationState | null;
-  /** The translation was made from this OCR result, so its blocks can be (re)translated into it. */
-  canRetry: boolean;
-  showTranslation: boolean;
-  busy: boolean;
-  baseName: string;
-  actions: ResultActions;
-}) {
-  const [markdown, setMarkdown] = useState(true);
-  const blockTranslations = translation?.blockTranslations ?? NO_BLOCK_TRANSLATIONS;
-  const translationsAvailable = Object.keys(blockTranslations).length > 0;
-  const showTranslation = wantTranslation && translationsAvailable;
-  const headersFooters = ocr.text.pages.filter((p) => p.header || p.footer);
-  const pages = useMemo(
-    () =>
-      ocr.text.pages.map((p) => {
-        if (!showTranslation) return { page: p, text: p.markdown, missing: 0, translated: 0, total: 0 };
-        const { text, total, translated } = translatedPageMarkdown(p, blockTranslations);
-        return { page: p, text, missing: total - translated, translated, total };
-      }),
-    [ocr, showTranslation, blockTranslations],
-  );
-  const untranslated = pages.reduce((n, p) => n + p.missing, 0);
-  // Untranslated, the full text keeps the page delimiters the model saw.
-  const fullText = showTranslation ? pages.map((p) => p.text).join("\n\n") : ocr.text.text;
-  const tokens = useMemo(() => estimateTokens(ocr.text.text), [ocr]);
-  const hasTextBlocks = useMemo(() => ocr.text.pages.some((p) => textBlocks(p).length > 0), [ocr]);
-  // The pages can be shown while the document this OCR result was made from is loaded.
-  const pagesAvailable = !!doc && doc.id === ocr.docId && (doc.kind === "pdf" || doc.kind === "image");
-  const comparing = showPdf && pagesAvailable;
-  const pdfColumn = useRef<HTMLDivElement>(null);
-  const textColumn = useRef<HTMLDivElement>(null);
-  useLinkedScroll(pdfColumn, textColumn, comparing && linkScroll);
-
-  const textPages = (
-    <div class={`ocr-pages${comparing ? " ocr-compare-col" : ""}`} ref={textColumn} aria-label={comparing ? "OCR text" : undefined}>
-      {pages.map(({ page, text, total }) => (
-        <section class="ocr-page" key={page.index} id={`ocr-page-${page.index + 1}`} data-page={page.index}>
-          <h3 class="ocr-page-title muted small">Page {page.index + 1}</h3>
-          {showTranslation && total === 0 ? (
-            <p class="muted small">The OCR API returned no text blocks for this page, so it cannot be shown translated.</p>
-          ) : (
-            <MarkdownText text={text || "(no text)"} markdown={markdown} />
-          )}
-        </section>
-      ))}
-    </div>
-  );
-
-  return (
-    <div class={`tab-panel${comparing ? " tab-panel-fill" : ""}`}>
-      <div class="toolbar">
-        <span class="muted small">
-          {ocr.model} · {ocr.text.pagesProcessed} page(s) · {ocr.text.chars.toLocaleString()} characters (~{formatNumber(tokens)} tokens)
-          {ocr.source === "cache" ? " · from local cache" : ""}
-          {ocr.text.bboxes.length ? ` · ${ocr.text.bboxes.length} bounding box(es)` : ""}
-          {showTranslation ? ` · translated into ${translation?.targetLanguage} per text block` : ""}
-        </span>
-        <div class="btn-row">
-          <TranslationToggle show={wantTranslation} available={translationsAvailable} onShowTranslation={actions.setShowTranslation} />
-          <label class="checkbox small">
-            <input type="checkbox" checked={markdown} onChange={(e) => setMarkdown((e.target as HTMLInputElement).checked)} />
-            <span>Render Markdown</span>
-          </label>
-          <label class="checkbox small" title={pagesAvailable ? "Show the document's pages beside the text" : "Load the document to see its pages beside the text"}>
-            <input
-              type="checkbox"
-              checked={comparing}
-              disabled={!pagesAvailable}
-              onChange={(e) => actions.setOcrShowPdf((e.target as HTMLInputElement).checked)}
-            />
-            <span>Show {doc?.kind === "image" ? "image" : "PDF"}</span>
-          </label>
-          {comparing && (
-            <label class="checkbox small" title="Scroll the pages and the text together, page by page">
-              <input type="checkbox" checked={linkScroll} onChange={(e) => actions.setOcrLinkScroll((e.target as HTMLInputElement).checked)} />
-              <span>Lock scrolling</span>
-            </label>
-          )}
-          <button type="button" class="btn btn-ghost small" onClick={() => void copy(fullText)}>
-            Copy text
-          </button>
-          <button
-            type="button"
-            class="btn btn-ghost small"
-            onClick={() => download(`${name}.ocr${showTranslation ? ".translated" : ""}.md`, fullText, "text/markdown")}
-          >
-            Download .md
-          </button>
-        </div>
-      </div>
-      {wantTranslation && !translationsAvailable && (translation || busy) && (
-        <p class="muted small">
-          {busy
-            ? "The per-block translations are still being produced; the OCR text is shown in its original language."
-            : "No per-block translations for this text yet: run “OCR + Translate” (the blocks are translated after the main translation) or keep “Translate each OCR text block” enabled in Settings."}
-          {!busy && canRetry && hasTextBlocks && (
-            <>
-              {" "}
-              <button type="button" class="btn btn-ghost small" onClick={() => actions.retry("blocks")}>
-                Translate the blocks now
-              </button>
-            </>
-          )}
-        </p>
-      )}
-      {showTranslation && untranslated > 0 && (
-        <p class="muted small">
-          {untranslated} block(s) came back without a translation; they are shown in the original language.
-          {canRetry && (
-            <>
-              {" "}
-              <button type="button" class="btn btn-ghost small" disabled={busy} onClick={() => actions.retry("blocks")}>
-                Retry them
-              </button>
-            </>
-          )}
-        </p>
-      )}
-      {headersFooters.length > 0 && (
-        <details class="banner">
-          <summary>Headers and footers removed from the translated text ({headersFooters.length} page(s))</summary>
-          <ul class="hf-list">
-            {headersFooters.map((p) => (
-              <li key={p.index}>
-                <strong>Page {p.index + 1}</strong>
-                {p.header && <div class="muted small">Header: {p.header}</div>}
-                {p.footer && <div class="muted small">Footer: {p.footer}</div>}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {comparing && doc ? (
-        <div class="ocr-compare">
-          <PdfPages doc={doc} pages={ocr.text.pages} column={pdfColumn} />
-          {textPages}
-        </div>
-      ) : (
-        textPages
-      )}
-    </div>
-  );
-});
-
-/**
- * The document's pages, rendered in the background (visible ones first),
- * laid out like the OCR text beside them: a title, then the page.
- */
-const PdfPages = memo(function PdfPages({ doc, pages, column }: { doc: DocState; pages: OcrCleanPage[]; column: RefObject<HTMLDivElement> }) {
-  const renderer = usePageRenderer(doc);
-  const indexes = useMemo(() => pages.map((p) => p.index), [pages]);
-  const rendered = useRenderedPages(renderer, indexes);
-  const [errors, setErrors] = useState<Record<number, string>>({});
-
-  // Pages coming into view render first; the rest follow in the background.
-  useEffect(() => {
-    const root = column.current;
-    if (!renderer || !root) return;
-    let cancelled = false;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const index = Number((entry.target as HTMLElement).dataset["page"]);
-          if (!entry.isIntersecting || renderer.peek(index)) continue;
-          renderer.get(index).catch((err: unknown) => {
-            if (!cancelled) setErrors((e) => ({ ...e, [index]: err instanceof Error ? err.message : String(err) }));
-          });
-        }
-      },
-      { root, rootMargin: "100% 0px" },
-    );
-    for (const el of root.querySelectorAll(":scope > [data-page]")) observer.observe(el);
-    return () => {
-      cancelled = true;
-      observer.disconnect();
-    };
-  }, [renderer, column, indexes]);
-
-  return (
-    <div class="ocr-compare-col ocr-pdf-pages" ref={column} aria-label="Document pages">
-      {pages.map((page) => {
-        const url = rendered[page.index];
-        const error = errors[page.index];
-        return (
-          <section class="ocr-pdf-page" key={page.index} data-page={page.index}>
-            <h3 class="ocr-page-title muted small">Page {page.index + 1}</h3>
-            <div class="ocr-pdf-sheet" style={`aspect-ratio:${page.width ?? 1000}/${page.height ?? 1414}`}>
-              {url ? (
-                <img src={url} alt={`Page ${page.index + 1}`} />
-              ) : (
-                <div class="ocr-pdf-placeholder small">{error ? `Page could not be rendered: ${error}` : "Rendering page…"}</div>
-              )}
-            </div>
-          </section>
-        );
-      })}
     </div>
   );
 });

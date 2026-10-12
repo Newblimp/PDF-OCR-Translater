@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "@/lib/storage/settings";
 import { dockGroups } from "@/lib/util/dock";
-import { initialState, missingKeys, reducer, requiredProviders, selectSourceText, usableKey, type AppState, type OcrState, type TranslationState } from "./store";
+import {
+  excludedBlocks,
+  initialState,
+  missingKeys,
+  reducer,
+  requiredProviders,
+  selectSourceText,
+  selectTextPages,
+  usableKey,
+  type AppState,
+  type OcrState,
+  type TranslationState,
+} from "./store";
+
+const WITH_JSON = { ...DEFAULT_SETTINGS, jsonOutput: true };
 
 /** The result tab each group shows. */
 function shownTabs(state: AppState): string[] {
@@ -10,7 +24,7 @@ function shownTabs(state: AppState): string[] {
 
 function translationFixture(patch: Partial<TranslationState> = {}): TranslationState {
   return {
-    id: "t1", sourceName: "doc.pdf", sourceKind: "pdf", sourceHash: null, ocrKey: null, sourceText: "源文本",
+    id: "t1", sourceName: "doc.pdf", sourceKind: "pdf", sourceHash: null, ocrKey: null, sourceText: "源文本", pages: null,
     data: {}, rawText: "", schema: {}, schemaSource: "builtin", schemaWarnings: [], usage: null, inferUsage: null, provider: "openai", model: "m",
     mode: "json_schema", violations: [], finishReason: "stop", partial: false, targetLanguage: "English", completedAt: 0, sourceChars: 0, imagesSent: 0,
     bboxAnnotations: [], bboxUsage: null, blockTranslations: {}, blockUsage: null, originalData: null, originalRawText: null, originalUsage: null,
@@ -60,8 +74,8 @@ describe("streaming and OCR invalidation", () => {
 });
 
 describe("result tabs", () => {
-  it("starts on the bounding boxes tab and shows the structured text once a translation arrives", () => {
-    const state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+  it("starts on the bounding boxes tab and shows the structured text once a translation arrives (JSON output on)", () => {
+    const state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, WITH_JSON);
     expect(shownTabs(state)).toEqual(["bboxes"]);
     expect(state.showTranslation).toBe(true);
     const translation = translationFixture();
@@ -70,8 +84,16 @@ describe("result tabs", () => {
     expect(reducer(withTranslation, { type: "view/translation", show: false }).showTranslation).toBe(false);
   });
 
+  it("shows the OCR text once a translation arrives without the JSON output, or for one made without a JSON format", () => {
+    const state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    expect(shownTabs(reducer(state, { type: "translation/set", translation: translationFixture() }))).toEqual(["ocr"]);
+    const withJson = initialState({ anthropic: "a", mistral: "m", openai: "o" }, WITH_JSON);
+    const blocksOnly = translationFixture({ schema: null, schemaSource: null, mode: null, data: null, pages: [] });
+    expect(shownTabs(reducer(withJson, { type: "translation/set", translation: blocksOnly }))).toEqual(["ocr"]);
+  });
+
   it("shows a requested tab in its own group, leaving the other split views alone, until the layout is reset", () => {
-    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, WITH_JSON);
     state = reducer(state, { type: "layout/move", tab: "ocr", target: { group: "g1", side: "right" } });
     expect(shownTabs(state)).toEqual(["bboxes", "ocr"]);
     state = reducer(state, { type: "translation/set", translation: translationFixture() });
@@ -83,7 +105,7 @@ describe("result tabs", () => {
 
 describe("history", () => {
   it("opens a saved translation without a document and offers its source text for a new translation", () => {
-    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, WITH_JSON);
     state = reducer(state, { type: "history/open", ocr: null, translation: translationFixture({ restored: true }), pastedText: null });
     expect(shownTabs(state)).toEqual(["structured"]);
     expect(selectSourceText(state)).toEqual({ text: "源文本", origin: "saved" });
@@ -113,6 +135,38 @@ describe("history", () => {
     expect(state.ocr).toBe(ocr);
     state = reducer(state, { type: "translation/set", translation: translationFixture({ id: "t3", sourceKind: "pasted", sourceText: "别的文本" }) });
     expect(state.ocr).toBeNull();
+  });
+});
+
+describe("block selection", () => {
+  const page = { index: 0, markdown: "a", header: null, footer: null, imageCount: 0, width: 10, height: 10, blocks: [] };
+
+  it("leaves blocks out for the pages they were picked on only", () => {
+    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    const pages = [page];
+    state = reducer(state, { type: "blocks/toggle", pages, id: "0:1" });
+    state = reducer(state, { type: "blocks/toggle", pages, id: "0:2" });
+    expect([...excludedBlocks(state, pages)]).toEqual(["0:1", "0:2"]);
+    expect(excludedBlocks(state, [{ ...page }]).size).toBe(0);
+    state = reducer(state, { type: "blocks/toggle", pages, id: "0:1" });
+    expect([...excludedBlocks(state, pages)]).toEqual(["0:2"]);
+    // Picking on other pages starts afresh.
+    const other = [{ ...page }];
+    state = reducer(state, { type: "blocks/toggle", pages: other, id: "0:3" });
+    expect([...excludedBlocks(state, other)]).toEqual(["0:3"]);
+    expect(excludedBlocks(state, pages).size).toBe(0);
+    state = reducer(state, { type: "blocks/includeAll" });
+    expect(excludedBlocks(state, other).size).toBe(0);
+  });
+
+  it("shows the blocks of a translation without its OCR result in the OCR text tab", () => {
+    const pages = [page];
+    const ocr: OcrState = { source: "api", model: "m", response: { model: "m", pages: [], usage_info: { pages_processed: 0 } }, text: { text: "源文本", pages: [{ ...page }], bboxes: [], pagesProcessed: 1, chars: 3 }, docId: "d", requestKey: "", cacheKey: null };
+    expect(selectTextPages({ ocr: null, translation: translationFixture({ pages }) })).toEqual({ pages, fromOcr: false });
+    // Its own OCR result on screen: the OCR pages (where blocks are picked).
+    expect(selectTextPages({ ocr, translation: translationFixture({ pages }) })).toEqual({ pages: ocr.text.pages, fromOcr: true });
+    expect(selectTextPages({ ocr, translation: translationFixture({ pages, sourceText: "别的" }) })).toEqual({ pages, fromOcr: false });
+    expect(selectTextPages({ ocr: null, translation: translationFixture() })).toBeNull();
   });
 });
 

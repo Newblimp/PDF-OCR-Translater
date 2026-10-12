@@ -13,6 +13,10 @@
  * same JSON format with the document's own wording (on demand by default),
  * and `blockTranslations()` translates the OCR blocks one by one.
  *
+ * The JSON format is optional (`PipelineSettings.structured`, off by
+ * default): without it there is no schema and no document annotation, and
+ * `blockTranslations()` is the translation.
+ *
  * The runner (`src/app/runner.ts`) composes the stages and runs the
  * independent ones concurrently: the bbox annotation alongside the
  * translation, the follow-ups alongside each other. Long documents are
@@ -48,6 +52,8 @@ export type StructureOriginalMode = "always" | "on_demand" | "never";
 export interface PipelineSettings extends PromptContext {
   ocrModel: string;
   chatModel: string;
+  /** Fill a JSON format (schema, then document annotation); without it the text blocks are translated one by one. */
+  structured: boolean;
   schemaMode: SchemaMode;
   streaming: boolean;
   temperature: number;
@@ -59,7 +65,7 @@ export interface PipelineSettings extends PromptContext {
   bboxAnnotations: boolean;
   /** Upper bound on bounding boxes described per run. */
   maxBboxAnnotations: number;
-  /** Translate the OCR text blocks for the bounding-box view. */
+  /** With the JSON format: also translate the OCR text blocks for the OCR text and bounding-box views. */
   blockTranslations: boolean;
   /** Fill the JSON format with the document's own wording after every translation, only when asked for, or never. */
   structureOriginal: StructureOriginalMode;
@@ -162,18 +168,25 @@ export function structureOriginal(ctx: PipelineContext, documentText: string, sc
   return fillStructure(ctx, documentText, schema, ocr, "original");
 }
 
-/** Translate the OCR text blocks for the bounding-box view; `onlyIds` retries the blocks that came back without a translation. */
-export async function blockTranslations(ctx: PipelineContext, ocr: OcrText, onlyIds?: ReadonlySet<string>): Promise<BlockTranslateOutcome | null> {
-  if (!ctx.settings.blockTranslations && !onlyIds) {
-    emit(ctx.onProgress, "block_translate", "skipped", "Block translations disabled in Settings");
-    return null;
-  }
+/**
+ * Translate text blocks one by one: the translation itself without the JSON
+ * format, a follow-up for the OCR text and bounding-box views with it.
+ * `onlyIds` limits it to the blocks the filter keeps, or to the ones that
+ * came back without a translation; `onTranslated` receives each batch.
+ */
+export async function blockTranslations(
+  ctx: PipelineContext,
+  ocr: OcrText,
+  onlyIds?: ReadonlySet<string>,
+  onTranslated?: (translations: Record<string, string>) => void,
+): Promise<BlockTranslateOutcome> {
   const { settings } = ctx;
   return translateBlocks(ctx.chat, ocr, {
     ...promptContext(settings),
     model: settings.chatModel,
     reasoningEffort: settings.reasoningEffort,
     onlyIds,
+    onTranslated,
     signal: ctx.signal,
     onProgress: ctx.onProgress,
   });

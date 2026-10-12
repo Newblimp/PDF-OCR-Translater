@@ -7,6 +7,7 @@ import type { OcrText } from "./ocrText";
 const settings: PipelineSettings = {
   ocrModel: "ocr",
   chatModel: "m",
+  structured: true,
   schemaMode: { kind: "infer" },
   streaming: true,
   temperature: 0.2,

@@ -6,6 +6,7 @@ import type { ProviderId } from "@/lib/llm/provider";
 import type { DockTarget } from "@/lib/util/dock";
 import { perProvider, PROVIDER_IDS } from "@/lib/llm/registry";
 import { estimateRun, formatUsd, TOKENS_PER_PAGE_GUESS } from "@/lib/pipeline/estimate";
+import type { OcrCleanPage } from "@/lib/pipeline/ocrText";
 import { parsePageSelection } from "@/lib/util/pageSelection";
 import { estimateTokens, formatNumber } from "@/lib/util/text";
 import { ActionBar } from "@/components/ActionBar";
@@ -105,6 +106,11 @@ export function App() {
       resetLayout: () => dispatch({ type: "layout/reset" }),
       setOcrShowPdf: (ocrShowPdf: boolean) => updateSettings(rt, { ocrShowPdf }),
       setOcrLinkScroll: (ocrLinkScroll: boolean) => updateSettings(rt, { ocrLinkScroll }),
+      setOcrHiddenTypes: (ocrHiddenTypes: string[]) => updateSettings(rt, { ocrHiddenTypes }),
+      setOcrMatchLayout: (ocrMatchLayout: boolean) => updateSettings(rt, { ocrMatchLayout }),
+      setOcrPickBlocks: (ocrPickBlocks: boolean) => updateSettings(rt, { ocrPickBlocks }),
+      toggleBlock: (pages: readonly OcrCleanPage[], id: string) => dispatch({ type: "blocks/toggle", pages, id }),
+      includeAllBlocks: () => dispatch({ type: "blocks/includeAll" }),
       setShowTranslation: (show: boolean) => dispatch({ type: "view/translation", show }),
       requestOriginal: () => void ensureOriginalStructure(rt),
       produceOriginal: () => void ensureOriginalStructure(rt, true),
@@ -212,8 +218,10 @@ function estimateLabel(state: AppState, sourceText: string | null): string | nul
   const result = estimateRun({
     sourceTokens,
     boxes: fromOcr ? ocr.text.bboxes.filter((b) => b.dataUrl).length : 0,
-    hasBlocks: fromOcr || ocrable,
+    // Without the JSON format, text input is translated paragraph by paragraph.
+    hasBlocks: fromOcr || ocrable || !settings.jsonOutput,
     model,
+    structured: settings.jsonOutput,
     inferSchema: settings.schemaMode.kind === "infer",
     sendImages: settings.sendImages,
     bboxAnnotations: settings.bboxAnnotations,

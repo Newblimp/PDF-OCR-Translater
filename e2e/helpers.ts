@@ -69,10 +69,15 @@ export const OCR_PAGE = {
   dimensions: { dpi: 200, height: 2200, width: 1700 },
   header: "国家知识产权局",
   footer: "第 1 页",
+  // The page's layout blocks, in reading order: everything in `markdown`, plus the header and footer moved out of it.
   blocks: [
+    { type: "header", top_left_x: 100, top_left_y: 20, bottom_right_x: 1600, bottom_right_y: 80, content: "国家知识产权局" },
     { type: "title", top_left_x: 100, top_left_y: 100, bottom_right_x: 1600, bottom_right_y: 200, content: "第一次审查意见通知书" },
     { type: "text", top_left_x: 100, top_left_y: 220, bottom_right_x: 1600, bottom_right_y: 280, content: "申请号：CN202310000001.2" },
     { type: "image", top_left_x: 100, top_left_y: 300, bottom_right_x: 500, bottom_right_y: 600, content: "", image_id: "img-0.jpeg" },
+    { type: "text", top_left_x: 100, top_left_y: 700, bottom_right_x: 1600, bottom_right_y: 800, content: "权利要求1不具备创造性。" },
+    { type: "image", top_left_x: 900, top_left_y: 1500, bottom_right_x: 1300, bottom_right_y: 1900, content: "", image_id: "img-1.jpeg" },
+    { type: "footer", top_left_x: 100, top_left_y: 2100, bottom_right_x: 1600, bottom_right_y: 2160, content: "第 1 页" },
   ],
 };
 
@@ -172,7 +177,7 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
       const pdfText = documentUrl.startsWith("data:") ? Buffer.from(documentUrl.split(",")[1] ?? "", "base64").toString("latin1") : "";
       const pageCount = Math.max(1, (pdfText.match(/\/Type \/Page\b/g) ?? []).length);
       const indices = requested?.length ? requested : Array.from({ length: pageCount }, (_, i) => i);
-      const pages = indices.map((index) => ({ ...OCR_PAGE, index, images: index === 0 ? OCR_PAGE.images : [], blocks: index === 0 ? OCR_PAGE.blocks : [OCR_PAGE.blocks[1]] }));
+      const pages = indices.map((index) => ({ ...OCR_PAGE, index, images: index === 0 ? OCR_PAGE.images : [], blocks: OCR_PAGE.blocks }));
       return json(route, 200, { model: "mistral-ocr-latest", pages, usage_info: { pages_processed: pages.length, doc_size_bytes: 1234 } });
     }
 

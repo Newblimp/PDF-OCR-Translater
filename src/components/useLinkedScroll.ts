@@ -1,5 +1,5 @@
 import type { RefObject } from "preact";
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import { linkedScrollTop, type ScrollColumn } from "@/lib/util/linkedScroll";
 
 /** Scroll geometry of a column whose direct children marked `data-page` are its pages. */
@@ -15,8 +15,12 @@ function measure(el: HTMLElement): ScrollColumn {
 /**
  * While `enabled`, scrolling either column scrolls the other to the same
  * page (see `linkedScrollTop`). When switched on, `first` follows `second`.
+ * When `layoutKey` changes (the content of `second` was laid out anew:
+ * blocks left out, the page layout switched), `second` follows `first`,
+ * which did not move.
  */
-export function useLinkedScroll(first: RefObject<HTMLElement>, second: RefObject<HTMLElement>, enabled: boolean): void {
+export function useLinkedScroll(first: RefObject<HTMLElement>, second: RefObject<HTMLElement>, enabled: boolean, layoutKey = ""): void {
+  const followFirst = useRef<(() => void) | null>(null);
   useEffect(() => {
     const a = first.current;
     const b = second.current;
@@ -37,9 +41,12 @@ export function useLinkedScroll(first: RefObject<HTMLElement>, second: RefObject
     a.addEventListener("scroll", onFirst, { passive: true });
     b.addEventListener("scroll", onSecond, { passive: true });
     follow(b, a);
+    followFirst.current = onFirst;
     return () => {
+      followFirst.current = null;
       a.removeEventListener("scroll", onFirst);
       b.removeEventListener("scroll", onSecond);
     };
   }, [enabled, first, second]);
+  useEffect(() => followFirst.current?.(), [layoutKey]);
 }

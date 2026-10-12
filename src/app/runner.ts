@@ -12,7 +12,7 @@ import { fileToDataUrl } from "@/lib/files/dataUrl";
 import { sha256Hex } from "@/lib/files/hash";
 import { disposePageRenderer } from "@/lib/files/pageRenderCache";
 import { openPdfPreview } from "@/lib/files/pdfPreview";
-import { textBlocks } from "@/lib/pipeline/blockTranslate";
+import { ocrTextFromPages, shownTextBlockIds, textPages, type BlockFilter } from "@/lib/pipeline/blocks";
 import { emit, type StageId } from "@/lib/pipeline/events";
 import {
   blockTranslations,
@@ -26,7 +26,7 @@ import {
   type SchemaMode,
 } from "@/lib/pipeline/pipeline";
 import { parsePageSelection } from "@/lib/util/pageSelection";
-import { buildOcrText, type OcrText } from "@/lib/pipeline/ocrText";
+import { buildOcrText, type OcrCleanPage, type OcrText } from "@/lib/pipeline/ocrText";
 import { OCR_MAX_FILE_BYTES } from "@/lib/pipeline/runOcr";
 import { clearApiKey, loadApiKey, saveApiKey } from "@/lib/storage/apiKeys";
 import {
@@ -45,6 +45,8 @@ import { applyTheme } from "@/lib/storage/theme";
 import { formatBytes } from "@/lib/util/text";
 import {
   canRunOcr,
+  excludedBlocks,
+  hasStructure,
   missingKeys,
   ocrBelongsTo,
   ocrRequestKey,
@@ -307,7 +309,7 @@ async function restoreSavedTranslation(rt: Runtime, docId: string, sourceHash: s
   const saved = await findSavedTranslation<TranslationState>(sourceHash, ocrKey);
   const state = rt.getState();
   if (!saved || state.doc?.id !== docId || state.translation || state.job) return;
-  rt.dispatch({ type: "translation/set", translation: { ...saved.translation, restored: true } });
+  rt.dispatch({ type: "translation/set", translation: restoredTranslation(saved.translation) });
 }
 
 export function clearDocument(rt: Runtime): void {
@@ -359,7 +361,12 @@ export async function openSavedTranslation(rt: Runtime, id: string): Promise<voi
   if (superseded()) return;
   releaseDocument(rt);
   const textSource = saved.sourceKind === "pasted" || saved.sourceKind === "text";
-  rt.dispatch({ type: "history/open", ocr, translation: { ...saved.translation, restored: true }, pastedText: textSource ? saved.translation.sourceText : null });
+  rt.dispatch({ type: "history/open", ocr, translation: restoredTranslation(saved.translation), pastedText: textSource ? saved.translation.sourceText : null });
+}
+
+/** A saved translation back on screen; entries saved before translations could be made without the JSON format have no `pages`. */
+function restoredTranslation(saved: TranslationState): TranslationState {
+  return { ...saved, pages: saved.pages ?? null, restored: true };
 }
 
 /** Saved translations the user deleted: a later job on the same result on screen must not write them back. */
@@ -478,6 +485,11 @@ function ocrOf(state: AppState, t: TranslationState): OcrText | undefined {
   return state.ocr && ocrBelongsTo(state.ocr, t) ? state.ocr.text : undefined;
 }
 
+/** The blocks the OCR text tab keeps for these pages: the block types not hidden there, minus the blocks left out one by one. */
+function blockFilter(state: AppState, pages: readonly OcrCleanPage[]): BlockFilter {
+  return { hiddenTypes: new Set(state.settings.ocrHiddenTypes), excluded: excludedBlocks(state, pages) };
+}
+
 function isCancellation(err: unknown, job: Job): boolean {
   return job.controller.signal.aborted || (err instanceof ApiError && err.kind === "aborted");
 }
@@ -485,6 +497,11 @@ function isCancellation(err: unknown, job: Job): boolean {
 /** The stages a translation runs, for the job status card. */
 function translationStages(settings: Settings, withOcr: boolean, withBoxes: boolean): StageId[] {
   const stages: StageId[] = withOcr ? ["prepare", "ocr"] : [];
+  if (!settings.jsonOutput) {
+    if (withBoxes && settings.bboxAnnotations) stages.push("bbox_annotate");
+    stages.push("block_translate");
+    return stages;
+  }
   stages.push("infer_schema");
   if (withBoxes && settings.bboxAnnotations) stages.push("bbox_annotate");
   stages.push("translate");
@@ -591,24 +608,114 @@ async function describeSource(state: AppState, text: string, origin: "ocr" | "te
   return { text, ocr: undefined, name, kind: origin === "textfile" ? "text" : "pasted", hash: await hashText(text), ocrKey: null };
 }
 
+/** Runs a step whose failure leaves a warning (collected in `warnings`) on the result instead of failing the job. */
+function followUps(job: Job, warnings: string[]) {
+  return <T>(stage: StageId, label: string, task: Promise<T | null>): Promise<T | null> =>
+    task.catch((err: unknown) => {
+      if (isCancellation(err, job)) throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      warnings.push(`${label} failed: ${message}`);
+      emit(job.ctx.onProgress, stage, "warning", `${label} failed`, { detail: message });
+      emit(job.ctx.onProgress, stage, "done", "Stopped; the translation is unaffected");
+      return null;
+    });
+}
+
+/** With the JSON format: schema → document annotation; without it: the text blocks one by one. */
+function runTranslation(rt: Runtime, job: Job, source: Source): Promise<void> {
+  return job.ctx.settings.structured ? translateStructured(rt, job, source) : translateByBlocks(rt, job, source);
+}
+
+/**
+ * Without the JSON format: the text blocks the OCR text tab keeps (OCR
+ * blocks, or the paragraphs of text input) are translated one by one, with
+ * the bbox annotation alongside. The translation is on screen from the start
+ * and fills in batch by batch.
+ */
+async function translateByBlocks(rt: Runtime, job: Job, source: Source): Promise<void> {
+  const { ctx, controller } = job;
+  const warnings: string[] = [];
+  const followUp = followUps(job, warnings);
+  const pages = source.ocr?.pages ?? textPages(source.text);
+  const onlyIds = shownTextBlockIds(pages, blockFilter(rt.getState(), pages));
+  if (!onlyIds.size) throw new Error("Nothing to translate: every text block is left out by the block filters of the OCR text tab.");
+
+  const bboxes = followUp("bbox_annotate", "Bounding-box descriptions", describeBboxes(ctx, source.ocr));
+  void bboxes.catch(() => undefined); // awaited below; a failing translation must not leave it unhandled
+
+  const id = crypto.randomUUID();
+  job.producedId = id;
+  rt.dispatch({
+    type: "translation/set",
+    translation: {
+      id,
+      sourceName: source.name,
+      sourceKind: source.kind,
+      sourceHash: source.hash,
+      ocrKey: source.ocrKey,
+      sourceText: source.text,
+      pages,
+      data: null,
+      rawText: "",
+      schema: null,
+      schemaSource: null,
+      schemaWarnings: [],
+      usage: null,
+      inferUsage: null,
+      provider: ctx.chat.id,
+      model: ctx.settings.chatModel,
+      mode: null,
+      violations: [],
+      finishReason: null,
+      partial: false,
+      targetLanguage: ctx.settings.targetLanguage,
+      completedAt: Date.now(),
+      sourceChars: source.text.length,
+      imagesSent: 0,
+      bboxAnnotations: [],
+      bboxUsage: null,
+      blockTranslations: {},
+      blockUsage: null,
+      originalData: null,
+      originalRawText: null,
+      originalUsage: null,
+      originalViolations: [],
+      warnings: [],
+      restored: false,
+    },
+  });
+  // Only this translation: another one may have replaced it on screen meanwhile.
+  const patch = (p: Partial<TranslationState>) => {
+    if (rt.getState().translation?.id === id) rt.dispatch({ type: "translation/patch", patch: p });
+  };
+  const received: Record<string, string> = {};
+  try {
+    const out = await blockTranslations(ctx, source.ocr ?? ocrTextFromPages(source.text, pages), onlyIds, (batch) => {
+      Object.assign(received, batch);
+      patch({ blockTranslations: { ...received } });
+    });
+    controller.signal.throwIfAborted();
+    patch({ blockTranslations: out.translations, blockUsage: out.usage, completedAt: Date.now() });
+    if (!Object.keys(out.translations).length) throw new Error(`None of the ${onlyIds.size} text block(s) came back translated; the job steps above say why.`);
+    const b = await bboxes;
+    if (b) patch({ bboxAnnotations: b.annotations, bboxUsage: b.usage });
+  } finally {
+    // Keep what was translated even when the job was cancelled or a batch failed.
+    if (warnings.length) patch({ warnings });
+    if (Object.keys(received).length && rt.getState().translation?.id === id) await saveTranslation(rt);
+  }
+}
+
 /**
  * Schema → translation, with the bbox annotation running alongside (it does
  * not feed into the translation), then the follow-ups side by side. A
  * follow-up that fails leaves a warning on the result instead of failing
  * the job: the translation is already there.
  */
-async function runTranslation(rt: Runtime, job: Job, source: Source): Promise<void> {
+async function translateStructured(rt: Runtime, job: Job, source: Source): Promise<void> {
   const { ctx, controller } = job;
   const warnings: string[] = [];
-  const followUp = <T>(stage: StageId, label: string, task: Promise<T | null>): Promise<T | null> =>
-    task.catch((err: unknown) => {
-      if (isCancellation(err, job)) throw err;
-      const message = err instanceof Error ? err.message : String(err);
-      warnings.push(`${label} failed: ${message}`);
-      emit(ctx.onProgress, stage, "warning", `${label} failed`, { detail: message });
-      emit(ctx.onProgress, stage, "done", "Stopped; the translation is unaffected");
-      return null;
-    });
+  const followUp = followUps(job, warnings);
 
   const schema = await resolveSchema(ctx, source.text);
   controller.signal.throwIfAborted();
@@ -629,6 +736,7 @@ async function runTranslation(rt: Runtime, job: Job, source: Source): Promise<vo
       sourceHash: source.hash,
       ocrKey: source.ocrKey,
       sourceText: source.text,
+      pages: null,
       data: translation.data,
       rawText: translation.rawText,
       schema: schema.schema,
@@ -673,11 +781,13 @@ async function runTranslation(rt: Runtime, job: Job, source: Source): Promise<vo
             (o) => o && patch({ originalData: o.data, originalRawText: o.rawText, originalUsage: o.usage, originalViolations: o.violations }),
           )
         : null,
-      source.ocr
-        ? followUp("block_translate", "Block translations", blockTranslations(ctx, source.ocr)).then(
-            (b) => b && patch({ blockTranslations: b.translations, blockUsage: b.usage }),
-          )
-        : emit(ctx.onProgress, "block_translate", "skipped", "No text blocks (text input)"),
+      !source.ocr
+        ? emit(ctx.onProgress, "block_translate", "skipped", "No text blocks (text input)")
+        : !ctx.settings.blockTranslations
+          ? emit(ctx.onProgress, "block_translate", "skipped", "Block translations disabled in Settings")
+          : followUp("block_translate", "Block translations", blockTranslations(ctx, source.ocr, shownTextBlockIds(source.ocr.pages, blockFilter(rt.getState(), source.ocr.pages)))).then(
+              (b) => b && patch({ blockTranslations: b.translations, blockUsage: b.usage }),
+            ),
     ]);
   } finally {
     // Keep the translation even when the follow-ups were cancelled.
@@ -694,7 +804,7 @@ async function runTranslation(rt: Runtime, job: Job, source: Source): Promise<vo
 export async function ensureOriginalStructure(rt: Runtime, force = false): Promise<void> {
   const state = rt.getState();
   const t = state.translation;
-  if (!t || state.job || (t.originalData !== null && t.originalData !== undefined) || state.settings.structureOriginal === "never") return;
+  if (!t || !hasStructure(t) || state.job || (t.originalData !== null && t.originalData !== undefined) || state.settings.structureOriginal === "never") return;
   // Not by itself while an error is shown (an automatic job would also clear it), nor twice for one translation.
   if (!force && (originalRequested.has(t.id) || state.error)) return;
   const job = beginJob(rt, "original", ["structure_original"], true, t);
@@ -717,16 +827,22 @@ export async function ensureOriginalStructure(rt: Runtime, force = false): Promi
   }
 }
 
-/** Run the bounding boxes or text blocks that failed (or came back empty) again, and merge the results in. */
+/**
+ * Run the bounding boxes or text blocks that failed (or came back empty)
+ * again, and merge the results in. For blocks: the ones the OCR text tab
+ * keeps, which includes blocks taken back after the translation.
+ */
 export async function retryFailed(rt: Runtime, what: "bboxes" | "blocks"): Promise<void> {
   const state = rt.getState();
   const t = state.translation;
   const ocr = t ? ocrOf(state, t) : undefined;
-  if (!t || !ocr || state.job) return;
+  // Without its OCR result, a translation made without the JSON format still has its blocks.
+  const pages = ocr?.pages ?? t?.pages;
+  if (!t || state.job || (what === "bboxes" ? !ocr : !pages)) return;
   const ids =
     what === "bboxes"
       ? new Set(t.bboxAnnotations.filter((a) => !a.data).map((a) => a.id))
-      : new Set(ocr.pages.flatMap((p) => textBlocks(p).map((b) => b.id)).filter((id) => !t.blockTranslations[id]?.trim()));
+      : new Set([...shownTextBlockIds(pages!, blockFilter(state, pages!))].filter((id) => !t.blockTranslations[id]?.trim()));
   if (!ids.size) return;
   const job = beginJob(rt, "retry", [what === "bboxes" ? "bbox_annotate" : "block_translate"], true, t);
   if (!job) return;
@@ -746,7 +862,7 @@ export async function retryFailed(rt: Runtime, what: "bboxes" | "blocks"): Promi
         });
       }
     } else {
-      const out = await blockTranslations(job.ctx, ocr, ids);
+      const out = await blockTranslations(job.ctx, ocr ?? ocrTextFromPages(t.sourceText, pages!), ids);
       job.controller.signal.throwIfAborted();
       const current = rt.getState().translation;
       if (out && current?.id === t.id) {
@@ -811,6 +927,7 @@ function toPipelineSettings(settings: Settings): PipelineSettings | { error: Non
   return {
     ocrModel: settings.ocrModel,
     chatModel: settings.chatModels[settings.provider] || info.defaultModel,
+    structured: settings.jsonOutput,
     schemaMode,
     streaming: settings.streaming,
     temperature: settings.temperature,

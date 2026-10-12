@@ -6,6 +6,7 @@ const base: EstimateInput = {
   boxes: 2,
   hasBlocks: true,
   model: "claude-haiku-5-5",
+  structured: true,
   inferSchema: true,
   sendImages: true,
   bboxAnnotations: true,
@@ -29,6 +30,12 @@ describe("estimateRun", () => {
     expect(withOriginal.calls).toBe(6);
     const long = estimateRun({ ...base, sourceTokens: 100_000 });
     expect(long.calls).toBe(7); // three parts
+  });
+
+  it("counts only the block translations (and the boxes) without the JSON format", () => {
+    const out = estimateRun({ ...base, structured: false, blockTranslations: false, structureOriginalAlways: true });
+    expect(out.calls).toBe(3); // 2 boxes, block translations
+    expect(estimateRun({ ...base, structured: false, bboxAnnotations: false }).calls).toBe(1);
   });
 
   it("gives tokens only when the price is unknown", () => {

@@ -30,7 +30,7 @@ export const QUICK_TARGET_LANGUAGES: ReadonlyArray<TargetLanguage> = ["English",
 export type TargetLanguage = (typeof TARGET_LANGUAGES)[number];
 
 export interface Settings {
-  /** Provider used for schema inference and translation. OCR is always Mistral. */
+  /** Provider used for translation (and schema inference). OCR is always Mistral. */
   provider: ProviderId;
   ocrModel: string;
   /** Chat model per provider, so switching providers keeps each choice. */
@@ -55,7 +55,7 @@ export interface Settings {
   bboxAnnotations: boolean;
   /** Upper bound on bounding boxes described per run (cost control). */
   maxBboxAnnotations: number;
-  /** Translate each OCR text block so the bounding-box view and the OCR text view can show it. */
+  /** With the JSON format: also translate each OCR text block so the bounding-box view and the OCR text view can show it. */
   blockTranslations: boolean;
   /**
    * Fill the JSON format with the document's own wording too, so "Structured
@@ -69,10 +69,22 @@ export interface Settings {
   rememberKeys: boolean;
   /** Keep finished translations in this browser (IndexedDB) for the "Recent translations" list. */
   saveTranslations: boolean;
+  /**
+   * Fill a JSON format with the translation (schema inference or a given
+   * schema, then the document annotation) and show the Structured text, JSON
+   * format and Raw JSON tabs. Off: the OCR text is translated block by block.
+   */
+  jsonOutput: boolean;
   /** OCR text tab: show the document's pages beside the text. */
   ocrShowPdf: boolean;
   /** OCR text tab: scroll the pages and the text together, page by page. */
   ocrLinkScroll: boolean;
+  /** OCR text tab: block types left out of the text (and not translated block by block). */
+  ocrHiddenTypes: string[];
+  /** OCR text tab: place each block where it is on the page, its text sized to fit. */
+  ocrMatchLayout: boolean;
+  /** OCR text tab: the blocks are drawn over the pages beside the text, and clicking one leaves it out or takes it back. */
+  ocrPickBlocks: boolean;
   /** Last model-default migration applied (see MODEL_DEFAULT_MIGRATIONS); runs each one once. */
   modelDefaultsRevision: number;
 }
@@ -115,8 +127,13 @@ export const DEFAULT_SETTINGS: Settings = {
   glossary: "",
   rememberKeys: true,
   saveTranslations: true,
+  jsonOutput: false,
   ocrShowPdf: false,
   ocrLinkScroll: true,
+  // Mistral OCR moves page headers and footers out of the page text (extract_header / extract_footer); their blocks stay out too.
+  ocrHiddenTypes: ["header", "footer"],
+  ocrMatchLayout: false,
+  ocrPickBlocks: false,
   modelDefaultsRevision: MODEL_DEFAULT_MIGRATIONS.length,
 };
 
@@ -154,6 +171,10 @@ function normalise(parsed: Partial<Settings>): Settings {
   if (typeof merged.saveTranslations !== "boolean") merged.saveTranslations = DEFAULT_SETTINGS.saveTranslations;
   if (typeof merged.ocrShowPdf !== "boolean") merged.ocrShowPdf = DEFAULT_SETTINGS.ocrShowPdf;
   if (typeof merged.ocrLinkScroll !== "boolean") merged.ocrLinkScroll = DEFAULT_SETTINGS.ocrLinkScroll;
+  if (typeof merged.jsonOutput !== "boolean") merged.jsonOutput = DEFAULT_SETTINGS.jsonOutput;
+  if (!Array.isArray(merged.ocrHiddenTypes) || !merged.ocrHiddenTypes.every((t) => typeof t === "string")) merged.ocrHiddenTypes = [...DEFAULT_SETTINGS.ocrHiddenTypes];
+  if (typeof merged.ocrMatchLayout !== "boolean") merged.ocrMatchLayout = DEFAULT_SETTINGS.ocrMatchLayout;
+  if (typeof merged.ocrPickBlocks !== "boolean") merged.ocrPickBlocks = DEFAULT_SETTINGS.ocrPickBlocks;
   return merged;
 }
 
