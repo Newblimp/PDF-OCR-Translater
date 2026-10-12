@@ -1,0 +1,5 @@
+# Generated or not ours to format (node_modules and .gitignore'd paths are skipped too).
+dist/
+test-results/
+playwright-report/
+package-lock.json

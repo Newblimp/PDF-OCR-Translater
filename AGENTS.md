@@ -55,7 +55,9 @@ AI). Keep it current when you change the architecture.
   mocked Mistral, Anthropic and OpenAI APIs (`e2e/helpers.ts`; `chatStep()`
   tells the pipeline steps apart for every provider). ESLint
   (`eslint.config.js`: typescript-eslint, React hooks rules, floating
-  promises). CI runs all of them (`.github/workflows/ci.yml`).
+  promises). Prettier formats everything (`.prettierrc.json`: print width
+  160, otherwise its defaults; pinned to an exact version so formatting does
+  not shift under an update). CI runs all of them (`.github/workflows/ci.yml`).
 
 ## Code map
 
@@ -325,6 +327,10 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 
 ## Conventions
 
+- Formatting is Prettier's: run `npm run format` instead of formatting by
+  hand (CI fails on unformatted files). The commit that first formatted the
+  code base is listed in `.git-blame-ignore-revs`, so `git blame` (and
+  GitHub's blame view) skips it.
 - Wire types use the API's snake_case; app types use camelCase.
 - Errors thrown from the clients are `ApiError` with a `kind`, `provider` and
   a user-facing `hint` (the Anthropic provider passes every SDK error through
@@ -367,5 +373,5 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 ## Checks before you push
 
 ```bash
-npm run typecheck && npm run lint && npm test && npm run e2e && npm run build
+npm run format && npm run typecheck && npm run lint && npm test && npm run e2e && npm run build
 ```

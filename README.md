@@ -181,6 +181,7 @@ npm install
 npm run dev          # http://localhost:5173, with the production CSP applied
 npm run typecheck    # strict TypeScript
 npm run lint         # ESLint (typescript-eslint, React hooks rules)
+npm run format       # Prettier: format everything (format:check only checks, as CI does)
 npm test             # unit tests (Vitest)
 npm run e2e          # Playwright end-to-end tests against mocked Mistral, Anthropic and OpenAI APIs
 npm run build        # typecheck + production build into dist/
