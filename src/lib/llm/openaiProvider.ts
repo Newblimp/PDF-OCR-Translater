@@ -1,7 +1,7 @@
 import { OpenAIClient } from "../openai/client";
-import { plainUserText, userMessage } from "./content";
+import { chatCompletionsRequest } from "./content";
 import { openaiModelOptions } from "../openai/models";
-import type { ChatCompletionRequest, ContentPart } from "../openai/types";
+import type { ChatCompletionRequest } from "../openai/types";
 import type { ChatProvider, JsonChatRequest, JsonChatResult } from "./provider";
 import { ApiError } from "../http/apiError";
 
@@ -14,14 +14,6 @@ import { ApiError } from "../http/apiError";
  *  - Prompt caching is automatic for long shared prefixes, which is why the
  *    context and images come before the task (`userMessage()`).
  */
-function userContent(request: JsonChatRequest): string | ContentPart[] {
-  const message = userMessage(request);
-  return (
-    plainUserText(message) ??
-    message.parts.map((part): ContentPart => (part.type === "text" ? part : { type: "image_url", image_url: { url: part.dataUrl, detail: "auto" } }))
-  );
-}
-
 export class OpenAIProvider implements ChatProvider {
   readonly id = "openai" as const;
   readonly label = "OpenAI (GPT Luna)";
@@ -37,35 +29,11 @@ export class OpenAIProvider implements ChatProvider {
   }
 
   async completeJson(request: JsonChatRequest): Promise<JsonChatResult> {
-    const body: ChatCompletionRequest = {
-      model: request.model,
-      messages: [
-        { role: "system", content: request.system },
-        { role: "user", content: userContent(request) },
-      ],
-      response_format:
-        request.format.type === "json_schema"
-          ? {
-              type: "json_schema",
-              json_schema: {
-                name: request.format.name,
-                ...(request.format.description ? { description: request.format.description } : {}),
-                schema: request.format.schema,
-                strict: request.format.strict,
-              },
-            }
-          : { type: "json_object" },
-    };
+    const body: ChatCompletionRequest = chatCompletionsRequest(request, (url) => ({ type: "image_url" as const, image_url: { url, detail: "auto" as const } }));
     if (request.reasoningEffort) body.reasoning_effort = request.reasoningEffort;
     if (request.maxOutputTokens) body.max_completion_tokens = request.maxOutputTokens;
 
-    const result = request.stream
-      ? await this.client.chatStream(body, {
-          ...(request.signal ? { signal: request.signal } : {}),
-          ...(request.onDelta ? { onDelta: request.onDelta } : {}),
-        })
-      : await this.client.chat(body, request.signal);
-
+    const result = await this.client.complete(body, request);
     if (result.refusal && !result.content) {
       throw new ApiError(`The model refused to answer: ${result.refusal}`, "refusal", "openai");
     }

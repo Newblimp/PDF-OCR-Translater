@@ -55,11 +55,14 @@ AI). Keep it current when you change the architecture.
   the API. `toAnthropicApiError()` maps SDK errors onto `ApiError`. Use the
   SDK's types (`Anthropic.MessageCreateParamsNonStreaming`, `Message`,
   `ModelInfo`, ...); do not redefine them.
-- Mistral and OpenAI have no SDK dependency: their REST calls are
-  hand-written (`src/lib/mistral/client.ts`, `src/lib/openai/client.ts`) on a
-  shared fetch/error/SSE layer (`src/lib/http/`: `apiFetch` with the SDK's
-  retry policy, `readChatStream` for their common streaming format), with
-  wire types derived from the official SDKs.
+- Mistral and OpenAI have no SDK dependency: they share the Chat Completions
+  protocol, so one hand-written client serves both
+  (`ChatCompletionsClient` in `src/lib/http/chatClient.ts`: models, chat,
+  streamed chat; `src/lib/mistral/client.ts` adds OCR), on a shared
+  fetch/error/SSE layer (`apiFetch` with the SDK's retry policy,
+  `readChatStream` for their common streaming format), and their providers
+  build the request with `chatCompletionsRequest()` (`llm/content.ts`). Wire
+  types are derived from the official SDKs.
 - Tests: Vitest for pure modules, Playwright for end-to-end flows against
   mocked Mistral, Anthropic and OpenAI APIs (`e2e/helpers.ts`; `chatStep()`
   tells the pipeline steps apart for every provider). ESLint
@@ -99,23 +102,25 @@ src/
       apiFetch.ts              authenticated fetch + retries with backoff (Mistral, OpenAI)
       apiError.ts              ApiError (kind, provider, hint); error mapping; permanent / image rejection checks
       sse.ts                   pure SSE parser
+      chatClient.ts            Chat Completions client shared by Mistral and OpenAI (models, chat, streamed chat)
       chatStream.ts            streamed Chat Completions reader shared by Mistral and OpenAI
     llm/
       provider.ts              ChatProvider interface (JSON completions), token usage helpers
-      content.ts               user message order shared by the providers: context, images, task
+      content.ts               user message order shared by the providers: context, images, task;
+                               the Chat Completions request of Mistral and OpenAI
       anthropicProvider.ts     Anthropic implementation (Claude Haiku 5.5)
       openaiProvider.ts        OpenAI implementation (GPT Luna)
       mistralProvider.ts       Mistral implementation (Mistral Small, the default)
       registry.ts              provider metadata, defaults, factory
     mistral/
-      client.ts                OCR + chat + models REST client
+      client.ts                the shared chat client plus OCR
       types.ts                 request/response wire types (snake_case)
       models.ts                Mistral model ids, model-list filtering
     anthropic/
       client.ts                lazy-loaded official SDK client + SDK error → ApiError mapping
       models.ts                Claude model ids, default max_tokens, model-list filtering
     openai/
-      client.ts                chat completions + models REST client
+      client.ts                the shared chat client (asks for usage in streams)
       types.ts                 wire types
       models.ts                OpenAI model ids, model-list filtering
     pipeline/

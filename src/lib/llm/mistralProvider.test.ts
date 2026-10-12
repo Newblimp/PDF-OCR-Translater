@@ -9,7 +9,7 @@ import type { JsonChatRequest } from "./provider";
 function fakeClient(rejecting: string[] = []): { client: MistralClient; bodies: ChatCompletionRequest[] } {
   const bodies: ChatCompletionRequest[] = [];
   const client = {
-    chat: async (body: ChatCompletionRequest) => {
+    complete: async (body: ChatCompletionRequest) => {
       bodies.push(body);
       if (body.reasoning_effort && rejecting.includes(body.model))
         throw new ApiError("Extra inputs are not permitted: reasoning_effort", "request", "mistral", 422);
@@ -55,7 +55,7 @@ describe("MistralProvider reasoning effort", () => {
 
   it("does not retry other errors", async () => {
     const client = {
-      chat: async () => {
+      complete: async () => {
         throw new ApiError("Unauthorized", "auth", "mistral", 401);
       },
     } as unknown as MistralClient;
