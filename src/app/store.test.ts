@@ -251,13 +251,13 @@ describe("block selection", () => {
 
 describe("key gating", () => {
   it("requires only the Mistral key when Mistral translates, both otherwise", () => {
-    expect(requiredProviders({ ...DEFAULT_SETTINGS, provider: "mistral" })).toEqual(["mistral"]);
-    expect(requiredProviders(DEFAULT_SETTINGS)).toEqual(["mistral", "anthropic"]);
+    expect(requiredProviders(DEFAULT_SETTINGS)).toEqual(["mistral"]);
+    expect(requiredProviders({ ...DEFAULT_SETTINGS, provider: "anthropic" })).toEqual(["mistral", "anthropic"]);
     expect(requiredProviders({ ...DEFAULT_SETTINGS, provider: "openai" })).toEqual(["mistral", "openai"]);
   });
 
   it("treats a rejected key as missing", () => {
-    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, DEFAULT_SETTINGS);
+    let state = initialState({ anthropic: "a", mistral: "m", openai: "o" }, { ...DEFAULT_SETTINGS, provider: "anthropic" });
     expect(missingKeys(state)).toEqual([]);
     state = reducer(state, { type: "key/status", provider: "anthropic", status: "invalid", error: "nope" });
     expect(usableKey(state.keys, "anthropic")).toBeNull();

@@ -268,7 +268,8 @@ export const OcrView = memo(function OcrView({
         </details>
       )}
       {comparing && doc ? (
-        <div class="ocr-compare">
+        // Locked, neither column bounces past its ends (see `.ocr-compare-locked`): a bounce cannot be passed on to the other.
+        <div class={`ocr-compare${linkScroll ? " ocr-compare-locked" : ""}`}>
           <PdfPages doc={doc} views={views} column={pdfColumn} picker={picker} />
           {textPages}
         </div>

@@ -5,14 +5,15 @@ AI). Keep it current when you change the architecture.
 
 ## Purpose and hard constraints
 
-- Browser-only PDF → OCR (Mistral) → translation (Anthropic Claude Haiku
-  5.5 by default, or OpenAI GPT Luna, or Mistral), block by block by
-  default, or into a structured JSON format with `Settings.jsonOutput`. See
+- Browser-only PDF → OCR (Mistral) → translation (Mistral Small,
+  `mistral-small-latest`, by default; or Anthropic Claude Haiku 5.5, or
+  OpenAI GPT Luna), block by block by default, or into a structured JSON
+  format with `Settings.jsonOutput`. See
   README.md for the user-facing description.
 - **The document may only ever be sent to `https://api.mistral.ai` (OCR), and
   the extracted text plus the OCR's cropped bounding-box images only to the
-  selected translation provider (`https://api.anthropic.com`,
-  `https://api.openai.com` or `https://api.mistral.ai`).** There is no server
+  selected translation provider (`https://api.mistral.ai` by default,
+  `https://api.anthropic.com` or `https://api.openai.com`).** There is no server
   component, no analytics, no third-party scripts. `public/_headers` enforces
   this with a CSP (`connect-src 'self' https://api.mistral.ai https://api.anthropic.com https://api.openai.com`).
   Do not add Cloudflare Pages Functions, proxies, or remote fonts/scripts
@@ -90,9 +91,9 @@ src/
       provider.ts              ChatProvider interface (JSON completions), token usage helpers
       content.ts               user message order shared by the providers: context, images, task
       pricing.ts               list prices for the cost estimate
-      anthropicProvider.ts     Anthropic implementation (Claude Haiku 5.5, the default)
+      anthropicProvider.ts     Anthropic implementation (Claude Haiku 5.5)
       openaiProvider.ts        OpenAI implementation (GPT Luna)
-      mistralProvider.ts       Mistral implementation
+      mistralProvider.ts       Mistral implementation (Mistral Small, the default)
       registry.ts              provider metadata, defaults, factory
     mistral/
       client.ts                OCR + chat + models REST client
@@ -245,7 +246,13 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `--fit` custom property and `data-fitted` / `data-overflow`. Keep the text
   column the same element in every mode and its pages direct children with
   `data-page`; `useLinkedScroll()`'s `layoutKey` makes the text follow the
-  pages again after filters or the layout change it.
+  pages again after filters or the layout change it. Locked, both columns
+  get `overscroll-behavior: none` (`.ocr-compare-locked`): an elastic bounce
+  cannot be mirrored on the other column by script.
+- **Side panel**: `Settings.sidePanelCollapsed` (the header's panel button,
+  or the rail) folds the input pane into `SideRail` (a running job with
+  Cancel, an error). The pane's content stays mounted in a hidden
+  `.pane-body`, so drafts and open sections survive folding.
 - **Page rendering**: `files/pageRenderCache.ts` keeps one pdf.js document
   open per loaded file, renders on demand and pre-renders the rest in the
   background (`PREFETCH_LIMIT`); `BboxView` and the OCR text view's pages
@@ -308,9 +315,9 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `/v1/models` returns (fallback list when it has not answered); the OCR-model
   dropdown lists `OCR_MODELS`. Both are dropdowns only — no free-text model
   ids — so a model id stored earlier appears as a "(custom)" entry.
-  When the default changes, append the old default to
-  `MODEL_DEFAULT_MIGRATIONS` in `src/lib/storage/settings.ts` so saved
-  choices move over once.
+  When a default model or the default provider changes, append the old
+  default to `DEFAULT_MIGRATIONS` in `src/lib/storage/settings.ts` so saved
+  choices move over once (and price the new default in `pricing.ts`).
 - **More target languages**: extend `TARGET_LANGUAGES` in
   `src/lib/storage/settings.ts`; the dropdown renders from it and
   `QUICK_TARGET_LANGUAGES` picks the one-click buttons.

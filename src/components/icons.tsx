@@ -66,3 +66,11 @@ export const ResetLayoutIcon = () => (
     <path d="M3 3v5h5" />
   </svg>
 );
+
+/** The side panel toggle: a window with its left column marked. */
+export const SidePanelIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" {...stroke} aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M9 4v16" />
+  </svg>
+);

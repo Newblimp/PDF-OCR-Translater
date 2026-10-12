@@ -82,17 +82,25 @@ export interface Settings {
   ocrMatchLayout: boolean;
   /** OCR text tab: the blocks are drawn over the pages beside the text, and clicking one leaves it out or takes it back. */
   ocrPickBlocks: boolean;
-  /** Last model-default migration applied (see MODEL_DEFAULT_MIGRATIONS); runs each one once. */
+  /** The side panel (document, actions, settings, recent translations) is folded into a narrow rail. */
+  sidePanelCollapsed: boolean;
+  /** Number of default migrations applied (see DEFAULT_MIGRATIONS); each runs once. */
   modelDefaultsRevision: number;
 }
 
 /**
- * Stored models that were the default until a newer one replaced it. Each
- * entry moves a saved choice over once; picking the old model again later
- * sticks. Append entries; the revision is the entry's 1-based position.
+ * Defaults that a newer one replaced (a provider's model, or the provider).
+ * Each entry moves a saved choice that still holds the old default over
+ * once; picking the old one again later sticks. Append entries; the revision
+ * is the entry's 1-based position.
  */
-const MODEL_DEFAULT_MIGRATIONS: ReadonlyArray<{ provider: ProviderId; from: string; to: string }> = [
-  { provider: "openai", from: "gpt-5.6-luna", to: PROVIDERS.openai.defaultModel },
+type DefaultMigration = { kind: "model"; provider: ProviderId; from: string; to: string } | { kind: "provider"; from: ProviderId; to: ProviderId };
+
+const DEFAULT_MIGRATIONS: ReadonlyArray<DefaultMigration> = [
+  { kind: "model", provider: "openai", from: "gpt-5.6-luna", to: PROVIDERS.openai.defaultModel },
+  // Mistral Small replaced Claude Haiku 5.5 as the default translation model.
+  { kind: "provider", from: "anthropic", to: "mistral" },
+  { kind: "model", provider: "mistral", from: "mistral-large-latest", to: PROVIDERS.mistral.defaultModel },
 ];
 
 const VERSION = 2;
@@ -103,7 +111,7 @@ const LEGACY_V1_KEY = "pdf-ocr-translater.settings.v1";
 export const SETTINGS_STORAGE_KEY = STORAGE_KEY;
 
 export const DEFAULT_SETTINGS: Settings = {
-  provider: "anthropic",
+  provider: "mistral",
   ocrModel: DEFAULT_OCR_MODEL,
   chatModels: { anthropic: PROVIDERS.anthropic.defaultModel, openai: PROVIDERS.openai.defaultModel, mistral: PROVIDERS.mistral.defaultModel },
   targetLanguage: "English",
@@ -131,7 +139,8 @@ export const DEFAULT_SETTINGS: Settings = {
   ocrHiddenTypes: ["header", "footer"],
   ocrMatchLayout: false,
   ocrPickBlocks: false,
-  modelDefaultsRevision: MODEL_DEFAULT_MIGRATIONS.length,
+  sidePanelCollapsed: false,
+  modelDefaultsRevision: DEFAULT_MIGRATIONS.length,
 };
 
 export function loadSettings(): Settings {
@@ -157,10 +166,14 @@ function normalise(parsed: Partial<Settings>): Settings {
   if (!["none", "low", "medium", "high"].includes(merged.reasoningEffort)) merged.reasoningEffort = DEFAULT_SETTINGS.reasoningEffort;
   if (typeof merged.maxOutputTokens !== "number" || !Number.isFinite(merged.maxOutputTokens) || merged.maxOutputTokens <= 0) merged.maxOutputTokens = null;
   const revision = typeof parsed.modelDefaultsRevision === "number" ? parsed.modelDefaultsRevision : 0;
-  MODEL_DEFAULT_MIGRATIONS.slice(revision).forEach(({ provider, from, to }) => {
-    if (merged.chatModels[provider] === from) merged.chatModels[provider] = to;
-  });
-  merged.modelDefaultsRevision = MODEL_DEFAULT_MIGRATIONS.length;
+  for (const m of DEFAULT_MIGRATIONS.slice(revision)) {
+    if (m.kind === "provider") {
+      if (merged.provider === m.from) merged.provider = m.to;
+    } else if (merged.chatModels[m.provider] === m.from) {
+      merged.chatModels[m.provider] = m.to;
+    }
+  }
+  merged.modelDefaultsRevision = DEFAULT_MIGRATIONS.length;
   if (!Number.isInteger(merged.maxBboxAnnotations) || merged.maxBboxAnnotations < 0) merged.maxBboxAnnotations = DEFAULT_SETTINGS.maxBboxAnnotations;
   merged.structureOriginal = structureOriginalMode(parsed.structureOriginal as unknown);
   if (typeof merged.glossary !== "string") merged.glossary = DEFAULT_SETTINGS.glossary;
@@ -173,6 +186,7 @@ function normalise(parsed: Partial<Settings>): Settings {
     merged.ocrHiddenTypes = [...DEFAULT_SETTINGS.ocrHiddenTypes];
   if (typeof merged.ocrMatchLayout !== "boolean") merged.ocrMatchLayout = DEFAULT_SETTINGS.ocrMatchLayout;
   if (typeof merged.ocrPickBlocks !== "boolean") merged.ocrPickBlocks = DEFAULT_SETTINGS.ocrPickBlocks;
+  if (typeof merged.sidePanelCollapsed !== "boolean") merged.sidePanelCollapsed = DEFAULT_SETTINGS.sidePanelCollapsed;
   return merged;
 }
 

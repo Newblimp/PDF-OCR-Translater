@@ -181,7 +181,7 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
       return json(route, 200, { model: "mistral-ocr-latest", pages, usage_info: { pages_processed: pages.length, doc_size_bytes: 1234 } });
     }
 
-    if (url.endsWith("/v1/chat/completions")) return chatCompletion(route, body, "mistral-large-latest", false);
+    if (url.endsWith("/v1/chat/completions")) return chatCompletion(route, body, String(body?.["model"] ?? "mistral-small-latest"), false);
     return json(route, 404, { message: "not mocked" });
   });
 

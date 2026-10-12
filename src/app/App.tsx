@@ -20,6 +20,7 @@ import { JobStatus } from "@/components/JobStatus";
 import { PasteBox } from "@/components/PasteBox";
 import { ResultsPanel, type ResultActions } from "@/components/ResultsPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { SideRail } from "@/components/SideRail";
 import {
   cancelJob,
   clearDocument,
@@ -87,6 +88,7 @@ export function App() {
       setTheme: (theme: ThemeSetting) => updateSettings(rt, { theme }),
       changeSettings: (patch: Partial<Settings>) => updateSettings(rt, patch),
       toggleSettings: (open: boolean) => dispatch({ type: "settings/toggle", open }),
+      toggleSidePanel: () => updateSettings(rt, { sidePanelCollapsed: !rt.getState().settings.sidePanelCollapsed }),
       loadFile: (file: File) => void loadDocument(rt, file),
       removeDocument: () => clearDocument(rt),
       setPageSelection: (text: string) => setPageSelection(rt, text),
@@ -147,6 +149,7 @@ export function App() {
     [sourceText?.text, state.doc?.pageCount, state.doc?.pageSelection, state.doc?.kind, state.ocr, state.pasteMode, state.settings],
   );
   const busy = !!state.job;
+  const collapsed = state.settings.sidePanelCollapsed;
 
   return (
     <div class="app">
@@ -157,48 +160,60 @@ export function App() {
         onChangeKeys={on.openKeys}
         onForgetKeys={on.forgetKeys}
         onTheme={on.setTheme}
+        sidePanelCollapsed={collapsed}
+        onToggleSidePanel={on.toggleSidePanel}
       />
 
-      <main class="layout">
-        <section class="pane pane-input" aria-label="Input">
-          {state.doc && !state.pasteMode ? (
-            <DocumentCard
-              doc={state.doc}
-              ocr={state.ocr}
-              busy={busy}
-              onPageSelection={on.setPageSelection}
-              onReplace={on.loadFile}
-              onRemove={on.removeDocument}
+      <main class={`layout${collapsed ? " layout-side-collapsed" : ""}`}>
+        <section id="side-panel" class="pane pane-input" aria-label="Input">
+          {collapsed && <SideRail running={state.job?.kind ?? null} error={state.error} onExpand={on.toggleSidePanel} onCancel={on.cancel} />}
+          {/* Folded away, not unmounted: drafts and open sections stay as they were. */}
+          <div class="pane-body" hidden={collapsed}>
+            {state.doc && !state.pasteMode ? (
+              <DocumentCard
+                doc={state.doc}
+                ocr={state.ocr}
+                busy={busy}
+                onPageSelection={on.setPageSelection}
+                onReplace={on.loadFile}
+                onRemove={on.removeDocument}
+              />
+            ) : state.pasteMode ? (
+              <PasteBox text={state.pastedText} onChange={on.pasteText} onClose={on.closePaste} />
+            ) : (
+              <DropZone onFile={on.loadFile} onPaste={on.openPaste} />
+            )}
+
+            <ActionBar
+              running={state.job?.kind ?? null}
+              canOcr={ocrPossible}
+              canTranslate={!busy && !!sourceText}
+              translateSource={sourceText?.origin ?? null}
+              hasDocument={!!state.doc || state.pasteMode}
+              estimate={estimate}
+              onRun={on.run}
+              onCancel={on.cancel}
             />
-          ) : state.pasteMode ? (
-            <PasteBox text={state.pastedText} onChange={on.pasteText} onClose={on.closePaste} />
-          ) : (
-            <DropZone onFile={on.loadFile} onPaste={on.openPaste} />
-          )}
 
-          <ActionBar
-            running={state.job?.kind ?? null}
-            canOcr={ocrPossible}
-            canTranslate={!busy && !!sourceText}
-            translateSource={sourceText?.origin ?? null}
-            hasDocument={!!state.doc || state.pasteMode}
-            estimate={estimate}
-            onRun={on.run}
-            onCancel={on.cancel}
-          />
+            {state.job && <JobStatus job={state.job} />}
+            {state.error && <ErrorBanner error={state.error} onDismiss={on.dismissError} />}
 
-          {state.job && <JobStatus job={state.job} />}
-          {state.error && <ErrorBanner error={state.error} onDismiss={on.dismissError} />}
-
-          <SettingsPanel settings={state.settings} models={state.models} open={state.settingsOpen} onToggle={on.toggleSettings} onChange={on.changeSettings} />
-          <HistoryPanel
-            history={state.history}
-            busy={busy}
-            currentId={state.translation?.id ?? null}
-            onOpen={on.openSaved}
-            onDelete={on.deleteSaved}
-            onClear={on.clearHistory}
-          />
+            <SettingsPanel
+              settings={state.settings}
+              models={state.models}
+              open={state.settingsOpen}
+              onToggle={on.toggleSettings}
+              onChange={on.changeSettings}
+            />
+            <HistoryPanel
+              history={state.history}
+              busy={busy}
+              currentId={state.translation?.id ?? null}
+              onOpen={on.openSaved}
+              onDelete={on.deleteSaved}
+              onClear={on.clearHistory}
+            />
+          </div>
         </section>
 
         <section class="pane pane-results" aria-label="Results">

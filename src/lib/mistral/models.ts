@@ -21,12 +21,14 @@ export const OCR_MODELS: ReadonlyArray<ModelOption> = [
 ];
 
 /**
- * Chat model used for schema inference and translation. Patent-office
- * correspondence is dense legal text, so we default to the most capable
- * general model. The UI lets the user pick any chat-capable model returned
- * by GET /v1/models.
+ * Chat model used for translation (and schema inference): the app's default.
+ * `mistral-small-latest` is Mistral Small 4 (`mistral-small-2603`): image
+ * input (the bounding-box steps), a 256k context and structured outputs at
+ * a small model's price, and the alias follows new Small releases. The UI
+ * lets the user pick any chat-capable model returned by GET /v1/models.
+ * https://mistral.ai/news/mistral-small-4/
  */
-export const DEFAULT_CHAT_MODEL = "mistral-large-latest";
+export const DEFAULT_CHAT_MODEL = "mistral-small-latest";
 
 /**
  * Fallback list shown before /v1/models has answered (or when it fails).

@@ -40,12 +40,23 @@ async function setup(page: Page, options: { json?: boolean } = {}): Promise<{ re
   return { recorded, foreign };
 }
 
+/** Both keys, translating with Anthropic (Claude): the tests of Claude's requests. `enterMistralKey()` keeps the default, Mistral. */
 async function enterKeys(page: Page, mistral = MISTRAL_KEY, anthropic = ANTHROPIC_KEY): Promise<void> {
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Translate with").selectOption("anthropic");
   await dialog.getByPlaceholder("Paste your Mistral key").fill(mistral);
   await dialog.getByPlaceholder("Paste your Anthropic (Claude) key").fill(anthropic);
   await dialog.getByRole("button", { name: "Save and verify" }).click();
+}
+
+/** The Mistral key only: OCR and translation by Mistral (Mistral Small), the default. */
+async function enterMistralKey(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByPlaceholder("Paste your Mistral key").fill(MISTRAL_KEY);
+  await dialog.getByRole("button", { name: "Save and verify" }).click();
+  await expect(page.getByText("Mistral key verified")).toBeVisible();
 }
 
 /** The shared "Show translation" switch of the OCR text, Structured text and Raw JSON tabs. */
@@ -335,24 +346,33 @@ test("theme switch forces dark or light and persists; system removes the overrid
   await page.waitForFunction(() => document.documentElement.dataset["theme"] === "dark");
 });
 
-test("a Mistral-only user can pick Mistral in the key dialog and never needs an Anthropic key", async ({ page }) => {
-  const { recorded } = await setup(page, { json: true });
+test("Mistral is the default: one key, Mistral Small translates block by block, and nothing goes anywhere else", async ({ page }) => {
+  const { recorded, foreign } = await setup(page);
   const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel("Translate with")).toHaveValue("mistral");
   await expect(dialog.getByRole("button", { name: "Save and verify" })).toBeDisabled();
   await dialog.getByPlaceholder("Paste your Mistral key").fill(MISTRAL_KEY);
-  await expect(dialog.getByRole("button", { name: "Save and verify" })).toBeDisabled(); // Anthropic key still required
-  await dialog.getByLabel("Translate with").selectOption("mistral");
-  await expect(dialog.getByRole("button", { name: "Save and verify" })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Save and verify" })).toBeEnabled(); // the Anthropic and OpenAI keys are optional
   await dialog.getByRole("button", { name: "Save and verify" }).click();
   await expect(dialog).toBeHidden();
   await expect(page.getByText("Mistral key verified")).toBeVisible();
   await expect(page.getByText(/Anthropic key/)).toHaveCount(0);
+  await expect(page.locator(".header-title p")).toHaveText("OCR and translation by Mistral. Runs in your browser; documents go only to api.mistral.ai.");
 
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
+  await expect(page.getByText(/Translation estimate: .* ≈ \$[\d.]+ with mistral-small-latest/)).toBeVisible(); // Mistral Small's price is known
   await page.getByRole("button", { name: "Translate only" }).click();
-  await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".ocr-page")).toContainText("[EN] 权利要求1不具备创造性。", { timeout: 20_000 });
   expect(recorded.every((r) => r.host === "api.mistral.ai")).toBe(true);
+  const chats = chatRequests(recorded);
+  expect(chats.map(step)).toEqual(["block_translations"]);
+  expect(chats[0]!.body).toMatchObject({
+    model: "mistral-small-latest",
+    response_format: { type: "json_schema", json_schema: { name: "block_translations", strict: true } },
+  });
+  expect(chats[0]!.body).not.toHaveProperty("reasoning_effort");
+  expect(foreign).toEqual([]);
 
   // Switching to OpenAI without a key asks for it immediately; the dialog can be cancelled.
   await page.locator(".settings > summary").click();
@@ -404,19 +424,18 @@ test("Forget during an in-flight verification does not resurrect the keys", asyn
   await expect(page.getByText(/key verified/)).toHaveCount(0);
 });
 
-test("Mistral can still be chosen as translation provider", async ({ page }) => {
+test("with the JSON output, Mistral Small infers the JSON format and fills it", async ({ page }) => {
   const { recorded } = await setup(page, { json: true });
-  await enterKeys(page);
-  await page.locator(".settings > summary").click();
-  await page.getByLabel("Translation provider").selectOption("mistral");
+  await enterMistralKey(page);
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
   await page.getByRole("button", { name: "Translate only" }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".toolbar").first()).toContainText("Mistral · mistral-small-latest");
   const chats = chatRequests(recorded);
   expect(chats.map((c) => c.host)).toEqual(["api.mistral.ai", "api.mistral.ai"]);
   expect(chats.map(step)).toEqual(["infer_schema", "translated_document"]);
-  expect(chats[1]!.body).toMatchObject({ model: "mistral-large-latest", temperature: 0.2 });
+  expect(chats[1]!.body).toMatchObject({ model: "mistral-small-latest", temperature: 0.2 });
   expect(chats[1]!.body).not.toHaveProperty("reasoning_effort");
 });
 
@@ -893,8 +912,13 @@ test("the OCR text is shown beside the PDF pages, with the scrolling of both loc
   await scrollTo(pdf, 0);
   await expect.poll(async () => (await scrolled(text)).top).toBeLessThan(2);
 
+  // Locked, neither column can bounce past its ends on its own (elastic overscroll); unlocked, each may.
+  const overscroll = (column: Locator) => column.evaluate((el) => getComputedStyle(el).overscrollBehaviorY);
+  expect([await overscroll(pdf), await overscroll(text)]).toEqual(["none", "none"]);
+
   // Unlocked, each column scrolls on its own; locking again lines the pages up with the text.
   await lock.uncheck();
+  expect([await overscroll(pdf), await overscroll(text)]).toEqual(["contain", "contain"]);
   await scrollTo(text, "end");
   await page.waitForTimeout(100);
   expect((await scrolled(pdf)).top).toBe(0);
@@ -934,9 +958,38 @@ test("the OCR text is shown beside the PDF pages, with the scrolling of both loc
   await expect(text.locator(".ocr-page")).toHaveCount(6);
 });
 
+test("the side panel folds into a rail that shows a running job, and stays folded after a reload", async ({ page }) => {
+  await setup(page);
+  await enterMistralKey(page);
+  await page.route("https://api.mistral.ai/v1/ocr", async (route) => {
+    await new Promise((r) => setTimeout(r, 5_000));
+    await route.abort();
+  });
+  await loadPdf(page);
+  const results = page.getByRole("region", { name: "Results" });
+  const width = (await results.boundingBox())!.width;
+  await page.getByRole("button", { name: "OCR only" }).click();
+
+  await page.getByRole("button", { name: "Hide the side panel" }).click();
+  await expect(page.getByRole("button", { name: "OCR + Translate" })).toBeHidden();
+  await expect.poll(async () => (await results.boundingBox())!.width).toBeGreaterThan(width + 200);
+  const rail = page.locator(".side-rail");
+  await expect(rail.getByRole("status")).toContainText("Running");
+  await rail.getByRole("button", { name: "Cancel the running job" }).click();
+  await expect(rail.getByRole("status")).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.getByText("Mistral key verified")).toBeVisible();
+  await expect(page.getByRole("button", { name: "…or paste text to translate" })).toBeHidden();
+  await rail.getByRole("button", { name: "Show the side panel" }).click();
+  await expect(page.getByRole("button", { name: "…or paste text to translate" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hide the side panel" })).toHaveAttribute("aria-expanded", "true");
+});
+
 test("without the JSON output the OCR text is translated block by block: no JSON format, no JSON tabs", async ({ page }) => {
   const { recorded, foreign } = await setup(page);
-  await enterKeys(page);
+  await enterMistralKey(page);
   await loadPdf(page);
   await page.getByRole("button", { name: "OCR + Translate" }).click();
   await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
@@ -953,6 +1006,7 @@ test("without the JSON output the OCR text is translated block by block: no JSON
   // Only the bounding-box descriptions and the block translations: no schema inference, no document annotation.
   const chats = chatRequests(recorded);
   expect(chats.map(step).sort()).toEqual(["bbox_annotation", "bbox_annotation", "block_translations"]);
+  expect(chats.every((c) => c.host === "api.mistral.ai" && c.body?.["model"] === "mistral-small-latest")).toBe(true);
   const sent = JSON.stringify(chats.find((c) => step(c) === "block_translations")!.body);
   expect(sent).toContain("权利要求1不具备创造性");
   expect(sent).not.toContain("国家知识产权局"); // header
@@ -971,7 +1025,7 @@ test("without the JSON output the OCR text is translated block by block: no JSON
 
 test("block types and single blocks are left out of the OCR text (picked on the PDF), and the page layout can be matched", async ({ page }) => {
   const { recorded } = await setup(page);
-  await enterKeys(page);
+  await enterMistralKey(page);
   await loadPdf(page);
   await page.getByRole("button", { name: "OCR only" }).click();
   await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
@@ -1039,7 +1093,7 @@ test("block types and single blocks are left out of the OCR text (picked on the 
 
 test("without the JSON output pasted text is translated paragraph by paragraph and reopens from this browser", async ({ page }) => {
   const { recorded } = await setup(page);
-  await enterKeys(page);
+  await enterMistralKey(page);
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("申请号：CN202310000001.2\n\n权利要求1不具备创造性。");
   await page.getByRole("button", { name: "Translate only" }).click();
@@ -1052,7 +1106,7 @@ test("without the JSON output pasted text is translated paragraph by paragraph a
   expect(recorded.some((r) => r.url.endsWith("/v1/ocr"))).toBe(false);
 
   await page.reload();
-  await expect(page.getByText("Anthropic key verified")).toBeVisible();
+  await expect(page.getByText("Mistral key verified")).toBeVisible();
   const history = page.locator(".history");
   await history.locator("summary").click();
   await history.getByRole("button", { name: "Open" }).click();

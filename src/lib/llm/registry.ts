@@ -1,6 +1,7 @@
 /**
- * Registry of translation providers. The OCR step is always Mistral; the
- * chat step (schema inference + translation) can use any provider listed here.
+ * Registry of translation providers, the default (Mistral) first. The OCR
+ * step is always Mistral; the chat steps (translation, schema inference) can
+ * use any provider listed here.
  */
 import { DEFAULT_ANTHROPIC_MODEL, FALLBACK_ANTHROPIC_MODELS } from "../anthropic/models";
 import { DEFAULT_CHAT_MODEL, FALLBACK_CHAT_MODELS, type ModelOption } from "../mistral/models";
@@ -29,11 +30,25 @@ export interface ProviderInfo {
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
+  mistral: {
+    id: "mistral",
+    label: "Mistral",
+    shortLabel: "Mistral",
+    purpose: "used for OCR (always) and for translation (Mistral Small, the default)",
+    host: "api.mistral.ai",
+    keyLabel: "Mistral API key",
+    keyUrl: "https://console.mistral.ai/api-keys",
+    defaultModel: DEFAULT_CHAT_MODEL,
+    fallbackModels: FALLBACK_CHAT_MODELS,
+    supportsTemperature: true,
+    supportsReasoningEffort: false,
+    create: (apiKey) => MistralProvider.fromKey(apiKey),
+  },
   anthropic: {
     id: "anthropic",
     label: "Anthropic (Claude)",
     shortLabel: "Anthropic",
-    purpose: "used for translation (Claude Haiku 5.5)",
+    purpose: "used for translation if selected (Claude Haiku 5.5)",
     host: "api.anthropic.com",
     keyLabel: "Anthropic API key",
     keyUrl: "https://platform.claude.com/settings/keys",
@@ -47,7 +62,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     id: "openai",
     label: "OpenAI (GPT Luna)",
     shortLabel: "OpenAI",
-    purpose: "used for translation (GPT Luna)",
+    purpose: "used for translation if selected (GPT Luna)",
     host: "api.openai.com",
     keyLabel: "OpenAI API key",
     keyUrl: "https://platform.openai.com/api-keys",
@@ -56,20 +71,6 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     supportsTemperature: false,
     supportsReasoningEffort: true,
     create: (apiKey) => OpenAIProvider.fromKey(apiKey),
-  },
-  mistral: {
-    id: "mistral",
-    label: "Mistral",
-    shortLabel: "Mistral",
-    purpose: "used for OCR (always) and, if selected, for translation",
-    host: "api.mistral.ai",
-    keyLabel: "Mistral API key",
-    keyUrl: "https://console.mistral.ai/api-keys",
-    defaultModel: DEFAULT_CHAT_MODEL,
-    fallbackModels: FALLBACK_CHAT_MODELS,
-    supportsTemperature: true,
-    supportsReasoningEffort: false,
-    create: (apiKey) => MistralProvider.fromKey(apiKey),
   },
 };
 
