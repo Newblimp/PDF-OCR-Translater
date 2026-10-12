@@ -67,10 +67,7 @@ function parseEventBlock(block: string): SseEvent | null {
  * Resolves when the stream ends. Honours the `AbortSignal` attached to the
  * original `fetch` call (the reader throws on abort).
  */
-export async function readSseStream(
-  body: ReadableStream<Uint8Array>,
-  onEvent: (event: SseEvent) => void,
-): Promise<void> {
+export async function readSseStream(body: ReadableStream<Uint8Array>, onEvent: (event: SseEvent) => void): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder("utf-8");
   const parser = new SseParser();

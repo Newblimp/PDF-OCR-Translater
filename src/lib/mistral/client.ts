@@ -124,7 +124,5 @@ export function contentToText(content: unknown): string {
   if (!content) return "";
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  return (content as ContentChunk[])
-    .map((chunk) => (chunk.type === "text" && typeof chunk.text === "string" ? chunk.text : ""))
-    .join("");
+  return (content as ContentChunk[]).map((chunk) => (chunk.type === "text" && typeof chunk.text === "string" ? chunk.text : "")).join("");
 }

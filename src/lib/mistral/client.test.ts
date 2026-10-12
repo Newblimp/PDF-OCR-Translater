@@ -113,7 +113,10 @@ describe("MistralClient", () => {
       'data: {"object":"error","message":"Service unavailable"}\n\n',
     ];
     const client = new MistralClient({ apiKey: "k", fetchImpl: async () => sseResponse(frames) });
-    await expect(client.chatStream({ model: "m", messages: [{ role: "user", content: "hi" }] })).rejects.toMatchObject({ kind: "server", message: "Service unavailable" });
+    await expect(client.chatStream({ model: "m", messages: [{ role: "user", content: "hi" }] })).rejects.toMatchObject({
+      kind: "server",
+      message: "Service unavailable",
+    });
   });
 
   it("assembles streamed deltas", async () => {

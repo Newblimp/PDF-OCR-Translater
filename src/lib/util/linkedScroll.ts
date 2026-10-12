@@ -36,7 +36,8 @@ export function linkedScrollTop(source: ScrollColumn, target: ScrollColumn): num
   for (const page of source.pages) {
     const top = targetTops.get(page.key);
     const [lastSource, lastTarget] = pairs[pairs.length - 1]!;
-    if (top !== undefined && page.top > lastSource && top > lastTarget && page.top < source.contentHeight && top < target.contentHeight) pairs.push([page.top, top]);
+    if (top !== undefined && page.top > lastSource && top > lastTarget && page.top < source.contentHeight && top < target.contentHeight)
+      pairs.push([page.top, top]);
   }
   pairs.push([source.contentHeight, target.contentHeight]);
 

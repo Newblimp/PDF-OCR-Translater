@@ -25,6 +25,8 @@ export interface EstimateInput {
   /** Text blocks are translated too (OCR'd sources only). */
   hasBlocks: boolean;
   model: string;
+  /** With the JSON format (schema, document annotation and its follow-ups); without it only the text blocks are translated. */
+  structured: boolean;
   inferSchema: boolean;
   sendImages: boolean;
   bboxAnnotations: boolean;
@@ -48,8 +50,8 @@ export function estimateRun(input: EstimateInput): RunEstimate {
   const partTokens = input.sourceTokens / parts;
   const images = input.sendImages ? Math.min(input.boxes, DOCUMENT_ANNOTATION_MAX_IMAGES) * IMAGE_TOKENS : 0;
 
-  if (input.inferSchema) requests.push({ input: Math.min(input.sourceTokens, 20_000) + 1_000, output: 1_500, cached: 0 });
-  for (let i = 0; i < parts; i++) {
+  if (input.structured && input.inferSchema) requests.push({ input: Math.min(input.sourceTokens, 20_000) + 1_000, output: 1_500, cached: 0 });
+  for (let i = 0; i < (input.structured ? parts : 0); i++) {
     const prompt = partTokens + DOCUMENT_CALL_OVERHEAD + images;
     requests.push({ input: prompt, output: partTokens * OUTPUT_RATIO, cached: 0 });
     // The original-language structure reads the document prefix from the prompt cache.
@@ -58,7 +60,7 @@ export function estimateRun(input: EstimateInput): RunEstimate {
   if (input.bboxAnnotations) {
     for (let i = 0; i < Math.min(input.boxes, input.maxBboxAnnotations); i++) requests.push({ input: IMAGE_TOKENS + 600, output: 250, cached: 0 });
   }
-  if (input.blockTranslations && input.hasBlocks) {
+  if ((input.blockTranslations || !input.structured) && input.hasBlocks) {
     requests.push({ input: input.sourceTokens * 1.2 + 500, output: input.sourceTokens * OUTPUT_RATIO, cached: 0 });
   }
 

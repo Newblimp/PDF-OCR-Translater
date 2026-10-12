@@ -45,7 +45,12 @@ export function isImageMime(mime: string): boolean {
 
 export async function runOcr(client: MistralClient, input: OcrInput, options: RunOcrOptions): Promise<OcrOutcome> {
   const { onProgress } = options;
-  emit(onProgress, "ocr", "start", `Sending ${input.fileName} to ${options.model}${options.pages?.length ? ` (${options.pages.length} selected page(s))` : ""}`);
+  emit(
+    onProgress,
+    "ocr",
+    "start",
+    `Sending ${input.fileName} to ${options.model}${options.pages?.length ? ` (${options.pages.length} selected page(s))` : ""}`,
+  );
 
   const request: OcrRequest = {
     model: options.model,

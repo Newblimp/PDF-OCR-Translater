@@ -5,6 +5,7 @@ import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
 import { blockId } from "@/lib/pipeline/blockTranslate";
 import type { OcrBbox, OcrText } from "@/lib/pipeline/ocrText";
 import type { DocState } from "@/app/store";
+import { blockColor, IMAGE_COLOR } from "./blockColors";
 import { MarkdownText } from "./MarkdownText";
 import { usePageRenderer } from "./pageImages";
 
@@ -15,24 +16,6 @@ interface Props {
   /** Translation per block id, from the block-translation stage. */
   blockTranslations: Record<string, string>;
 }
-
-/** Colours per block type (kept readable in both themes). */
-const BLOCK_COLORS: Record<string, string> = {
-  image: "#d6336c",
-  title: "#7048e8",
-  text: "#1c7ed6",
-  table: "#f08c00",
-  header: "#868e96",
-  footer: "#868e96",
-  caption: "#0ca678",
-  list: "#1098ad",
-  equation: "#5c940d",
-  code: "#5c940d",
-  signature: "#e03131",
-  references: "#862e9c",
-  aside_text: "#adb5bd",
-};
-const IMAGE_COLOR = "#d6336c";
 
 type Selected = { kind: "bbox"; bbox: OcrBbox } | { kind: "block"; block: OcrBlock; id: string } | null;
 
@@ -151,7 +134,7 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
         <div class="bbox-legend small muted">
           {blockTypes.map((t) => (
             <span key={t}>
-              <span class="swatch" style={`--box-color:${BLOCK_COLORS[t] ?? "#495057"}`} />
+              <span class="swatch" style={`--box-color:${blockColor(t)}`} />
               {t}
             </span>
           ))}
@@ -179,7 +162,7 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
                       type="button"
                       key={id}
                       class={`bbox-box${selected?.kind === "block" && selected.id === id ? " bbox-box-selected" : ""}`}
-                      style={boxStyle(block.top_left_x, block.top_left_y, block.bottom_right_x, block.bottom_right_y, BLOCK_COLORS[block.type] ?? "#495057")}
+                      style={boxStyle(block.top_left_x, block.top_left_y, block.bottom_right_x, block.bottom_right_y, blockColor(block.type))}
                       title={`${block.type}: ${block.content.slice(0, 80)}`}
                       aria-label={`${block.type} block ${i + 1}${block.content ? `: ${block.content.slice(0, 60)}` : ""}`}
                       onClick={() => setSelected({ kind: "block", block, id })}
@@ -251,9 +234,7 @@ function BlockDetails({ block, translation, hasTranslations }: { block: OcrBlock
         </div>
       ) : (
         <p class="muted small">
-          {hasTranslations
-            ? "No translation was returned for this block."
-            : "Not translated yet: run OCR + Translate (block translations are produced after the main translation)."}
+          {hasTranslations ? "No translation was returned for this block." : "Not translated yet: run OCR + Translate (or Translate only)."}
         </p>
       )}
       <h4 class="small muted">Original</h4>

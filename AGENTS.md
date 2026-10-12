@@ -6,7 +6,8 @@ AI). Keep it current when you change the architecture.
 ## Purpose and hard constraints
 
 - Browser-only PDF → OCR (Mistral) → translation (Anthropic Claude Haiku
-  5.5 by default, or OpenAI GPT Luna, or Mistral) → structured JSON. See
+  5.5 by default, or OpenAI GPT Luna, or Mistral), block by block by
+  default, or into a structured JSON format with `Settings.jsonOutput`. See
   README.md for the user-facing description.
 - **The document may only ever be sent to `https://api.mistral.ai` (OCR), and
   the extracted text plus the OCR's cropped bounding-box images only to the
@@ -54,7 +55,9 @@ AI). Keep it current when you change the architecture.
   mocked Mistral, Anthropic and OpenAI APIs (`e2e/helpers.ts`; `chatStep()`
   tells the pipeline steps apart for every provider). ESLint
   (`eslint.config.js`: typescript-eslint, React hooks rules, floating
-  promises). CI runs all of them (`.github/workflows/ci.yml`).
+  promises). Prettier formats everything (`.prettierrc.json`: print width
+  160, otherwise its defaults; pinned to an exact version so formatting does
+  not shift under an update). CI runs all of them (`.github/workflows/ci.yml`).
 
 ## Code map
 
@@ -67,6 +70,11 @@ src/
     runner.ts                  side effects: load document, verify key, run jobs
   components/                  presentational Preact components (memoised; handlers come from App, created once)
     JsonBrowser/               browsable view of the translated JSON
+    ResultsPanel.tsx           the result tabs (which are available), structured text, JSON format, raw JSON
+    OcrView.tsx                OCR text tab: blocks filtered by type and one by one, PDF beside it (block picking), page layout
+    resultControls.tsx         download, clipboard, "Show translation" switch, token usage (shared by the views)
+    useFitText.ts              "Match page layout": text sized to fill each block's box (cqw units, fitted once per content)
+    blockColors.ts             colour per OCR block type (bounding-box view, OCR text view)
     BboxView.tsx               bounding boxes drawn over the rendered page
     pageImages.ts              hooks: the document's page renderer, pages rendered so far
     useLinkedScroll.ts         scrolls two page columns together (OCR text beside the PDF)
@@ -100,7 +108,9 @@ src/
     pipeline/
       runOcr.ts                document → OCR (headers/footers extracted, bbox images + blocks)
       bboxAnnotate.ts          vision model, one call per bounding box (bbox annotation)
-      blockTranslate.ts        batch translation of OCR text blocks (bounding-box view)
+      blocks.ts                the text as blocks: view blocks, type/one-by-one filter, text of the kept blocks,
+                               text input split into paragraph blocks (textPages)
+      blockTranslate.ts        batch translation of text blocks (the translation without JSON output; a follow-up with it)
       ocrText.ts               OCR response → clean text for translation
       inferSchema.ts           text → JSON Schema (json_object mode)
       schema.ts                schema sanitiser for strict mode + light validator
@@ -110,7 +120,8 @@ src/
                                fallbacks: without images → non-streaming → json_object; keeps truncated output
       chunks.ts                long documents: split along pages/paragraphs, merge the parts' JSON
       pipeline.ts              the stages: ocrOnly, resolveSchema, describeBboxes, translateDocument,
-                               structureOriginal, blockTranslations (composed by app/runner.ts)
+                               structureOriginal, blockTranslations (composed by app/runner.ts);
+                               PipelineSettings.structured = JSON output
       estimate.ts              token / cost estimate shown before a run
       events.ts                progress events shared by the steps
     export/bilingual.ts        bilingual HTML export (translation next to the original)
@@ -149,12 +160,26 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 - **New pipeline step** (e.g. a review pass): add a module in
   `src/lib/pipeline/`, emit progress with `emit()` from `events.ts` (add a
   `StageId` if needed), expose it from `pipeline.ts`, and compose it in
-  `runner.ts` (`runTranslation()`; add it to `translationStages()` so the job
-  status lists it). A step after the translation should go through
-  `followUp()` so its failure becomes a warning on the result rather than a
-  failed job. Then surface results through a new field in `AppState` and a
+  `runner.ts` (`translateStructured()` and/or `translateByBlocks()`; add it
+  to `translationStages()` so the job status lists it). A step after the
+  translation should go through a `followUps()` wrapper so its failure
+  becomes a warning on the result rather than a failed job. Then surface results through a new field in `AppState` and a
   component.
-- **Annotation workflow** (`runner.runTranslation()`): mirrors Mistral's
+- **JSON output** (`Settings.jsonOutput`, off by default; the last option
+  in `SettingsPanel`, with every JSON-only setting under it):
+  `runner.runTranslation()` runs `translateByBlocks()` without it and
+  `translateStructured()` (the annotation workflow below) with it. Without
+  it there is no schema and no document annotation: the text blocks the OCR
+  text tab keeps (`blocks.shownTextBlockIds()` with `Settings.ocrHiddenTypes`
+  and `excludedBlocks()`) are translated by `pipeline.blockTranslations()`,
+  the translation (`schema`, `data`, `mode` null; `hasStructure()` false) is
+  on screen from the start and filled batch by batch (`onTranslated`), and it
+  keeps its blocks in `TranslationState.pages` so it can be shown without its
+  OCR result (text input is split by `blocks.textPages()`).
+  `ResultsPanel` offers the Structured text, JSON format and Raw JSON tabs
+  only with `jsonOutput` on and a translation with a structure; a new
+  translation opens on the structured text then, on the OCR text otherwise.
+- **Annotation workflow** (`runner.translateStructured()`): mirrors Mistral's
   Document AI annotations with the vision LLM swapped for the selected chat
   provider. Schema first; then `describeBboxes()` runs alongside
   `translateDocument()` (the annotations do not feed the translation); then
@@ -196,12 +221,31 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   (`runner.ensureOriginalStructure()`, job kind `"original"`), `"always"`
   runs it as a follow-up of every translation, `"never"` not at all. Without
   it the tab falls back to the translation and says so.
-- **Block translations**: after `translation/set`, the runner runs
-  `pipeline.blockTranslations()` (stage `block_translate`, batches of OCR
-  blocks as JSON) and patches `TranslationState.blockTranslations`;
+- **Block translations**: with the JSON output, after `translation/set`, the
+  runner runs `pipeline.blockTranslations()` (stage `block_translate`,
+  batches of OCR blocks as JSON) as a follow-up and patches
+  `TranslationState.blockTranslations`; without it they are the translation.
   `BboxView` shows them above the original block text, and the OCR text view
-  rebuilds each page from them (`translatedPageMarkdown()`) when "Show
-  translation" is on.
+  shows each block translated when "Show translation" is on (blocks without
+  a translation keep their original text, marked).
+- **OCR text view** (`OcrView.tsx`): renders `blocks.pageBlocks()` (a page
+  without blocks is one stand-in block of its Markdown), so filters work on
+  both languages. Block types are switched off in `Settings.ocrHiddenTypes`;
+  single blocks in `AppState.blockSelection`, which belongs to the `pages`
+  array it was picked on (`excludedBlocks(state, pages)`; other pages start
+  with none, so no reset rules are needed). Copy and download use
+  `blocks.filteredText()`. "Select blocks on the PDF" (`ocrPickBlocks`)
+  draws `PickLayer` buttons over the pages beside the text (`aria-pressed` =
+  in the text). "Match page layout" (`ocrMatchLayout`) puts each page on a
+  `.ocr-sheet` with the page's aspect ratio (as tall as the PDF page beside
+  it) and the blocks absolutely positioned; `useFitText()` searches each
+  text block's font size in `cqw`, so the fit holds at any width and is
+  only searched again when `data-fit-key` (translated or original, Markdown,
+  length) changes. Preact owns `class` and `style`: the fit writes only the
+  `--fit` custom property and `data-fitted` / `data-overflow`. Keep the text
+  column the same element in every mode and its pages direct children with
+  `data-page`; `useLinkedScroll()`'s `layoutKey` makes the text follow the
+  pages again after filters or the layout change it.
 - **Page rendering**: `files/pageRenderCache.ts` keeps one pdf.js document
   open per loaded file, renders on demand and pre-renders the rest in the
   background (`PREFETCH_LIMIT`); `BboxView` and the OCR text view's pages
@@ -237,7 +281,8 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   changes shape incompatibly.
 - **Retries of failed parts**: `runner.retryFailed()` (job kind `"retry"`)
   re-runs `describeBboxes()` / `blockTranslations()` with `onlyIds` and
-  merges the results.
+  merges the results. For blocks: the ones the OCR text tab keeps that have
+  no translation, which includes blocks taken back after the translation.
 - **Jobs that add to a translation** (original-language structure, retries)
   pass it to `beginJob(..., forTranslation)`: they run in its target
   language (provider and model come from Settings, so a failing model can be
@@ -282,6 +327,10 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 
 ## Conventions
 
+- Formatting is Prettier's: run `npm run format` instead of formatting by
+  hand (CI fails on unformatted files). The commit that first formatted the
+  code base is listed in `.git-blame-ignore-revs`, so `git blame` (and
+  GitHub's blame view) skips it.
 - Wire types use the API's snake_case; app types use camelCase.
 - Errors thrown from the clients are `ApiError` with a `kind`, `provider` and
   a user-facing `hint` (the Anthropic provider passes every SDK error through
@@ -324,5 +373,5 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 ## Checks before you push
 
 ```bash
-npm run typecheck && npm run lint && npm test && npm run e2e && npm run build
+npm run format && npm run typecheck && npm run lint && npm test && npm run e2e && npm run build
 ```

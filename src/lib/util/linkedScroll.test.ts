@@ -39,8 +39,25 @@ describe("linked scrolling", () => {
   });
 
   it("maps pages by key and ignores pages only one side has", () => {
-    const text: ScrollColumn = { scrollTop: 100, viewHeight: 100, contentHeight: 300, pages: [{ key: "0", top: 0 }, { key: "2", top: 150 }] };
-    const pdf: ScrollColumn = { scrollTop: 0, viewHeight: 100, contentHeight: 900, pages: [{ key: "0", top: 0 }, { key: "1", top: 300 }, { key: "2", top: 600 }] };
+    const text: ScrollColumn = {
+      scrollTop: 100,
+      viewHeight: 100,
+      contentHeight: 300,
+      pages: [
+        { key: "0", top: 0 },
+        { key: "2", top: 150 },
+      ],
+    };
+    const pdf: ScrollColumn = {
+      scrollTop: 0,
+      viewHeight: 100,
+      contentHeight: 900,
+      pages: [
+        { key: "0", top: 0 },
+        { key: "1", top: 300 },
+        { key: "2", top: 600 },
+      ],
+    };
     // Reading point 150 is the top of page "2" in the text; in the pages column, page "2" starts at 600.
     const top = linkedScrollTop(text, pdf);
     expect(top + 100 * (top / 800)).toBeCloseTo(600, 6);

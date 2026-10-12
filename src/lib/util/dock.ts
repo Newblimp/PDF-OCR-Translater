@@ -109,7 +109,9 @@ export function activateTab<T extends string>(root: DockNode<T>, tab: T): DockNo
 
 export function resizeSplit<T extends string>(root: DockNode<T>, id: string, sizes: number[]): DockNode<T> {
   return mapNodes(root, (n) =>
-    n.kind === "split" && n.id === id && sizes.length === n.children.length && sizes.every((s) => Number.isFinite(s) && s > 0) ? { ...n, sizes: [...sizes] } : n,
+    n.kind === "split" && n.id === id && sizes.length === n.children.length && sizes.every((s) => Number.isFinite(s) && s > 0)
+      ? { ...n, sizes: [...sizes] }
+      : n,
   );
 }
 

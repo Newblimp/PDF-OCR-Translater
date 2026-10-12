@@ -87,7 +87,13 @@ function parseHeadersFile(text: string): Array<{ pattern: RegExp; headers: Recor
     if (!raw.trim() || raw.trim().startsWith("#")) continue;
     if (!/^\s/.test(raw)) {
       const glob = raw.trim();
-      const source = "^" + glob.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/:[A-Za-z_]+/g, "[^/]+") + "$";
+      const source =
+        "^" +
+        glob
+          .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+          .replace(/\*/g, ".*")
+          .replace(/:[A-Za-z_]+/g, "[^/]+") +
+        "$";
       rules.push({ pattern: new RegExp(source), headers: {} });
       continue;
     }

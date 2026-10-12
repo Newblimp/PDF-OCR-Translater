@@ -140,9 +140,7 @@ export function extractErrorMessage(body: unknown): string {
   const detail = b["detail"];
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) {
-    return detail
-      .map((d) => (d && typeof d === "object" && "msg" in d ? String((d as { msg: unknown }).msg) : JSON.stringify(d)))
-      .join("; ");
+    return detail.map((d) => (d && typeof d === "object" && "msg" in d ? String((d as { msg: unknown }).msg) : JSON.stringify(d))).join("; ");
   }
   if (detail && typeof detail === "object") return JSON.stringify(detail);
   return "";

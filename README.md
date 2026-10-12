@@ -2,7 +2,9 @@
 
 A browser-only tool that turns a scanned or digital PDF (for example a
 communication from the China National Intellectual Property Administration,
-CNIPA) into a translated, structured JSON document using
+CNIPA) into a translation, block by block (paragraphs, titles, tables,
+figures), that can be filtered and laid out like the page, and optionally
+into a structured JSON document, using
 [Mistral Document AI](https://docs.mistral.ai/capabilities/document_ai/basic_ocr)
 for OCR and Anthropic's Claude Haiku 5.5
 ([`claude-haiku-5-5`](https://platform.claude.com/docs/en/models/haiku-5-5/overview))
@@ -38,20 +40,36 @@ anywhere else.
    by Mistral per page on top). "OCR + Translate" reuses an OCR result that
    is already loaded for the same file, model and pages instead of paying for
    OCR again.
+
 3. **OCR** runs on `mistral-ocr-latest` with `extract_header` /
    `extract_footer` on, `include_image_base64` (the extracted bounding boxes
    with their cropped images) and `include_blocks` (paragraph-level boxes).
    Headers and footers never reach the translation step; image references in
    the text become `[Image: id]` placeholders that match the box ids.
-4. **JSON format inference** (default) asks the translation model to design a
-   JSON Schema for *this* document — the API-side counterpart of Mistral's
+4. **Translation, block by block** (the default): the OCR's text blocks are
+   translated in batches (strict JSON-schema structured output keyed by block
+   id) and the OCR text tab fills in as each batch arrives. Only the blocks
+   the OCR text tab keeps are translated: block types switched off there
+   (page headers and footers by default) and blocks left out one by one are
+   skipped, and a block taken back later is translated on its own with one
+   click. Pasted text and text files are split into paragraphs and go the same
+   way. No JSON format, no summary, no extra calls.
+
+   With **JSON output** switched on (the last option in Settings; off by
+   default), the steps below fill a JSON format with the translation as well,
+   and the Structured text, JSON format and Raw JSON tabs appear. All the JSON
+   settings (format, streaming, images, original-language structure, max
+   output tokens, block translations as a follow-up) sit under that switch.
+   **JSON format inference** asks the translation model to design a
+   JSON Schema for _this_ document — the API-side counterpart of Mistral's
    playground option "infer a JSON format from the document". You can instead
-   pick the built-in *patent office communication* schema or paste your own.
+   pick the built-in _patent office communication_ schema or paste your own.
+
 5. **BBox annotation** (Mistral's workflow, performed by the selected vision
    model): one call per extracted bounding box with a fixed format
    (`image_type`, `short_description`, `summary`, plus the text in the image
    and its translation). Capped by a setting (default 20 boxes per run).
-6. **Document annotation = translation** (Mistral's workflow, performed by
+6. **Document annotation = translation** (JSON output; Mistral's workflow, performed by
    the vision model): the OCR Markdown, the first 8 bounding-box images and
    the JSON format go to the model in one `/v1/chat/completions` call with
    `response_format: { type: "json_schema", strict: true }`, so the API only
@@ -76,7 +94,8 @@ anywhere else.
    original language share a prefix that the providers' prompt caches serve
    again at a fraction of the price (an explicit cache breakpoint on
    Anthropic; automatic on OpenAI).
-7. **Structured text in the original language** (on demand by default): the
+
+7. **Structured text in the original language** (JSON output; on demand by default): the
    same JSON format is filled without translating, so the structured fields
    can be read in the document's own wording. It is produced the first time
    the structured text is viewed with **Show translation** switched off (one
@@ -86,24 +105,36 @@ anywhere else.
    follow-up step fails (block translations, box descriptions, this one), the
    translation stays and a warning names the step; failed boxes and
    untranslated blocks can be retried with one click.
-8. **Browse the result** in five tabs, left to right:
+8. **Browse the result** in two tabs, five with the JSON output, left to right:
    - **Bounding boxes** (the default): the OCR boxes (figures and paragraph
      blocks) drawn over the rendered page, with the cropped image and the
      vision model's description for each box; clicking a text block shows its
      translation above the original. Pages render in the background so
      browsing is instant.
-   - **OCR text**: the Markdown per page, either as OCR'd or rebuilt from the
-     per-block translations. **Show PDF** puts the document's pages beside
-     the text, each side scrolling on its own; **Lock scrolling** (on by
-     default) scrolls both together page by page, so the same page stays in
-     view on both sides. Both choices are remembered.
-   - **Structured text**: an outline of the fields, one collapsible card per
+   - **OCR text**: the text block by block, page by page, as OCR'd or
+     translated, with the cropped figures where they are in the text. One
+     switch per **block type** found in the document (title, text, list,
+     table, caption, image, header, footer, signature, ...; headers and
+     footers off by default) leaves that type out of the text, the copy, the
+     download and the block translations. **Show PDF** puts the document's
+     pages beside the text, each side scrolling on its own; **Lock
+     scrolling** (on by default) scrolls both together page by page, so the
+     same page stays in view on both sides. **Select blocks on the PDF**
+     draws the blocks over the pages: a click leaves a block out of the text
+     (it is hatched on the page), another click takes it back, and hovering
+     one highlights it in the text; "Take them all back" undoes it.
+     **Match page layout** places every block where it is on the page, on a
+     sheet shaped like the page, its text (original or translated) sized to
+     fill the block's box, so the text lines up with the PDF beside it. These
+     choices are remembered; the blocks left out one by one belong to the
+     document on screen.
+   - **Structured text** (JSON output): an outline of the fields, one collapsible card per
      field (expand/collapse all), long text collapsible and rendered as
      Markdown (tables, lists), arrays as lists or grids, full-text search
      across fields, copy/download of the JSON, and fields that can be hidden
      and shown individually (checkboxes in the outline, Hide all / Show all).
-   - **JSON format**: the schema that was used.
-   - **Raw JSON**: the result as text.
+   - **JSON format** (JSON output): the schema that was used.
+   - **Raw JSON** (JSON output): the result as text.
 
    The tabs can be arranged in **split views**, like editor tabs in VS Code:
    drag a tab onto a side of another view to open it beside or below it,
@@ -120,10 +151,11 @@ anywhere else.
    toolbars flips all three between the translation and the document's own
    language; it is one shared setting, not one per tab. The document card
    takes a page selection (e.g. `1-3, 7`) to OCR only part of a PDF.
-   **Download bilingual HTML** saves one self-contained page with the
+   **Download bilingual HTML** (Structured text) saves one self-contained page with the
    translation next to the original, field by field and block by block; it
    prints to PDF and opens in Word. The file loads nothing from outside
    (remote image URLs in the text are removed and it carries its own CSP).
+
 9. **Recent translations**: finished translations are kept in this browser
    (IndexedDB, last 30). They can be reopened from the list (with their OCR
    result while the OCR cache still has it), and loading a document that was
@@ -153,6 +185,7 @@ npm install
 npm run dev          # http://localhost:5173, with the production CSP applied
 npm run typecheck    # strict TypeScript
 npm run lint         # ESLint (typescript-eslint, React hooks rules)
+npm run format       # Prettier: format everything (format:check only checks, as CI does)
 npm test             # unit tests (Vitest)
 npm run e2e          # Playwright end-to-end tests against mocked Mistral, Anthropic and OpenAI APIs
 npm run build        # typecheck + production build into dist/
@@ -186,33 +219,44 @@ on any static host.
 
 All defaults live in code so they can be changed in one place:
 
-| Setting | Default | Where |
-| --- | --- | --- |
-| OCR model | `mistral-ocr-latest` (dropdown of `OCR_MODELS`) | `src/lib/mistral/models.ts` |
-| Translation provider | Anthropic (Claude Haiku 5.5); OpenAI and Mistral selectable | `src/lib/llm/registry.ts` |
-| Translation model | `claude-haiku-5-5` (Anthropic) / `gpt-6-luna` (OpenAI) / `mistral-large-latest` (Mistral); dropdown of the models from `/v1/models` | `src/lib/anthropic/models.ts`, `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
-| Reasoning effort (Anthropic, OpenAI) | `none` (Anthropic: effort `low`, its lowest) | Settings panel |
-| Max output tokens | provider default (Anthropic: 64k, the API requires a value) | Settings panel, `src/lib/anthropic/models.ts` |
-| Anthropic retries / timeout | 2 retries with backoff (the SDK's default) / 1 hour per request | `src/lib/anthropic/client.ts` |
-| Document annotation with images | on (first 8 boxes, `DOCUMENT_ANNOTATION_MAX_IMAGES`) | Settings panel, `src/lib/pipeline/runOcr.ts` |
-| BBox annotation | on, up to 20 boxes per run | Settings panel; format in `src/lib/pipeline/schemas/bboxAnnotation.ts` |
-| Block translations | on | Settings panel; `src/lib/pipeline/blockTranslate.ts` |
-| Structured text in the original language | on demand (when viewed with "Show translation" off); always; never | Settings panel; `src/lib/pipeline/pipeline.ts` (`structureOriginal()`) |
-| Glossary | empty | Settings panel; `src/lib/pipeline/prompts.ts` (`parseGlossary()`) |
-| Long documents | split above ~40k estimated tokens (`TRANSLATION_CHUNK_TOKENS`) | `src/lib/pipeline/chunks.ts` |
-| Saved translations | on, last 30 | Settings panel; `src/lib/storage/history.ts` |
-| Mistral / OpenAI retries | 2 with backoff, honouring `retry-after` | `src/lib/http/apiFetch.ts` |
-| Model prices for the estimate | Claude Haiku/Sonnet/Opus 5.5 | `src/lib/llm/pricing.ts` |
-| Pages to OCR | all | Document card (`src/lib/util/pageSelection.ts`) |
-| Target / source language | English or German in one click, eight more in a dropdown / auto-detect | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`) |
-| JSON format | inferred from document; built-in `patent_communication`; custom | `src/lib/pipeline/schemas/` |
-| Prompts | schema inference and translation | `src/lib/pipeline/prompts.ts` |
-| Temperature (Mistral only) | 0.2 | Settings panel |
-| API limits (50 MB, 1000 pages) | checked client-side | `src/lib/pipeline/runOcr.ts` |
-| CSP / security headers | `connect-src https://api.mistral.ai https://api.anthropic.com https://api.openai.com` | `public/_headers` |
+| Setting                                                | Default                                                                                                                             | Where                                                                                  |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| OCR model                                              | `mistral-ocr-latest` (dropdown of `OCR_MODELS`)                                                                                     | `src/lib/mistral/models.ts`                                                            |
+| Translation provider                                   | Anthropic (Claude Haiku 5.5); OpenAI and Mistral selectable                                                                         | `src/lib/llm/registry.ts`                                                              |
+| Translation model                                      | `claude-haiku-5-5` (Anthropic) / `gpt-6-luna` (OpenAI) / `mistral-large-latest` (Mistral); dropdown of the models from `/v1/models` | `src/lib/anthropic/models.ts`, `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
+| Reasoning effort (Anthropic, OpenAI)                   | `none` (Anthropic: effort `low`, its lowest)                                                                                        | Settings panel                                                                         |
+| JSON output                                            | off: the text blocks are translated one by one; on: JSON format + document annotation, and the JSON tabs                            | Settings panel (last option); `src/lib/storage/settings.ts` (`jsonOutput`)             |
+| Block types left out of the OCR text                   | page headers and footers                                                                                                            | OCR text tab; `src/lib/storage/settings.ts` (`ocrHiddenTypes`)                         |
+| Max output tokens (JSON output)                        | provider default (Anthropic: 64k, the API requires a value)                                                                         | Settings panel, `src/lib/anthropic/models.ts`                                          |
+| Anthropic retries / timeout                            | 2 retries with backoff (the SDK's default) / 1 hour per request                                                                     | `src/lib/anthropic/client.ts`                                                          |
+| Document annotation with images (JSON output)          | on (first 8 boxes, `DOCUMENT_ANNOTATION_MAX_IMAGES`)                                                                                | Settings panel, `src/lib/pipeline/runOcr.ts`                                           |
+| BBox annotation                                        | on, up to 20 boxes per run                                                                                                          | Settings panel; format in `src/lib/pipeline/schemas/bboxAnnotation.ts`                 |
+| Block translations as a follow-up (JSON output)        | on                                                                                                                                  | Settings panel; `src/lib/pipeline/blockTranslate.ts`                                   |
+| Structured text in the original language (JSON output) | on demand (when viewed with "Show translation" off); always; never                                                                  | Settings panel; `src/lib/pipeline/pipeline.ts` (`structureOriginal()`)                 |
+| Glossary                                               | empty                                                                                                                               | Settings panel; `src/lib/pipeline/prompts.ts` (`parseGlossary()`)                      |
+| Long documents                                         | split above ~40k estimated tokens (`TRANSLATION_CHUNK_TOKENS`)                                                                      | `src/lib/pipeline/chunks.ts`                                                           |
+| Saved translations                                     | on, last 30                                                                                                                         | Settings panel; `src/lib/storage/history.ts`                                           |
+| Mistral / OpenAI retries                               | 2 with backoff, honouring `retry-after`                                                                                             | `src/lib/http/apiFetch.ts`                                                             |
+| Model prices for the estimate                          | Claude Haiku/Sonnet/Opus 5.5                                                                                                        | `src/lib/llm/pricing.ts`                                                               |
+| Pages to OCR                                           | all                                                                                                                                 | Document card (`src/lib/util/pageSelection.ts`)                                        |
+| Target / source language                               | English or German in one click, eight more in a dropdown / auto-detect                                                              | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`)                                     |
+| JSON format (JSON output)                              | inferred from document; built-in `patent_communication`; custom                                                                     | `src/lib/pipeline/schemas/`                                                            |
+| Prompts                                                | schema inference and translation                                                                                                    | `src/lib/pipeline/prompts.ts`                                                          |
+| Temperature (Mistral only)                             | 0.2                                                                                                                                 | Settings panel                                                                         |
+| API limits (50 MB, 1000 pages)                         | checked client-side                                                                                                                 | `src/lib/pipeline/runOcr.ts`                                                           |
+| CSP / security headers                                 | `connect-src https://api.mistral.ai https://api.anthropic.com https://api.openai.com`                                               | `public/_headers`                                                                      |
 
 ## Limitations and notes
 
+- Block by block, each block is translated with the others of its batch (up
+  to 40 blocks or 12,000 characters) as context, not the whole document: a
+  sentence split across a page break can read awkwardly, and the glossary
+  keeps terms consistent across batches. "Match page layout" shrinks the
+  font of a block whose translation is longer than the original; at the
+  smallest size the block scrolls (marked with a line at its bottom).
+- The blocks left out one by one are not saved with a translation: they are
+  kept for the document on screen until another OCR result or document is
+  loaded.
 - Long documents are translated in parts and merged: arrays are concatenated
   and text fields joined, so a field such as `summary` holds one paragraph per
   part. Schema inference sees the first 60,000 characters only.

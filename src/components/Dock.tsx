@@ -216,7 +216,10 @@ export function Dock<T extends string>({ layout, tabs, labels, available, render
     if (!step || !root.current) return;
     e.preventDefault();
     const total = containerPx(s.split.direction);
-    onResize(s.split.id, shiftSizes(s.split.sizes, s.before, s.after, linPx(s.beforeSize, total), linPx(s.afterSize, total), step, MIN_SIZE[s.split.direction]));
+    onResize(
+      s.split.id,
+      shiftSizes(s.split.sizes, s.before, s.after, linPx(s.beforeSize, total), linPx(s.afterSize, total), step, MIN_SIZE[s.split.direction]),
+    );
   };
   const equalise = (s: PlacedSplitter<T>) => {
     const sizes = [...s.split.sizes];
@@ -291,7 +294,13 @@ export function Dock<T extends string>({ layout, tabs, labels, available, render
                   </>
                 )}
                 {customised && group.id === firstGroup && (
-                  <button type="button" class="btn btn-ghost small dock-action" title="Reset the layout: all tabs in one group" aria-label="Reset the layout" onClick={onReset}>
+                  <button
+                    type="button"
+                    class="btn btn-ghost small dock-action"
+                    title="Reset the layout: all tabs in one group"
+                    aria-label="Reset the layout"
+                    onClick={onReset}
+                  >
                     <ResetLayoutIcon />
                   </button>
                 )}

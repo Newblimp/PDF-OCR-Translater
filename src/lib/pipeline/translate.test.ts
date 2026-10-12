@@ -45,7 +45,7 @@ describe("translateStructured", () => {
     expect(out.partial).toBe(false);
   });
 
-  it("keeps the source language and its own stage with target \"original\"", async () => {
+  it('keeps the source language and its own stage with target "original"', async () => {
     const seen: JsonChatRequest[] = [];
     const events: ProgressEvent[] = [];
     const provider = fakeProvider((req) => {

@@ -69,10 +69,15 @@ export const OCR_PAGE = {
   dimensions: { dpi: 200, height: 2200, width: 1700 },
   header: "国家知识产权局",
   footer: "第 1 页",
+  // The page's layout blocks, in reading order: everything in `markdown`, plus the header and footer moved out of it.
   blocks: [
+    { type: "header", top_left_x: 100, top_left_y: 20, bottom_right_x: 1600, bottom_right_y: 80, content: "国家知识产权局" },
     { type: "title", top_left_x: 100, top_left_y: 100, bottom_right_x: 1600, bottom_right_y: 200, content: "第一次审查意见通知书" },
     { type: "text", top_left_x: 100, top_left_y: 220, bottom_right_x: 1600, bottom_right_y: 280, content: "申请号：CN202310000001.2" },
     { type: "image", top_left_x: 100, top_left_y: 300, bottom_right_x: 500, bottom_right_y: 600, content: "", image_id: "img-0.jpeg" },
+    { type: "text", top_left_x: 100, top_left_y: 700, bottom_right_x: 1600, bottom_right_y: 800, content: "权利要求1不具备创造性。" },
+    { type: "image", top_left_x: 900, top_left_y: 1500, bottom_right_x: 1300, bottom_right_y: 1900, content: "", image_id: "img-1.jpeg" },
+    { type: "footer", top_left_x: 100, top_left_y: 2100, bottom_right_x: 1600, bottom_right_y: 2160, content: "第 1 页" },
   ],
 };
 
@@ -172,7 +177,7 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
       const pdfText = documentUrl.startsWith("data:") ? Buffer.from(documentUrl.split(",")[1] ?? "", "base64").toString("latin1") : "";
       const pageCount = Math.max(1, (pdfText.match(/\/Type \/Page\b/g) ?? []).length);
       const indices = requested?.length ? requested : Array.from({ length: pageCount }, (_, i) => i);
-      const pages = indices.map((index) => ({ ...OCR_PAGE, index, images: index === 0 ? OCR_PAGE.images : [], blocks: index === 0 ? OCR_PAGE.blocks : [OCR_PAGE.blocks[1]] }));
+      const pages = indices.map((index) => ({ ...OCR_PAGE, index, images: index === 0 ? OCR_PAGE.images : [], blocks: OCR_PAGE.blocks }));
       return json(route, 200, { model: "mistral-ocr-latest", pages, usage_info: { pages_processed: pages.length, doc_size_bytes: 1234 } });
     }
 
@@ -191,9 +196,20 @@ export async function mockApis(page: Page, recorded: RecordedRequest[]): Promise
     }
     const path = new URL(url).pathname;
     if (path === "/v1/models") {
-      const model = (id: string, display_name: string) => ({ type: "model", id, display_name, created_at: "2026-10-07T00:00:00Z", max_input_tokens: 1_000_000, max_tokens: 128_000 });
+      const model = (id: string, display_name: string) => ({
+        type: "model",
+        id,
+        display_name,
+        created_at: "2026-10-07T00:00:00Z",
+        max_input_tokens: 1_000_000,
+        max_tokens: 128_000,
+      });
       return json(route, 200, {
-        data: [model("claude-haiku-5-5", "Claude Haiku 5.5"), model("claude-sonnet-5-5", "Claude Sonnet 5.5"), model("claude-haiku-4-5-20251001", "Claude Haiku 4.5")],
+        data: [
+          model("claude-haiku-5-5", "Claude Haiku 5.5"),
+          model("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+          model("claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
+        ],
         has_more: false,
         first_id: "claude-haiku-5-5",
         last_id: "claude-haiku-4-5-20251001",
@@ -270,7 +286,12 @@ function stepAnswer(body: Record<string, unknown> | null): { step: ChatStep; tex
       const messages = (body?.["messages"] as Array<{ role: string; content: string | unknown[] }> | undefined) ?? [];
       const user = messages.find((m) => m.role === "user")?.content;
       const items = JSON.parse(String(user).replace(/^[^[]*/, "")) as Array<{ id: string; text: string }>;
-      return { step, text: JSON.stringify({ translations: items.map((i) => ({ id: i.id, text: `[${german ? "DE" : "EN"}] ${i.text}` })) }), input: 30, output: 30 };
+      return {
+        step,
+        text: JSON.stringify({ translations: items.map((i) => ({ id: i.id, text: `[${german ? "DE" : "EN"}] ${i.text}` })) }),
+        input: 30,
+        output: 30,
+      };
     }
     case "original_document":
       return { step, text: JSON.stringify(ORIGINAL_STRUCTURE), input: 400, output: 150 };
@@ -315,7 +336,14 @@ function chatCompletion(route: Route, body: Record<string, unknown> | null, mode
   });
   const frames: unknown[] = [chunk(text.slice(0, mid)), chunk(text.slice(mid), "stop")];
   if (openai) {
-    frames.push({ id: "cmpl-2", object: "chat.completion.chunk", model, created: 0, choices: [], usage: { ...usage, completion_tokens_details: { reasoning_tokens: 0 } } });
+    frames.push({
+      id: "cmpl-2",
+      object: "chat.completion.chunk",
+      model,
+      created: 0,
+      choices: [],
+      usage: { ...usage, completion_tokens_details: { reasoning_tokens: 0 } },
+    });
   }
   return route.fulfill({ status: 200, contentType: "text/event-stream", body: sse(frames) });
 }
@@ -374,7 +402,10 @@ export async function installStreamingTranslationMock(page: Page, delayMs = 150,
       window.fetch = async (input, init) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         if (url.includes("api.anthropic.com/v1/messages") && init?.body) {
-          const body = JSON.parse(String(init.body)) as { stream?: boolean; output_config?: { format?: { schema?: { properties?: Record<string, unknown> } } } };
+          const body = JSON.parse(String(init.body)) as {
+            stream?: boolean;
+            output_config?: { format?: { schema?: { properties?: Record<string, unknown> } } };
+          };
           const properties = body.output_config?.format?.schema?.properties;
           // The streamed translated_document call (see chatStep in this file).
           if (body.stream && properties && !("translations" in properties) && !("image_type" in properties) && !/Do NOT translate/.test(String(init.body))) {
@@ -387,8 +418,18 @@ export async function installStreamingTranslationMock(page: Page, delayMs = 150,
               async start(controller) {
                 controller.enqueue(
                   encoder.encode(
-                    frame({ type: "message_start", message: { id: "s", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [], stop_reason: null, usage: { input_tokens: 500, output_tokens: 1 } } }) +
-                      frame({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+                    frame({
+                      type: "message_start",
+                      message: {
+                        id: "s",
+                        type: "message",
+                        role: "assistant",
+                        model: "claude-haiku-5-5",
+                        content: [],
+                        stop_reason: null,
+                        usage: { input_tokens: 500, output_tokens: 1 },
+                      },
+                    }) + frame({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
                   ),
                 );
                 for (let i = 0; i < chunks; i++) {
@@ -400,7 +441,9 @@ export async function installStreamingTranslationMock(page: Page, delayMs = 150,
                   const piece = text.slice(i * size, (i + 1) * size);
                   // Split each piece into small frames, like real token streaming.
                   for (let j = 0; j < piece.length; j += 4) {
-                    controller.enqueue(encoder.encode(frame({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: piece.slice(j, j + 4) } })));
+                    controller.enqueue(
+                      encoder.encode(frame({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: piece.slice(j, j + 4) } })),
+                    );
                   }
                 }
                 controller.enqueue(

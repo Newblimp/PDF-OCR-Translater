@@ -41,16 +41,24 @@ describe("newer settings", () => {
     localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ ocrShowPdf: "yes", ocrLinkScroll: 0 }));
     expect(loadSettings()).toMatchObject({ ocrShowPdf: false, ocrLinkScroll: true });
   });
+
+  it("starts without the JSON output and with page headers and footers left out of the OCR text", () => {
+    expect(loadSettings()).toMatchObject({ jsonOutput: false, ocrHiddenTypes: ["header", "footer"], ocrMatchLayout: false, ocrPickBlocks: false });
+    saveSettings({ ...DEFAULT_SETTINGS, jsonOutput: true, ocrHiddenTypes: ["signature"], ocrMatchLayout: true, ocrPickBlocks: true });
+    expect(loadSettings()).toMatchObject({ jsonOutput: true, ocrHiddenTypes: ["signature"], ocrMatchLayout: true, ocrPickBlocks: true });
+    localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ jsonOutput: 1, ocrHiddenTypes: [1], ocrMatchLayout: "no" }));
+    expect(loadSettings()).toMatchObject({ jsonOutput: false, ocrHiddenTypes: ["header", "footer"], ocrMatchLayout: false });
+    // The defaults are never shared with a loaded copy.
+    loadSettings().ocrHiddenTypes.push("text");
+    expect(DEFAULT_SETTINGS.ocrHiddenTypes).toEqual(["header", "footer"]);
+  });
 });
 
 describe("model default migration", () => {
   beforeEach(() => localStorage.clear());
 
   it("moves a saved gpt-5.6-luna choice to the new default once", () => {
-    localStorage.setItem(
-      "pdf-ocr-translater.settings.v2",
-      JSON.stringify({ chatModels: { openai: "gpt-5.6-luna", mistral: "mistral-medium-latest" } }),
-    );
+    localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ chatModels: { openai: "gpt-5.6-luna", mistral: "mistral-medium-latest" } }));
     const migrated = loadSettings();
     expect(migrated.chatModels).toEqual({ anthropic: "claude-haiku-5-5", openai: "gpt-6-luna", mistral: "mistral-medium-latest" });
     saveSettings({ ...migrated, chatModels: { ...migrated.chatModels, openai: "gpt-5.6-luna" } });
@@ -58,7 +66,10 @@ describe("model default migration", () => {
   });
 
   it("keeps a saved OpenAI provider choice and adds the Claude default alongside", () => {
-    localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ provider: "openai", chatModels: { openai: "gpt-6-luna", mistral: "mistral-large-latest" } }));
+    localStorage.setItem(
+      "pdf-ocr-translater.settings.v2",
+      JSON.stringify({ provider: "openai", chatModels: { openai: "gpt-6-luna", mistral: "mistral-large-latest" } }),
+    );
     expect(loadSettings()).toMatchObject({ provider: "openai", chatModels: { anthropic: "claude-haiku-5-5", openai: "gpt-6-luna" } });
   });
 
@@ -78,7 +89,7 @@ describe("settings v1 migration", () => {
         chatModel: "mistral-medium-latest",
         targetLanguage: "French",
         domainHint: "custom hint",
-        schemaMode: { kind: "custom", schemaText: "{\"type\":\"object\"}" },
+        schemaMode: { kind: "custom", schemaText: '{"type":"object"}' },
         temperature: 0.5,
         cacheOcr: false,
       }),
@@ -88,7 +99,7 @@ describe("settings v1 migration", () => {
     expect(settings.chatModels.openai).toBe(DEFAULT_SETTINGS.chatModels.openai);
     expect(settings.targetLanguage).toBe("French");
     expect(settings.domainHint).toBe("custom hint");
-    expect(settings.schemaMode).toEqual({ kind: "custom", schemaText: "{\"type\":\"object\"}" });
+    expect(settings.schemaMode).toEqual({ kind: "custom", schemaText: '{"type":"object"}' });
     expect(settings.temperature).toBe(0.5);
     expect(settings.cacheOcr).toBe(false);
     expect(settings.provider).toBe("anthropic");

@@ -19,7 +19,18 @@ describe("bilingualHtml", () => {
           chars: 0,
           pagesProcessed: 1,
           bboxes: [],
-          pages: [{ index: 0, markdown: "", header: null, footer: null, imageCount: 0, width: 1, height: 1, blocks: [{ type: "text", top_left_x: 0, top_left_y: 0, bottom_right_x: 1, bottom_right_y: 1, content: "正文" }] }],
+          pages: [
+            {
+              index: 0,
+              markdown: "",
+              header: null,
+              footer: null,
+              imageCount: 0,
+              width: 1,
+              height: 1,
+              blocks: [{ type: "text", top_left_x: 0, top_left_y: 0, bottom_right_x: 1, bottom_right_y: 1, content: "正文" }],
+            },
+          ],
         },
         blockTranslations: { "0:0": "Body" },
       },
@@ -27,16 +38,28 @@ describe("bilingualHtml", () => {
     );
     expect(html).toContain("<title>office &lt;action&gt;.pdf — bilingual</title>");
     expect(html).toContain("2026-10-07");
-    expect(html).toMatch(/<th class="field" scope="row">Summary<\/th><td class="value"><p>Not inventive.<\/p><\/td><td class="value"><p>不具备创造性。<\/p><\/td>/);
+    expect(html).toMatch(
+      /<th class="field" scope="row">Summary<\/th><td class="value"><p>Not inventive.<\/p><\/td><td class="value"><p>不具备创造性。<\/p><\/td>/,
+    );
     expect(html).toContain("<dt>Label</dt><dd><p>D1</p></dd>");
     expect(html).toContain("<h3>Page 1</h3>");
-    expect(html).toContain("<td class=\"value\"><p>正文</p></td><td class=\"value\"><p>Body</p></td>");
+    expect(html).toContain('<td class="value"><p>正文</p></td><td class="value"><p>Body</p></td>');
     expect(html).not.toMatch(/<script/i);
   });
 
   it("declares its own CSP, since the site's does not apply to a downloaded file", () => {
     const html = bilingualHtml(
-      { title: "t", targetLanguage: "English", producedBy: "p", completedAt: 0, schema: {}, translated: { a: "x" }, original: null, ocr: null, blockTranslations: {} },
+      {
+        title: "t",
+        targetLanguage: "English",
+        producedBy: "p",
+        completedAt: 0,
+        schema: {},
+        translated: { a: "x" },
+        original: null,
+        ocr: null,
+        blockTranslations: {},
+      },
       render,
     );
     expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="${EXPORT_CSP}">`);
@@ -44,7 +67,17 @@ describe("bilingualHtml", () => {
 
   it("says so when the original-language structure was not produced", () => {
     const html = bilingualHtml(
-      { title: "t", targetLanguage: "German", producedBy: "p", completedAt: 0, schema: {}, translated: { a: "x" }, original: null, ocr: null, blockTranslations: {} },
+      {
+        title: "t",
+        targetLanguage: "German",
+        producedBy: "p",
+        completedAt: 0,
+        schema: {},
+        translated: { a: "x" },
+        original: null,
+        ocr: null,
+        blockTranslations: {},
+      },
       render,
     );
     expect(html).toContain("only the translation is shown");

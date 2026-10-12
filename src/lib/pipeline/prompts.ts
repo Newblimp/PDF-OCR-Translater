@@ -31,9 +31,7 @@ export const DEFAULT_DOMAIN_HINT =
 export const SCHEMA_INFERENCE_SAMPLE_CHARS = 60_000;
 
 function sourceClause(sourceLanguage: string): string {
-  return sourceLanguage.trim().toLowerCase() === "auto" || !sourceLanguage.trim()
-    ? "the source language (detect it automatically)"
-    : sourceLanguage.trim();
+  return sourceLanguage.trim().toLowerCase() === "auto" || !sourceLanguage.trim() ? "the source language (detect it automatically)" : sourceLanguage.trim();
 }
 
 /** Glossary entries as `source = target` pairs; blank lines and `#` comments are ignored. */

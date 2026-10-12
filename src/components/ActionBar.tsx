@@ -37,13 +37,7 @@ export const ActionBar = memo(function ActionBar({ running, canOcr, canTranslate
         <button type="button" class="btn" disabled={!canOcr || !!running} onClick={() => onRun("ocr")}>
           OCR only
         </button>
-        <button
-          type="button"
-          class="btn"
-          disabled={!canTranslate || !!running}
-          title={translateHint}
-          onClick={() => onRun("translate")}
-        >
+        <button type="button" class="btn" disabled={!canTranslate || !!running} title={translateHint} onClick={() => onRun("translate")}>
           {label}
         </button>
         {running && (

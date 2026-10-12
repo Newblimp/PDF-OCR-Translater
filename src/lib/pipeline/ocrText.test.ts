@@ -4,7 +4,7 @@ import { buildOcrText, replaceImageReferences, toImageDataUrl } from "./ocrText"
 
 describe("replaceImageReferences", () => {
   it("turns markdown and html images into id placeholders and collapses blank lines", () => {
-    const { text, count } = replaceImageReferences("Title\n\n![img-0.jpeg](img-0.jpeg)\n\n\n\nBody <img src=\"x.png\"> end  \n");
+    const { text, count } = replaceImageReferences('Title\n\n![img-0.jpeg](img-0.jpeg)\n\n\n\nBody <img src="x.png"> end  \n');
     expect(count).toBe(2);
     expect(text).toBe("Title\n\n[Image: img-0.jpeg]\n\nBody [Image: x.png] end");
   });

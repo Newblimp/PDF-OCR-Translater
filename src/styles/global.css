@@ -13,8 +13,7 @@
 
 :root {
   --font-ui:
-    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "PingFang SC",
-    "Microsoft YaHei", sans-serif;
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", "Courier New", monospace;
   --radius: 8px;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
@@ -700,6 +699,22 @@ input[aria-invalid="true"] {
 }
 .pages-field {
   margin: 4px 0 8px;
+}
+/* "JSON output": everything about the JSON format sits under one switch at the bottom of the settings. */
+.settings-json {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.settings-json-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  margin-top: 6px;
+}
+@media (max-width: 520px) {
+  .settings-json-body {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* --------------------------------------------------------------- job status */
@@ -1516,6 +1531,31 @@ input[aria-invalid="true"] {
   content-visibility: auto;
   contain-intrinsic-size: auto 400px;
 }
+.ocr-block + .ocr-block {
+  margin-top: 0.6em;
+}
+/* Shown in the original language while "Show translation" is on. */
+.ocr-block-untranslated {
+  border-left: 2px dotted var(--border2);
+  padding-left: 6px;
+}
+/* The block under the pointer on the pages beside the text. */
+.ocr-block-hot {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  background: var(--accent-glow);
+}
+.ocr-figure {
+  margin: 0;
+}
+.ocr-figure img {
+  display: block;
+  max-width: min(100%, 360px);
+  max-height: 240px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+}
 .ocr-page-title {
   margin-bottom: 4px;
   font-family: var(--font-mono);
@@ -1562,6 +1602,7 @@ input[aria-invalid="true"] {
   padding-top: 8px;
 }
 .ocr-pdf-sheet {
+  position: relative;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1580,6 +1621,143 @@ input[aria-invalid="true"] {
   text-align: center;
   color: var(--text-dim);
   background: var(--surface);
+}
+/* "Select blocks on the PDF": the blocks over the page; one left out is hatched. */
+.ocr-pick {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+  border: 2px solid var(--box-color, var(--accent));
+  background: color-mix(in srgb, var(--box-color, var(--accent)) 10%, transparent);
+  cursor: pointer;
+}
+.ocr-pick:hover,
+.ocr-pick:focus-visible {
+  background: color-mix(in srgb, var(--box-color, var(--accent)) 28%, transparent);
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+  z-index: 2;
+}
+.ocr-pick-out {
+  border-style: dashed;
+  background: repeating-linear-gradient(135deg, rgba(40, 40, 40, 0.38) 0 6px, rgba(40, 40, 40, 0.16) 6px 12px);
+}
+.ocr-pick:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* "Match page layout": a sheet shaped like the page, each block where it is on it. Font sizes are in cqw of the sheet. */
+.ocr-page-layout {
+  content-visibility: visible;
+}
+.ocr-sheet {
+  position: relative;
+  container-type: inline-size;
+  /* Off screen its blocks are skipped; the aspect ratio keeps its height. */
+  content-visibility: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ocr-block-abs {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--box-color, var(--border)) 30%, transparent);
+}
+.ocr-block + .ocr-block-abs {
+  margin-top: 0;
+}
+.ocr-block-abs.ocr-block-untranslated {
+  border-left: none;
+  padding-left: 0;
+  box-shadow: inset 0 0 0 1px var(--border2);
+}
+.ocr-block-fit {
+  font-size: calc(var(--fit, 1.4) * 1cqw);
+  line-height: 1.25;
+}
+.ocr-block-fit[data-overflow] {
+  overflow-y: auto;
+  box-shadow: inset 0 -2px 0 var(--warn);
+}
+.ocr-block-fit .prose {
+  font-size: inherit;
+  line-height: inherit;
+}
+.ocr-block-fit .prose p {
+  margin: 0 0 0.35em;
+}
+.ocr-block-fit .prose h1,
+.ocr-block-fit .prose h2,
+.ocr-block-fit .prose h3,
+.ocr-block-fit .prose h4 {
+  margin: 0 0 0.2em;
+  font-size: 1em;
+}
+.ocr-block-fit .prose ul,
+.ocr-block-fit .prose ol {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.ocr-block-fit .prose table {
+  margin: 0;
+  font-size: 0.9em;
+}
+.ocr-block-fit .prose th,
+.ocr-block-fit .prose td {
+  padding: 0.1em 0.3em;
+}
+.ocr-block-image .ocr-figure,
+.ocr-block-image .ocr-figure img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  border: none;
+}
+.ocr-block-image figcaption {
+  display: none;
+}
+
+/* Block types in the OCR text: one switch per type, with its colour. */
+.block-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
+  margin: 2px 0 8px;
+}
+.block-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.block-chip input {
+  margin: 0;
+  accent-color: var(--box-color, var(--accent));
+}
+.block-chip .swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--box-color);
+}
+.block-chip:has(input:not(:checked)) {
+  opacity: 0.6;
+  text-decoration: line-through;
 }
 .hf-list {
   margin: 4px 0 0;

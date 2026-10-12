@@ -11,9 +11,7 @@ export type ProviderId = ApiProvider;
 
 export type ReasoningEffort = "none" | "low" | "medium" | "high";
 
-export type JsonFormat =
-  | { type: "json_object" }
-  | { type: "json_schema"; name: string; description?: string; schema: JsonSchemaObject; strict: boolean };
+export type JsonFormat = { type: "json_object" } | { type: "json_schema"; name: string; description?: string; schema: JsonSchemaObject; strict: boolean };
 
 export interface AttachedImage {
   /** Identifier used in the text (e.g. the OCR image id) so the model can relate them. */

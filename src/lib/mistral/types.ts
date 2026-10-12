@@ -23,10 +23,7 @@ export interface JsonSchemaSpec {
   strict?: boolean;
 }
 
-export type ResponseFormat =
-  | { type: "text" }
-  | { type: "json_object" }
-  | { type: "json_schema"; json_schema: JsonSchemaSpec };
+export type ResponseFormat = { type: "text" } | { type: "json_object" } | { type: "json_schema"; json_schema: JsonSchemaSpec };
 
 // ---------------------------------------------------------------------------
 // OCR  (POST /v1/ocr)
@@ -82,7 +79,8 @@ export interface OcrImage {
  * Coordinates are pixels of the page image described by `OcrPage.dimensions`.
  */
 export interface OcrBlock {
-  type: "text" | "title" | "table" | "image" | "header" | "footer" | "caption" | "list" | "equation" | "code" | "signature" | "references" | "aside_text" | string;
+  type:
+    "text" | "title" | "table" | "image" | "header" | "footer" | "caption" | "list" | "equation" | "code" | "signature" | "references" | "aside_text" | string;
   top_left_x: number;
   top_left_y: number;
   bottom_right_x: number;

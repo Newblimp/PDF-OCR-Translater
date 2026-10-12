@@ -30,10 +30,15 @@ describe("runPool", () => {
   it("stops when asked to", async () => {
     const started: number[] = [];
     let stop = false;
-    await runPool([1, 2, 3], 1, async (item) => {
-      started.push(item);
-      stop = true;
-    }, () => stop);
+    await runPool(
+      [1, 2, 3],
+      1,
+      async (item) => {
+        started.push(item);
+        stop = true;
+      },
+      () => stop,
+    );
     expect(started).toEqual([1]);
   });
 });

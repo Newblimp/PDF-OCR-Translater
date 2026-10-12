@@ -127,10 +127,7 @@ export function buildOcrText(response: OcrResponse): OcrText {
   pages.sort((a, b) => a.index - b.index);
   bboxes.sort((a, b) => a.pageIndex - b.pageIndex || a.y0 - b.y0 || a.x0 - b.x0);
 
-  const text =
-    pages.length === 1
-      ? (pages[0]?.markdown ?? "")
-      : pages.map((p) => `${pageDelimiter(p.index + 1)}\n\n${p.markdown}`).join("\n\n");
+  const text = pages.length === 1 ? (pages[0]?.markdown ?? "") : pages.map((p) => `${pageDelimiter(p.index + 1)}\n\n${p.markdown}`).join("\n\n");
 
   return {
     text,

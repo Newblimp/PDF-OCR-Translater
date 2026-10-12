@@ -40,7 +40,7 @@ export function sanitizeSchema(input: unknown, options: SanitizeOptions = {}): S
   const root = unwrapRoot(input, warnings);
   const schema = sanitizeNode(root, 1, opts, warnings, "$");
   if (schema["type"] !== "object") {
-    warnings.push("Root schema was not an object; wrapped it in {\"content\": ...}.");
+    warnings.push('Root schema was not an object; wrapped it in {"content": ...}.');
     return {
       schema: {
         type: "object",
@@ -69,13 +69,7 @@ function unwrapRoot(input: unknown, warnings: string[]): unknown {
   return input;
 }
 
-function sanitizeNode(
-  node: unknown,
-  depth: number,
-  opts: Required<SanitizeOptions>,
-  warnings: string[],
-  path: string,
-): JsonSchemaObject {
+function sanitizeNode(node: unknown, depth: number, opts: Required<SanitizeOptions>, warnings: string[], path: string): JsonSchemaObject {
   if (!isPlainObject(node)) {
     warnings.push(`${path}: not a schema object, treated as string.`);
     return { type: "string" };
@@ -121,10 +115,7 @@ function sanitizeNode(
       return { type: "string" };
     }
     const items = node["items"];
-    out["items"] =
-      items === undefined
-        ? { type: "string" }
-        : sanitizeNode(Array.isArray(items) ? items[0] : items, depth + 1, opts, warnings, `${path}[]`);
+    out["items"] = items === undefined ? { type: "string" } : sanitizeNode(Array.isArray(items) ? items[0] : items, depth + 1, opts, warnings, `${path}[]`);
     return out;
   }
 
@@ -212,10 +203,7 @@ export function findSchemaViolations(data: unknown, schema: JsonSchemaObject, pa
 /** Count leaf fields (rough size indicator for the UI). */
 export function countSchemaFields(schema: JsonSchemaObject): number {
   if (schema["type"] === "object" && isPlainObject(schema["properties"])) {
-    return Object.values(schema["properties"]).reduce<number>(
-      (sum, sub) => sum + (isPlainObject(sub) ? countSchemaFields(sub) : 1),
-      0,
-    );
+    return Object.values(schema["properties"]).reduce<number>((sum, sub) => sum + (isPlainObject(sub) ? countSchemaFields(sub) : 1), 0);
   }
   if (schema["type"] === "array" && isPlainObject(schema["items"])) {
     return countSchemaFields(schema["items"]);

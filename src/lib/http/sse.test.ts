@@ -10,7 +10,7 @@ describe("SseParser", () => {
 
   it("handles events split across chunks and CRLF", () => {
     const p = new SseParser();
-    expect(p.push("data: {\"x\":")).toEqual([]);
+    expect(p.push('data: {"x":')).toEqual([]);
     expect(p.push("1}\r\n\r\n")).toEqual([{ data: '{"x":1}' }]);
   });
 

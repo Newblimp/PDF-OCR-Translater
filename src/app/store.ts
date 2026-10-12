@@ -10,7 +10,7 @@ import { OCR_PROVIDER, perProvider } from "@/lib/llm/registry";
 import type { ModelOption } from "@/lib/mistral/models";
 import type { JsonSchemaObject, OcrResponse } from "@/lib/mistral/types";
 import type { ProgressEvent, StageId } from "@/lib/pipeline/events";
-import type { OcrText } from "@/lib/pipeline/ocrText";
+import type { OcrCleanPage, OcrText } from "@/lib/pipeline/ocrText";
 import type { StructuredMode } from "@/lib/pipeline/translate";
 import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
 import type { FileKind } from "@/lib/files/fileKind";
@@ -95,30 +95,37 @@ export interface TranslationState {
   ocrKey: string | null;
   /** The text that was translated (needed for on-demand follow-ups and re-runs). */
   sourceText: string;
+  /**
+   * The blocks of a translation made without the JSON format (OCR blocks, or
+   * the paragraphs of text input), so it can be shown without its OCR
+   * result. Null with the JSON format.
+   */
+  pages: OcrCleanPage[] | null;
+  /** The JSON format filled with the translation; null without the JSON format (see `hasStructure()`). */
   data: unknown;
   rawText: string;
-  schema: JsonSchemaObject;
-  schemaSource: "inferred" | "builtin" | "custom";
+  schema: JsonSchemaObject | null;
+  schemaSource: "inferred" | "builtin" | "custom" | null;
   schemaWarnings: string[];
   usage: TokenUsage | null;
   inferUsage: TokenUsage | null;
   provider: ProviderId;
   model: string;
-  mode: StructuredMode;
+  mode: StructuredMode | null;
   violations: string[];
   finishReason: string | null;
   /** The output was cut off and only the fields received before were kept. */
   partial: boolean;
   targetLanguage: string;
   completedAt: number;
-  /** Characters of source text that were translated. */
+  /** Characters of source text that were translated (the whole source, whatever the block filter left out). */
   sourceChars: number;
   /** Bounding-box images handed to the vision model with the text. */
   imagesSent: number;
   /** Per-bounding-box descriptions by the vision model (empty when the stage did not run). */
   bboxAnnotations: BboxAnnotation[];
   bboxUsage: TokenUsage | null;
-  /** Translation per OCR text block id (`${pageIndex}:${blockIndex}`), filled after the main translation. */
+  /** Translation per text block id (`${pageIndex}:${blockIndex}`): the translation without the JSON format, a follow-up with it. */
   blockTranslations: Record<string, string>;
   blockUsage: TokenUsage | null;
   /** Same JSON format filled in the document's own language; null until (or unless) that stage runs. */
@@ -178,6 +185,22 @@ export interface AppState {
   showTranslation: boolean;
   /** Translations saved in this browser, newest first. */
   history: SavedTranslationSummary[];
+  /**
+   * Blocks left out of the OCR text one by one (picked on the page), for the
+   * pages they were picked on: other pages (another OCR result or
+   * translation) start with none left out.
+   */
+  blockSelection: { pages: readonly OcrCleanPage[]; excluded: ReadonlySet<string> } | null;
+}
+
+/** Whether the translation filled a JSON format (made with "JSON output" on). */
+export function hasStructure(t: TranslationState): t is TranslationState & { schema: JsonSchemaObject } {
+  return t.schema !== null;
+}
+
+/** The tab a translation opens on: the structured text with the JSON output, the OCR text without it. */
+function translationTab(translation: TranslationState, settings: Settings): ResultTab {
+  return settings.jsonOutput && hasStructure(translation) ? "structured" : "ocr";
 }
 
 export type Action =
@@ -206,6 +229,9 @@ export type Action =
   | { type: "layout/reset" }
   | { type: "view/translation"; show: boolean }
   | { type: "history/set"; history: SavedTranslationSummary[] }
+  /** Leave a block out of the OCR text, or take it back. */
+  | { type: "blocks/toggle"; pages: readonly OcrCleanPage[]; id: string }
+  | { type: "blocks/includeAll" }
   | { type: "history/open"; ocr: OcrState | null; translation: TranslationState; pastedText: string | null };
 
 function keyState(value: string | null): KeyState {
@@ -245,6 +271,7 @@ export function initialState(keys: Record<ProviderId, string | null>, settings: 
     resultLayout,
     showTranslation: true,
     history: [],
+    blockSelection: null,
   };
   state.keyDialogOpen = missingKeys(state).length > 0;
   return state;
@@ -268,19 +295,28 @@ export function reducer(state: AppState, action: Action): AppState {
     case "settings/toggle":
       return { ...state, settingsOpen: action.open ?? !state.settingsOpen };
     case "doc/set":
-      return { ...state, doc: action.doc, pasteMode: false, ocr: null, translation: null, error: null, resultLayout: activateTab(state.resultLayout, "bboxes") };
+      return {
+        ...state,
+        doc: action.doc,
+        pasteMode: false,
+        ocr: null,
+        translation: null,
+        error: null,
+        blockSelection: null,
+        resultLayout: activateTab(state.resultLayout, "bboxes"),
+      };
     case "doc/patch":
       if (!state.doc || state.doc.id !== action.id) return state;
       return { ...state, doc: { ...state.doc, ...action.patch } };
     case "doc/clear":
-      return { ...state, doc: null, ocr: null, translation: null, error: null };
+      return { ...state, doc: null, ocr: null, translation: null, error: null, blockSelection: null };
     case "paste/mode":
       return { ...state, pasteMode: action.enabled, error: null };
     case "paste/text":
       return { ...state, pastedText: action.text };
     case "ocr/set":
       // A fresh OCR result invalidates a translation made from the previous one.
-      return { ...state, ocr: action.ocr, translation: action.ocr?.source === "api" ? null : state.translation };
+      return { ...state, ocr: action.ocr, translation: action.ocr?.source === "api" ? null : state.translation, blockSelection: null };
     case "translation/set":
       return {
         ...state,
@@ -288,7 +324,7 @@ export function reducer(state: AppState, action: Action): AppState {
         // An OCR result reopened from "Recent translations" (no document) leaves with the translation it came with
         // when a translation of something else (pasted text) replaces it.
         ocr: !state.doc && state.ocr && action.translation && !ocrBelongsTo(state.ocr, action.translation) ? null : state.ocr,
-        resultLayout: action.translation ? activateTab(state.resultLayout, "structured") : state.resultLayout,
+        resultLayout: action.translation ? activateTab(state.resultLayout, translationTab(action.translation, state.settings)) : state.resultLayout,
         // The finished translation replaces the live stream view while follow-ups run.
         job: state.job && action.translation ? { ...state.job, streamText: "" } : state.job,
       };
@@ -336,6 +372,13 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, showTranslation: action.show };
     case "history/set":
       return { ...state, history: action.history };
+    case "blocks/toggle": {
+      const excluded = new Set(state.blockSelection?.pages === action.pages ? state.blockSelection.excluded : []);
+      if (!excluded.delete(action.id)) excluded.add(action.id);
+      return { ...state, blockSelection: { pages: action.pages, excluded } };
+    }
+    case "blocks/includeAll":
+      return { ...state, blockSelection: null };
     case "history/open":
       return {
         ...state,
@@ -345,7 +388,8 @@ export function reducer(state: AppState, action: Action): AppState {
         ocr: action.ocr,
         translation: action.translation,
         error: null,
-        resultLayout: activateTab(state.resultLayout, "structured"),
+        blockSelection: null,
+        resultLayout: activateTab(state.resultLayout, translationTab(action.translation, state.settings)),
       };
     default:
       return state;
@@ -374,6 +418,24 @@ export function selectSourceText(state: AppState): { text: string; origin: Sourc
     return { text: state.translation.sourceText, origin: "saved" };
   }
   return null;
+}
+
+/** The blocks left out one by one of these pages (none when they were picked on other pages). */
+export function excludedBlocks(state: Pick<AppState, "blockSelection">, pages: readonly OcrCleanPage[]): ReadonlySet<string> {
+  return state.blockSelection?.pages === pages ? state.blockSelection.excluded : NOTHING_EXCLUDED;
+}
+const NOTHING_EXCLUDED: ReadonlySet<string> = new Set();
+
+/**
+ * The pages the OCR text tab shows: the OCR result, or the blocks of a
+ * translation made without the JSON format when the OCR result on screen is
+ * not the one it was made from (text input, a saved translation whose OCR
+ * result is no longer cached).
+ */
+export function selectTextPages(state: Pick<AppState, "ocr" | "translation">): { pages: OcrCleanPage[]; fromOcr: boolean } | null {
+  const { ocr, translation } = state;
+  if (translation?.pages && !(ocr && ocrBelongsTo(ocr, translation))) return { pages: translation.pages, fromOcr: false };
+  return ocr ? { pages: ocr.text.pages, fromOcr: true } : null;
 }
 
 export function canRunOcr(state: AppState): boolean {

@@ -19,14 +19,7 @@ import type { JsonSchemaObject } from "../mistral/types";
 import { isPlainObject, parseModelJson } from "../util/json";
 import { parsePartialJson } from "../util/partialJson";
 import { emit, type ProgressListener, type StageId } from "./events";
-import {
-  documentContext,
-  documentSystemPrompt,
-  originalStructureInstruction,
-  translationInstruction,
-  type DocumentPart,
-  type PromptContext,
-} from "./prompts";
+import { documentContext, documentSystemPrompt, originalStructureInstruction, translationInstruction, type DocumentPart, type PromptContext } from "./prompts";
 import { findSchemaViolations } from "./schema";
 
 export type StructuredMode = "json_schema" | "json_object";
@@ -158,9 +151,15 @@ export async function translateStructured(provider: ChatProvider, documentText: 
     emit(onProgress, stage, "warning", "The provider's content filter stopped the output early; the output may be incomplete.");
   }
   const violations = findSchemaViolations(data, options.schema);
-  emit(onProgress, stage, "done", `${target === "original" ? "Structured original text" : "Translation"} received (${result.content.length.toLocaleString()} characters)`, {
-    detail: violations.length ? `${violations.length} schema deviation(s)` : undefined,
-  });
+  emit(
+    onProgress,
+    stage,
+    "done",
+    `${target === "original" ? "Structured original text" : "Translation"} received (${result.content.length.toLocaleString()} characters)`,
+    {
+      detail: violations.length ? `${violations.length} schema deviation(s)` : undefined,
+    },
+  );
   return {
     data,
     rawText: result.content,
@@ -213,7 +212,11 @@ function complete(
   return provider.completeJson({
     model: options.model,
     system,
-    context: documentContext(documentText, images.map((i) => i.id), options.part),
+    context: documentContext(
+      documentText,
+      images.map((i) => i.id),
+      options.part,
+    ),
     user: instruction(options, schemaJson),
     images: images.length ? images : undefined,
     cachePrefix: options.cachePrefix !== false,

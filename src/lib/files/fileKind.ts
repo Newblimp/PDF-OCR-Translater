@@ -3,15 +3,7 @@
 export type FileKind = "pdf" | "image" | "text";
 
 export const ACCEPTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".txt", ".md"] as const;
-export const ACCEPT_ATTRIBUTE = [
-  "application/pdf",
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "text/plain",
-  "text/markdown",
-  ...ACCEPTED_EXTENSIONS,
-].join(",");
+export const ACCEPT_ATTRIBUTE = ["application/pdf", "image/png", "image/jpeg", "image/webp", "text/plain", "text/markdown", ...ACCEPTED_EXTENSIONS].join(",");
 
 /** Returns the kind and the MIME type to use when sending the file. */
 export function classifyFile(file: File): { kind: FileKind; mimeType: string } | null {

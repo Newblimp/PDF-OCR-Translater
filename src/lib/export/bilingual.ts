@@ -86,7 +86,9 @@ function structuredSection(input: BilingualExportInput, render: MarkdownRenderer
     if (original) cells.push(`<td class="value">${renderValue(original[key], render)}</td>`);
     return `<tr>${cells.join("")}</tr>`;
   });
-  const note = original ? "" : '<p class="meta">The structured text in the original language was not produced for this translation, so only the translation is shown.</p>';
+  const note = original
+    ? ""
+    : '<p class="meta">The structured text in the original language was not produced for this translation, so only the translation is shown.</p>';
   return `<h2>Structured text</h2>${note}<table class="bilingual"><thead>${head}</thead><tbody>${rows.join("")}</tbody></table>`;
 }
 
