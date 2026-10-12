@@ -19,7 +19,7 @@ export const PasteBox = memo(function PasteBox({ text, onChange, onClose }: Prop
         rows={12}
         placeholder="Paste the source text (Markdown is fine) and press “Translate only”."
         value={text}
-        onInput={(e) => onChange((e.target as HTMLTextAreaElement).value)}
+        onInput={(e) => onChange(e.currentTarget.value)}
       />
       <p class="muted">{text.length.toLocaleString()} characters</p>
     </div>

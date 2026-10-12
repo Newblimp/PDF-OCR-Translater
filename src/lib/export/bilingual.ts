@@ -9,7 +9,7 @@
  * whose URL carries text), and the file declares its own CSP for browsers.
  */
 import type { JsonSchemaObject } from "../mistral/types";
-import { textBlocks } from "../pipeline/blockTranslate";
+import { textBlocks } from "../pipeline/blocks";
 import type { OcrText } from "../pipeline/ocrText";
 import { isPlainObject } from "../util/json";
 import { humanizeKey } from "../util/text";

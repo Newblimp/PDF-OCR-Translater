@@ -12,8 +12,7 @@
  * gets a new id (`${page}:e${n}`) and is translated afresh.
  */
 import type { OcrBlock } from "../mistral/types";
-import { pageBlockId } from "./blockTranslate";
-import { joinPages, type OcrBbox, type OcrCleanPage, type OcrText, type PageBlock } from "./ocrText";
+import { joinPages, pageBlockId, type OcrBbox, type OcrCleanPage, type OcrText, type PageBlock } from "./ocrText";
 
 /** A rectangle in the pixel coordinates of the OCR's page image. */
 export interface Rect {

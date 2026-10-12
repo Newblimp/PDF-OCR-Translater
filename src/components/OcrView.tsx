@@ -5,13 +5,14 @@ import type { DocState, OcrState, TranslationState } from "@/app/store";
 import { blockTypeCounts, filteredText, isShown, pageBlocks, shownTextBlockIds, type BlockFilter, type ViewBlock } from "@/lib/pipeline/blocks";
 import type { OcrCleanPage } from "@/lib/pipeline/ocrText";
 import { estimateTokens, formatNumber } from "@/lib/util/text";
-import { blockColor, blockTypeLabel } from "./blockColors";
+import { blockColor, blockTypeLabel, boxStyle } from "./blockColors";
 import { MarkdownText } from "./MarkdownText";
 import { usePageRenderer, useRenderedPages } from "./pageImages";
 import { copy, download, TranslationToggle, usageText } from "./resultControls";
 import type { ResultActions } from "./ResultsPanel";
 import { FIT_BLOCK, useFitText } from "./useFitText";
 import { useLinkedScroll } from "./useLinkedScroll";
+import { Check } from "./Check";
 
 const NO_TRANSLATIONS: Record<string, string> = {};
 /** "Match page layout": a block's font is at most one line filling its box, and never larger than a heading (in cqw of the sheet). */
@@ -148,42 +149,43 @@ export const OcrView = memo(function OcrView({
         </span>
         <div class="btn-row">
           <TranslationToggle show={wantTranslation} available={translationsAvailable} onShowTranslation={actions.setShowTranslation} />
-          <label class="checkbox small">
-            <input type="checkbox" checked={markdown} onChange={(e) => setMarkdown((e.target as HTMLInputElement).checked)} />
-            <span>Render Markdown</span>
-          </label>
-          <label
-            class="checkbox small"
+          <Check checked={markdown} onChange={setMarkdown} small>
+            Render Markdown
+          </Check>
+          <Check
+            checked={layout}
+            onChange={actions.setOcrMatchLayout}
+            disabled={!canLayout}
+            small
             title={
               canLayout ? "Place each block where it is on the page, its text sized to fit the block" : "These blocks have no positions on a page (text input)"
             }
           >
-            <input type="checkbox" checked={layout} disabled={!canLayout} onChange={(e) => actions.setOcrMatchLayout((e.target as HTMLInputElement).checked)} />
-            <span>Match page layout</span>
-          </label>
-          <label
-            class="checkbox small"
+            Match page layout
+          </Check>
+          <Check
+            checked={comparing}
+            onChange={actions.setOcrShowPdf}
+            disabled={!pagesAvailable}
+            small
             title={pagesAvailable ? "Show the document's pages beside the text" : "Load the document to see its pages beside the text"}
           >
-            <input
-              type="checkbox"
-              checked={comparing}
-              disabled={!pagesAvailable}
-              onChange={(e) => actions.setOcrShowPdf((e.target as HTMLInputElement).checked)}
-            />
-            <span>Show {doc?.kind === "image" ? "image" : "PDF"}</span>
-          </label>
+            Show {doc?.kind === "image" ? "image" : "PDF"}
+          </Check>
           {comparing && (
-            <label class="checkbox small" title="Scroll the pages and the text together, page by page">
-              <input type="checkbox" checked={linkScroll} onChange={(e) => actions.setOcrLinkScroll((e.target as HTMLInputElement).checked)} />
-              <span>Lock scrolling</span>
-            </label>
+            <Check checked={linkScroll} onChange={actions.setOcrLinkScroll} small title="Scroll the pages and the text together, page by page">
+              Lock scrolling
+            </Check>
           )}
           {comparing && (
-            <label class="checkbox small" title="Draw the blocks over the pages: click one to leave it out of the text, click again to take it back">
-              <input type="checkbox" checked={pickBlocks} onChange={(e) => actions.setOcrPickBlocks((e.target as HTMLInputElement).checked)} />
-              <span>Select blocks on the {doc?.kind === "image" ? "image" : "PDF"}</span>
-            </label>
+            <Check
+              checked={pickBlocks}
+              onChange={actions.setOcrPickBlocks}
+              small
+              title="Draw the blocks over the pages: click one to leave it out of the text, click again to take it back"
+            >
+              Select blocks on the {doc?.kind === "image" ? "image" : "PDF"}
+            </Check>
           )}
           <button type="button" class="btn btn-ghost small" onClick={() => void copy(fullText)}>
             Copy text
@@ -206,7 +208,7 @@ export const OcrView = memo(function OcrView({
                 type="checkbox"
                 checked={!hidden.has(type)}
                 aria-label={`${blockTypeLabel(type)} blocks (${count})`}
-                onChange={(e) => setTypeShown(type, (e.target as HTMLInputElement).checked)}
+                onChange={(e) => setTypeShown(type, e.currentTarget.checked)}
               />
               <span class="swatch" />
               <span>{blockTypeLabel(type)}</span>
@@ -304,7 +306,7 @@ const TextPage = memo(function TextPage({
   const untranslatable = !!translations && blocks.length > 0 && blocks.every((b) => b.wholePage);
   return (
     <section class={`ocr-page${sheet ? " ocr-page-layout" : ""}`} id={`ocr-page-${page.index + 1}`} data-page={page.index}>
-      <h3 class="ocr-page-title muted small">Page {page.index + 1}</h3>
+      <h3 class="ocr-page-title">Page {page.index + 1}</h3>
       {untranslatable ? (
         <p class="muted small">The OCR API returned no text blocks for this page, so it cannot be shown translated.</p>
       ) : (
@@ -348,12 +350,11 @@ function LayoutSheet({
   useFitText(sheet);
   const width = page.width ?? 1;
   const height = page.height ?? 1;
-  const pct = (v: number, total: number) => `${(v / total) * 100}%`;
   return (
     <div class="ocr-sheet" ref={sheet} style={`aspect-ratio:${width}/${height}`}>
       {blocks.map((b) => {
         const box = b.box!;
-        const style = `left:${pct(box.x0, width)};top:${pct(box.y0, height)};width:${pct(box.x1 - box.x0, width)};height:${pct(box.y1 - box.y0, height)};--box-color:${blockColor(b.type)}`;
+        const style = boxStyle(box, width, height, blockColor(b.type));
         if (b.type === "image") {
           return (
             <div key={b.id} class="ocr-block ocr-block-abs ocr-block-image" data-block={b.id} data-type={b.type} style={style}>
@@ -452,7 +453,7 @@ const PdfPages = memo(function PdfPages({
         const error = errors[page.index];
         return (
           <section class="ocr-pdf-page" key={page.index} data-page={page.index}>
-            <h3 class="ocr-page-title muted small">Page {page.index + 1}</h3>
+            <h3 class="ocr-page-title">Page {page.index + 1}</h3>
             <div class="ocr-pdf-sheet" style={`aspect-ratio:${page.width ?? 1000}/${page.height ?? 1414}`}>
               {url ? (
                 <img src={url} alt={`Page ${page.index + 1}`} />
@@ -471,7 +472,6 @@ const PdfPages = memo(function PdfPages({
 function PickLayer({ page, blocks, picker }: { page: OcrCleanPage; blocks: ViewBlock[]; picker: Picker }) {
   const width = page.width ?? 1;
   const height = page.height ?? 1;
-  const pct = (v: number, total: number) => `${(v / total) * 100}%`;
   return (
     <div class="bbox-layer" aria-label={`Blocks on page ${page.index + 1}`}>
       {blocks.map((b, i) => {
@@ -484,7 +484,7 @@ function PickLayer({ page, blocks, picker }: { page: OcrCleanPage; blocks: ViewB
             type="button"
             key={b.id}
             class={`ocr-pick${out ? " ocr-pick-out" : ""}`}
-            style={`left:${pct(b.box.x0, width)};top:${pct(b.box.y0, height)};width:${pct(b.box.x1 - b.box.x0, width)};height:${pct(b.box.y1 - b.box.y0, height)};--box-color:${blockColor(b.type)}`}
+            style={boxStyle(b.box, width, height, blockColor(b.type))}
             aria-pressed={!out}
             disabled={hiddenType}
             title={

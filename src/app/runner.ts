@@ -6,7 +6,7 @@
 import { ApiError } from "@/lib/http/apiError";
 import { addUsage, emptyUsage, type ProviderId } from "@/lib/llm/provider";
 import { createProvider, effortFor, PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
-import { MistralClient } from "@/lib/mistral/client";
+import type { OcrClient } from "@/lib/mistral/client";
 import { classifyFile } from "@/lib/files/fileKind";
 import { fileToDataUrl } from "@/lib/files/dataUrl";
 import { sha256Hex } from "@/lib/files/hash";
@@ -33,17 +33,7 @@ import { ocrTextFromPages, shownTextBlockIds, textPages, type BlockFilter } from
 import { ocrRegion } from "@/lib/pipeline/regionOcr";
 import { runPool } from "@/lib/util/pool";
 import { emit, type StageId } from "@/lib/pipeline/events";
-import {
-  blockTranslations,
-  describeBboxes,
-  ocrOnly,
-  resolveSchema,
-  structureOriginal,
-  translateDocument,
-  type PipelineContext,
-  type PipelineSettings,
-  type SchemaMode,
-} from "@/lib/pipeline/pipeline";
+import type { PipelineContext, PipelineSettings, SchemaMode, TranslationOutcome } from "@/lib/pipeline/pipeline";
 import { parsePageSelection } from "@/lib/util/pageSelection";
 import { buildOcrText, type OcrCleanPage, type OcrText } from "@/lib/pipeline/ocrText";
 import { OCR_MAX_FILE_BYTES } from "@/lib/pipeline/runOcr";
@@ -58,13 +48,15 @@ import {
   putSavedTranslation,
   type SourceKind,
 } from "@/lib/storage/history";
-import { getCachedOcr, OCR_CACHE_VERSION, ocrCacheKey, putCachedOcr } from "@/lib/storage/ocrCache";
+import { getCachedOcr, OCR_CACHE_VERSION, ocrCacheKey, putCachedOcr, type OcrCacheEntry } from "@/lib/storage/ocrCache";
 import { saveSettings, type Settings } from "@/lib/storage/settings";
 import { applyTheme } from "@/lib/storage/theme";
+import { isPlainObject } from "@/lib/util/json";
 import { formatBytes } from "@/lib/util/text";
 import {
   canRunOcr,
   excludedBlocks,
+  hasOriginal,
   hasStructure,
   missingKeys,
   makeOcrState,
@@ -73,6 +65,7 @@ import {
   selectSourceText,
   usableKey,
   type Action,
+  type AppError,
   type AppState,
   type DocState,
   type JobKind,
@@ -84,6 +77,9 @@ export interface Runtime {
   getState(): AppState;
   dispatch(action: Action): void;
 }
+
+/** The pipeline's stages (prompts, schemas, the steps), imported when the first job runs: the page does not need them before. */
+const pipeline = () => import("@/lib/pipeline/pipeline");
 
 /** How many pages to render as thumbnails when a PDF is dropped. */
 const PREVIEW_PAGES = 4;
@@ -308,20 +304,14 @@ async function restoreCachedOcr(rt: Runtime, docId: string, hash: string): Promi
   const entry = await getCachedOcr(key);
   if (!entry) return;
   if (rt.getState().doc?.id !== docId || rt.getState().ocr) return;
-  rt.dispatch({
-    type: "ocr/set",
-    ocr: makeOcrState({
-      source: "cache",
-      model: entry.model,
-      response: entry.response,
-      base: buildOcrText(entry.response),
-      edits: entry.edits ?? null,
-      docId,
-      requestKey: ocrRequestKey(state.settings.ocrModel, pages),
-      cacheKey: key,
-    }),
-  });
+  rt.dispatch({ type: "ocr/set", ocr: cachedOcrState(entry, docId, ocrRequestKey(state.settings.ocrModel, pages), key) });
   await restoreSavedTranslation(rt, docId, hash, key);
+}
+
+/** An OCR result from this browser's cache, with its saved edits. */
+function cachedOcrState(entry: OcrCacheEntry, docId: string, requestKey: string, cacheKey: string): OcrState {
+  const { model, response, edits } = entry;
+  return makeOcrState({ source: "cache", model, response, base: buildOcrText(response), edits: edits ?? null, docId, requestKey, cacheKey });
 }
 
 /** Show the newest saved translation of the same document (and OCR result) right away. */
@@ -366,20 +356,8 @@ export async function openSavedTranslation(rt: Runtime, id: string): Promise<voi
     await refreshHistory(rt);
     return;
   }
-  let ocr: OcrState | null = null;
   const cached = saved.ocrKey ? await getCachedOcr(saved.ocrKey) : null;
-  if (cached) {
-    ocr = makeOcrState({
-      source: "cache",
-      model: cached.model,
-      response: cached.response,
-      base: buildOcrText(cached.response),
-      edits: cached.edits ?? null,
-      docId: `saved:${saved.id}`,
-      requestKey: "",
-      cacheKey: saved.ocrKey,
-    });
-  }
+  const ocr = cached && saved.ocrKey ? cachedOcrState(cached, `saved:${saved.id}`, "", saved.ocrKey) : null;
   if (superseded()) return;
   releaseDocument(rt);
   const textSource = saved.sourceKind === "pasted" || saved.sourceKind === "text";
@@ -434,6 +412,7 @@ export function cancelJob(rt: Runtime): void {
 }
 
 interface Job {
+  kind: JobKind;
   ctx: PipelineContext;
   controller: AbortController;
   /** Id of the translation this job put on screen, once it has. */
@@ -477,9 +456,10 @@ function beginJob(rt: Runtime, kind: JobKind, stages: StageId[], needsChat: bool
   const controller = new AbortController();
   rt.dispatch({ type: "job/start", job: { kind, startedAt: Date.now(), stages, events: [], receivedChars: {}, streamText: "", controller } });
   return {
+    kind,
     controller,
     ctx: {
-      ocr: new MistralClient({ apiKey: mistralKey ?? "" }),
+      ocr: ocrClient(mistralKey ?? ""),
       chat: createProvider(settings.provider, chatKey ?? mistralKey ?? ""),
       settings: pipelineSettings,
       signal: controller.signal,
@@ -488,13 +468,23 @@ function beginJob(rt: Runtime, kind: JobKind, stages: StageId[], needsChat: bool
   };
 }
 
-/** Report a job's failure unless it was cancelled; always ends the job. */
-function endJob(rt: Runtime, job: Job, title: string, err?: unknown): void {
+/** Mistral OCR with this key; the client (and the HTTP layer) is imported with the first request. */
+function ocrClient(apiKey: string): OcrClient {
+  return {
+    async ocr(request, signal) {
+      const { MistralClient } = await import("@/lib/mistral/client");
+      return new MistralClient({ apiKey }).ocr(request, signal);
+    },
+  };
+}
+
+/** Report a job's failure (`err`) unless it was cancelled; always ends the job. */
+function endJob(rt: Runtime, job: Job, err?: unknown): void {
   if (err !== undefined) {
     // A translation whose job was cancelled or failed after it appeared gets no automatic follow-up: the user decides.
     if (job.producedId) originalRequested.add(job.producedId);
     if (!isCancellation(err, job)) {
-      rt.dispatch({ type: "error/set", error: toAppError(err, title) });
+      rt.dispatch({ type: "error/set", error: toAppError(err, JOB_TITLES[job.kind]) });
       job.controller.abort(); // stop stages still running in the background
     }
   }
@@ -566,15 +556,15 @@ export async function runJob(rt: Runtime, kind: "ocr" | "translate" | "both"): P
       const ocr = await runOcrStage(rt, job, doc, kind === "both");
       if (kind === "ocr") {
         rt.dispatch({ type: "tab/set", tab: "ocr" });
-        return endJob(rt, job, jobTitle(kind));
+        return endJob(rt, job);
       }
       source = { text: ocr.text.text, ocr: ocr.text, name: doc.name, kind: doc.kind, hash: doc.hash, ocrKey: ocr.cacheKey, ocrFingerprint: ocr.fingerprint };
     }
     if (!source.text.trim()) throw new Error("OCR returned no text to translate.");
     await runTranslation(rt, job, source);
-    endJob(rt, job, jobTitle(kind));
+    endJob(rt, job);
   } catch (err) {
-    endJob(rt, job, jobTitle(kind), err);
+    endJob(rt, job, err);
   }
 }
 
@@ -602,6 +592,7 @@ async function runOcrStage(rt: Runtime, job: Job, doc: DocState, reuse: boolean)
     return { text: loaded.text, cacheKey: loaded.cacheKey ?? cacheKey, fingerprint: loaded.fingerprint };
   }
 
+  const { ocrOnly } = await pipeline();
   emit(ctx.onProgress, "prepare", "start", `Encoding ${doc.name} (${formatBytes(doc.size)})`);
   const dataUrl = await fileToDataUrl(doc.file, doc.mimeType);
   emit(ctx.onProgress, "prepare", "done", "Document encoded");
@@ -661,6 +652,68 @@ async function describeSource(state: AppState, text: string, origin: "ocr" | "te
   return { text, ocr: undefined, name, kind: origin === "textfile" ? "text" : "pasted", hash: await hashText(text), ocrKey: null, ocrFingerprint: null };
 }
 
+/**
+ * Put this job's translation of `source` on screen and return its id: what
+ * the job ran with (Settings may have changed meanwhile), the stages' results
+ * in `fields`, the rest empty until the follow-ups fill it in.
+ */
+function showNewTranslation(rt: Runtime, job: Job, source: Source, fields: Partial<TranslationState>): string {
+  const { chat, settings } = job.ctx;
+  const translation: TranslationState = {
+    id: crypto.randomUUID(),
+    sourceName: source.name,
+    sourceKind: source.kind,
+    sourceHash: source.hash,
+    ocrKey: source.ocrKey,
+    ocrFingerprint: source.ocrFingerprint,
+    sourceText: source.text,
+    pages: null,
+    data: null,
+    rawText: "",
+    schema: null,
+    schemaSource: null,
+    schemaWarnings: [],
+    usage: null,
+    inferUsage: null,
+    provider: chat.id,
+    model: settings.chatModel,
+    mode: null,
+    violations: [],
+    finishReason: null,
+    partial: false,
+    targetLanguage: settings.targetLanguage,
+    completedAt: Date.now(),
+    sourceChars: source.text.length,
+    imagesSent: 0,
+    bboxAnnotations: [],
+    bboxUsage: null,
+    blockTranslations: {},
+    blockUsage: null,
+    originalData: null,
+    originalRawText: null,
+    originalUsage: null,
+    originalViolations: [],
+    warnings: [],
+    restored: false,
+    ...fields,
+  };
+  job.producedId = translation.id;
+  rt.dispatch({ type: "translation/set", translation });
+  return translation.id;
+}
+
+/** A translation's fields for the JSON format filled in the document's own language. */
+function originalFields(o: TranslationOutcome): Partial<TranslationState> {
+  return { originalData: o.data, originalRawText: o.rawText, originalUsage: o.usage, originalViolations: o.violations };
+}
+
+/** Patches of translation `id`, applied while it is the one on screen (a document loaded meanwhile replaces it). */
+function translationPatcher(rt: Runtime, id: string): (patch: Partial<TranslationState>) => void {
+  return (patch) => {
+    if (rt.getState().translation?.id === id) rt.dispatch({ type: "translation/patch", patch });
+  };
+}
+
 /** Runs a step whose failure leaves a warning (collected in `warnings`) on the result instead of failing the job. */
 function followUps(job: Job, warnings: string[]) {
   return <T>(stage: StageId, label: string, task: Promise<T | null>): Promise<T | null> =>
@@ -687,6 +740,7 @@ function runTranslation(rt: Runtime, job: Job, source: Source): Promise<void> {
  */
 async function translateByBlocks(rt: Runtime, job: Job, source: Source): Promise<void> {
   const { ctx, controller } = job;
+  const { blockTranslations, describeBboxes } = await pipeline();
   const warnings: string[] = [];
   const followUp = followUps(job, warnings);
   const pages = source.ocr?.pages ?? textPages(source.text);
@@ -696,52 +750,8 @@ async function translateByBlocks(rt: Runtime, job: Job, source: Source): Promise
   const bboxes = followUp("bbox_annotate", "Bounding-box descriptions", describeBboxes(ctx, source.ocr));
   void bboxes.catch(() => undefined); // awaited below; a failing translation must not leave it unhandled
 
-  const id = crypto.randomUUID();
-  job.producedId = id;
-  rt.dispatch({
-    type: "translation/set",
-    translation: {
-      id,
-      sourceName: source.name,
-      sourceKind: source.kind,
-      sourceHash: source.hash,
-      ocrKey: source.ocrKey,
-      ocrFingerprint: source.ocrFingerprint,
-      sourceText: source.text,
-      pages,
-      data: null,
-      rawText: "",
-      schema: null,
-      schemaSource: null,
-      schemaWarnings: [],
-      usage: null,
-      inferUsage: null,
-      provider: ctx.chat.id,
-      model: ctx.settings.chatModel,
-      mode: null,
-      violations: [],
-      finishReason: null,
-      partial: false,
-      targetLanguage: ctx.settings.targetLanguage,
-      completedAt: Date.now(),
-      sourceChars: source.text.length,
-      imagesSent: 0,
-      bboxAnnotations: [],
-      bboxUsage: null,
-      blockTranslations: {},
-      blockUsage: null,
-      originalData: null,
-      originalRawText: null,
-      originalUsage: null,
-      originalViolations: [],
-      warnings: [],
-      restored: false,
-    },
-  });
-  // Only this translation: another one may have replaced it on screen meanwhile.
-  const patch = (p: Partial<TranslationState>) => {
-    if (rt.getState().translation?.id === id) rt.dispatch({ type: "translation/patch", patch: p });
-  };
+  const id = showNewTranslation(rt, job, source, { pages });
+  const patch = translationPatcher(rt, id);
   const received: Record<string, string> = {};
   try {
     const out = await blockTranslations(ctx, source.ocr ?? ocrTextFromPages(source.text, pages), onlyIds, (batch) => {
@@ -768,6 +778,7 @@ async function translateByBlocks(rt: Runtime, job: Job, source: Source): Promise
  */
 async function translateStructured(rt: Runtime, job: Job, source: Source): Promise<void> {
   const { ctx, controller } = job;
+  const { blockTranslations, describeBboxes, resolveSchema, structureOriginal, translateDocument } = await pipeline();
   const warnings: string[] = [];
   const followUp = followUps(job, warnings);
 
@@ -778,51 +789,14 @@ async function translateStructured(rt: Runtime, job: Job, source: Source): Promi
 
   const translation = await translateDocument(ctx, source.text, schema.schema, source.ocr);
   controller.signal.throwIfAborted();
-  const completedAt = Date.now();
-  const id = crypto.randomUUID();
-  job.producedId = id;
-  rt.dispatch({
-    type: "translation/set",
-    translation: {
-      id,
-      sourceName: source.name,
-      sourceKind: source.kind,
-      sourceHash: source.hash,
-      ocrKey: source.ocrKey,
-      ocrFingerprint: source.ocrFingerprint,
-      sourceText: source.text,
-      pages: null,
-      data: translation.data,
-      rawText: translation.rawText,
-      schema: schema.schema,
-      schemaSource: schema.source,
-      schemaWarnings: schema.warnings,
-      usage: translation.usage,
-      inferUsage: schema.inferred?.usage ?? null,
-      // What this job ran with (Settings may have changed while it ran).
-      provider: ctx.chat.id,
-      model: translation.model,
-      mode: translation.mode,
-      violations: translation.violations,
-      finishReason: translation.finishReason,
-      partial: translation.partial,
-      targetLanguage: ctx.settings.targetLanguage,
-      completedAt,
-      sourceChars: source.text.length,
-      imagesSent: translation.imagesSent,
-      bboxAnnotations: [],
-      bboxUsage: null,
-      blockTranslations: {},
-      blockUsage: null,
-      originalData: null,
-      originalRawText: null,
-      originalUsage: null,
-      originalViolations: [],
-      warnings: [],
-      restored: false,
-    },
+  const id = showNewTranslation(rt, job, source, {
+    ...translation, // the data and how it was made: the model that answered, the mode, usage, deviations, ...
+    schema: schema.schema,
+    schemaSource: schema.source,
+    schemaWarnings: schema.warnings,
+    inferUsage: schema.inferred?.usage ?? null,
   });
-  const patch = (p: Partial<TranslationState>) => rt.dispatch({ type: "translation/patch", patch: p });
+  const patch = translationPatcher(rt, id);
   // In "always" mode the stage runs below; whatever its outcome, the view must not request it again by itself.
   if (ctx.settings.structureOriginal === "always") originalRequested.add(id);
 
@@ -833,7 +807,7 @@ async function translateStructured(rt: Runtime, job: Job, source: Source): Promi
       bboxes.then((b) => b && patch({ bboxAnnotations: b.annotations, bboxUsage: b.usage })),
       ctx.settings.structureOriginal === "always"
         ? followUp("structure_original", "Structured text in the original language", structureOriginal(ctx, source.text, schema.schema, source.ocr)).then(
-            (o) => o && patch({ originalData: o.data, originalRawText: o.rawText, originalUsage: o.usage, originalViolations: o.violations }),
+            (o) => o && patch(originalFields(o)),
           )
         : null,
       !source.ocr
@@ -861,26 +835,24 @@ async function translateStructured(rt: Runtime, job: Job, source: Source): Promi
 export async function ensureOriginalStructure(rt: Runtime, force = false): Promise<void> {
   const state = rt.getState();
   const t = state.translation;
-  if (!t || !hasStructure(t) || state.job || (t.originalData !== null && t.originalData !== undefined) || state.settings.structureOriginal === "never") return;
+  if (!t || !hasStructure(t) || state.job || hasOriginal(t) || state.settings.structureOriginal === "never") return;
   // Not by itself while an error is shown (an automatic job would also clear it), nor twice for one translation.
   if (!force && (originalRequested.has(t.id) || state.error)) return;
   const job = beginJob(rt, "original", ["structure_original"], true, t);
   if (!job) return;
   originalRequested.add(t.id);
   try {
+    const { structureOriginal } = await pipeline();
     const ocr = ocrOf(state, t);
     const original = await structureOriginal(job.ctx, t.sourceText, t.schema, ocr);
     job.controller.signal.throwIfAborted();
     if (rt.getState().translation?.id === t.id) {
-      rt.dispatch({
-        type: "translation/patch",
-        patch: { originalData: original.data, originalRawText: original.rawText, originalUsage: original.usage, originalViolations: original.violations },
-      });
+      rt.dispatch({ type: "translation/patch", patch: originalFields(original) });
       await saveTranslation(rt);
     }
-    endJob(rt, job, jobTitle("original"));
+    endJob(rt, job);
   } catch (err) {
-    endJob(rt, job, jobTitle("original"), err);
+    endJob(rt, job, err);
   }
 }
 
@@ -904,6 +876,7 @@ export async function retryFailed(rt: Runtime, what: "bboxes" | "blocks"): Promi
   const job = beginJob(rt, "retry", [what === "bboxes" ? "bbox_annotate" : "block_translate"], true, t);
   if (!job) return;
   try {
+    const { blockTranslations, describeBboxes } = await pipeline();
     if (what === "bboxes") {
       const out = await describeBboxes(job.ctx, ocr, ids);
       job.controller.signal.throwIfAborted();
@@ -933,9 +906,9 @@ export async function retryFailed(rt: Runtime, what: "bboxes" | "blocks"): Promi
       }
     }
     await saveTranslation(rt);
-    endJob(rt, job, jobTitle("retry"));
+    endJob(rt, job);
   } catch (err) {
-    endJob(rt, job, jobTitle("retry"), err);
+    endJob(rt, job, err);
   }
 }
 
@@ -1026,7 +999,7 @@ export async function editBoxes(rt: Runtime, edit: BoxEdit): Promise<void> {
     });
     controller.signal.throwIfAborted();
     // Another OCR result or other edits meanwhile: these would not fit them.
-    if (rt.getState().ocr !== ocr) return endJob(rt, job, jobTitle("edit"));
+    if (rt.getState().ocr !== ocr) return endJob(rt, job);
 
     let next: EditedBlock[];
     if (edit.kind === "reread") {
@@ -1051,9 +1024,9 @@ export async function editBoxes(rt: Runtime, edit: BoxEdit): Promise<void> {
     }
     emit(ctx.onProgress, "region_ocr", "done", `Page ${page.index + 1} edited`);
     commitEdits(rt, withPage(edits, page.index, next));
-    endJob(rt, job, jobTitle("edit"));
+    endJob(rt, job);
   } catch (err) {
-    endJob(rt, job, jobTitle("edit"), err);
+    endJob(rt, job, err);
   }
 }
 
@@ -1120,47 +1093,33 @@ async function persistOcrEdits(rt: Runtime): Promise<void> {
   await putCachedOcr({ ...entry, edits: current.edits });
 }
 
-function jobTitle(kind: JobKind): string {
-  switch (kind) {
-    case "ocr":
-      return "OCR failed";
-    case "translate":
-      return "Translation failed";
-    case "both":
-      return "OCR + translation failed";
-    case "original":
-      return "Structured text in the original language failed";
-    case "retry":
-      return "Retry failed";
-    case "edit":
-      return "Editing the bounding boxes failed";
-  }
-}
+/** The error title of a job of each kind. */
+const JOB_TITLES: Record<JobKind, string> = {
+  ocr: "OCR failed",
+  translate: "Translation failed",
+  both: "OCR + translation failed",
+  original: "Structured text in the original language failed",
+  retry: "Retry failed",
+  edit: "Editing the bounding boxes failed",
+};
 
-function toPipelineSettings(settings: Settings): PipelineSettings | { error: NonNullable<AppState["error"]> } {
+function toPipelineSettings(settings: Settings): PipelineSettings | { error: AppError } {
+  // Inferred and built-in schemas are named the same way in both; a custom one is parsed here.
   let schemaMode: SchemaMode;
-  switch (settings.schemaMode.kind) {
-    case "infer":
-      schemaMode = { kind: "infer" };
-      break;
-    case "builtin":
-      schemaMode = { kind: "builtin", id: settings.schemaMode.id };
-      break;
-    case "custom": {
-      try {
-        const parsed: unknown = JSON.parse(settings.schemaMode.schemaText || "{}");
-        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("Schema must be a JSON object");
-        schemaMode = { kind: "custom", schema: parsed as Record<string, unknown> };
-      } catch (err) {
-        return {
-          error: {
-            title: "Custom schema is not valid JSON",
-            message: err instanceof Error ? err.message : String(err),
-            hint: "Fix the schema in Settings or switch to inferred / built-in schema.",
-          },
-        };
-      }
-      break;
+  if (settings.schemaMode.kind !== "custom") schemaMode = settings.schemaMode;
+  else {
+    try {
+      const parsed: unknown = JSON.parse(settings.schemaMode.schemaText || "{}");
+      if (!isPlainObject(parsed)) throw new Error("Schema must be a JSON object");
+      schemaMode = { kind: "custom", schema: parsed };
+    } catch (err) {
+      return {
+        error: {
+          title: "Custom schema is not valid JSON",
+          message: err instanceof Error ? err.message : String(err),
+          hint: "Fix the schema in Settings or switch to inferred / built-in schema.",
+        },
+      };
     }
   }
   const info = PROVIDERS[settings.provider];
@@ -1185,16 +1144,16 @@ function toPipelineSettings(settings: Settings): PipelineSettings | { error: Non
   };
 }
 
-export function toAppError(err: unknown, title: string): NonNullable<AppState["error"]> {
+export function toAppError(err: unknown, title: string): AppError {
   if (err instanceof ApiError) {
-    const error: NonNullable<AppState["error"]> = { title, message: err.message, hint: err.hint };
+    const error: AppError = { title, message: err.message, hint: err.hint };
     if (err.body !== undefined && err.body !== null) {
       error.details = typeof err.body === "string" ? err.body : JSON.stringify(err.body, null, 2);
     }
     return error;
   }
   if (err instanceof Error) {
-    const error: NonNullable<AppState["error"]> = { title, message: err.message };
+    const error: AppError = { title, message: err.message };
     if (err.stack) error.details = err.stack;
     return error;
   }

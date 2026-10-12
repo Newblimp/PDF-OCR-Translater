@@ -8,6 +8,7 @@ import { clearOcrCache } from "@/lib/storage/ocrCache";
 import { DEFAULT_SETTINGS, TARGET_LANGUAGES, type Settings, type TargetLanguage } from "@/lib/storage/settings";
 import { prettyJson } from "@/lib/util/json";
 import { DraftText } from "./DraftText";
+import { Check } from "./Check";
 
 interface Props {
   settings: Settings;
@@ -41,7 +42,7 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
   const setChatModel = (id: string) => onChange({ chatModels: { ...settings.chatModels, [settings.provider]: id } });
 
   return (
-    <details class="card settings" open={open} onToggle={(e) => onToggle((e.target as HTMLDetailsElement).open)}>
+    <details class="card settings" open={open} onToggle={(e) => onToggle(e.currentTarget.open)}>
       <summary>
         <span>Settings</span>
         <span class="muted small">
@@ -59,7 +60,7 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
       <div class="settings-grid">
         <label class="field">
           <span>Target language (all languages)</span>
-          <select value={settings.targetLanguage} onChange={(e) => onChange({ targetLanguage: (e.target as HTMLSelectElement).value as TargetLanguage })}>
+          <select value={settings.targetLanguage} onChange={(e) => onChange({ targetLanguage: e.currentTarget.value as TargetLanguage })}>
             {TARGET_LANGUAGES.map((lang) => (
               <option key={lang} value={lang}>
                 {lang}
@@ -71,7 +72,7 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
 
         <label class="field">
           <span>Translation provider</span>
-          <select value={settings.provider} onChange={(e) => onChange({ provider: (e.target as HTMLSelectElement).value as ProviderId })}>
+          <select value={settings.provider} onChange={(e) => onChange({ provider: e.currentTarget.value as ProviderId })}>
             {PROVIDER_IDS.map((id) => (
               <option key={id} value={id}>
                 {PROVIDERS[id].label}
@@ -86,7 +87,7 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
           <select
             value={modelInList ? chatModel : "__custom"}
             onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value;
+              const v = e.currentTarget.value;
               if (v !== "__custom") setChatModel(v);
             }}
           >
@@ -106,7 +107,7 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
             <span>Reasoning effort</span>
             <select
               value={effortFor(settings.provider, settings.reasoningEffort)}
-              onChange={(e) => onChange({ reasoningEffort: (e.target as HTMLSelectElement).value as ReasoningEffort })}
+              onChange={(e) => onChange({ reasoningEffort: e.currentTarget.value as ReasoningEffort })}
             >
               {provider.reasoningEfforts.map((e) => (
                 <option key={e} value={e}>
@@ -128,7 +129,7 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
               step={0.1}
               value={settings.temperature}
               onChange={(e) => {
-                const n = Number((e.target as HTMLInputElement).value);
+                const n = Number(e.currentTarget.value);
                 onChange({ temperature: Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : DEFAULT_SETTINGS.temperature });
               }}
             />
@@ -140,7 +141,7 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
           <select
             value={ocrModelInList ? settings.ocrModel : "__custom"}
             onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value;
+              const v = e.currentTarget.value;
               if (v !== "__custom") onChange({ ocrModel: v });
             }}
           >
@@ -161,38 +162,29 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
 
         <div class="field field-wide">
           <span>Behaviour</span>
-          <label class="checkbox">
-            <input type="checkbox" checked={settings.bboxAnnotations} onChange={(e) => onChange({ bboxAnnotations: (e.target as HTMLInputElement).checked })} />
-            <span>
-              Bounding-box annotation: describe every extracted box (stamps, seals, figures, tables) with the vision model, one call per box, up to{" "}
-              <input
-                type="number"
-                class="inline-number"
-                min={0}
-                step={1}
-                value={settings.maxBboxAnnotations}
-                aria-label="Maximum bounding boxes to describe"
-                onChange={(e) => {
-                  const raw = (e.target as HTMLInputElement).value.trim();
-                  const n = Number(raw);
-                  onChange({ maxBboxAnnotations: raw && Number.isInteger(n) && n >= 0 ? n : DEFAULT_SETTINGS.maxBboxAnnotations });
-                }}
-              />{" "}
-              boxes per run.
-            </span>
-          </label>
-          <label class="checkbox">
-            <input type="checkbox" checked={settings.cacheOcr} onChange={(e) => onChange({ cacheOcr: (e.target as HTMLInputElement).checked })} />
-            <span>Keep OCR results in this browser so the same file is not OCR'd twice</span>
-          </label>
-          <label class="checkbox">
+          <Check checked={settings.bboxAnnotations} onChange={(bboxAnnotations) => onChange({ bboxAnnotations })}>
+            Bounding-box annotation: describe every extracted box (stamps, seals, figures, tables) with the vision model, one call per box, up to{" "}
             <input
-              type="checkbox"
-              checked={settings.saveTranslations}
-              onChange={(e) => onChange({ saveTranslations: (e.target as HTMLInputElement).checked })}
-            />
-            <span>Keep translations in this browser (“Recent translations”; reopened automatically when the same document is loaded)</span>
-          </label>
+              type="number"
+              class="inline-number"
+              min={0}
+              step={1}
+              value={settings.maxBboxAnnotations}
+              aria-label="Maximum bounding boxes to describe"
+              onChange={(e) => {
+                const raw = e.currentTarget.value.trim();
+                const n = Number(raw);
+                onChange({ maxBboxAnnotations: raw && Number.isInteger(n) && n >= 0 ? n : DEFAULT_SETTINGS.maxBboxAnnotations });
+              }}
+            />{" "}
+            boxes per run.
+          </Check>
+          <Check checked={settings.cacheOcr} onChange={(cacheOcr) => onChange({ cacheOcr })}>
+            Keep OCR results in this browser so the same file is not OCR'd twice
+          </Check>
+          <Check checked={settings.saveTranslations} onChange={(saveTranslations) => onChange({ saveTranslations })}>
+            Keep translations in this browser (“Recent translations”; reopened automatically when the same document is loaded)
+          </Check>
           <div class="btn-row">
             <button type="button" class="btn btn-ghost small" onClick={() => void clearOcrCache()}>
               Clear local OCR cache
@@ -214,15 +206,12 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
 
         <fieldset class="field field-wide settings-json">
           <legend>JSON output</legend>
-          <label class="checkbox">
-            <input type="checkbox" checked={settings.jsonOutput} onChange={(e) => onChange({ jsonOutput: (e.target as HTMLInputElement).checked })} />
-            <span>
-              Fill a JSON format with the translation: the Structured text, JSON format and Raw JSON tabs.{" "}
-              <span class="muted small">
-                Off, the OCR text is translated block by block (the OCR text tab), without a JSON format, a summary or the extra calls.
-              </span>
+          <Check checked={settings.jsonOutput} onChange={(jsonOutput) => onChange({ jsonOutput })}>
+            Fill a JSON format with the translation: the Structured text, JSON format and Raw JSON tabs.{" "}
+            <span class="muted small">
+              Off, the OCR text is translated block by block (the OCR text tab), without a JSON format, a summary or the extra calls.
             </span>
-          </label>
+          </Check>
           {settings.jsonOutput && (
             <div class="settings-json-body">
               <fieldset class="field field-wide">
@@ -245,7 +234,7 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
                 {schemaKind === "builtin" && (
                   <select
                     value={settings.schemaMode.kind === "builtin" ? settings.schemaMode.id : ""}
-                    onChange={(e) => onChange({ schemaMode: { kind: "builtin", id: (e.target as HTMLSelectElement).value } })}
+                    onChange={(e) => onChange({ schemaMode: { kind: "builtin", id: e.currentTarget.value } })}
                   >
                     {BUILTIN_SCHEMAS.map((s) => (
                       <option key={s.id} value={s.id}>
@@ -285,10 +274,7 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
               </fieldset>
               <label class="field field-wide">
                 <span>Structured text in the original language</span>
-                <select
-                  value={settings.structureOriginal}
-                  onChange={(e) => onChange({ structureOriginal: (e.target as HTMLSelectElement).value as StructureOriginalMode })}
-                >
+                <select value={settings.structureOriginal} onChange={(e) => onChange({ structureOriginal: e.currentTarget.value as StructureOriginalMode })}>
                   {STRUCTURE_ORIGINAL.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
@@ -309,7 +295,7 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
                   placeholder="provider default"
                   value={settings.maxOutputTokens ?? ""}
                   onChange={(e) => {
-                    const n = Number((e.target as HTMLInputElement).value);
+                    const n = Number(e.currentTarget.value);
                     onChange({ maxOutputTokens: Number.isFinite(n) && n > 0 ? Math.round(n) : null });
                   }}
                 />
@@ -317,25 +303,16 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
               </label>
               <div class="field field-wide">
                 <span>JSON behaviour</span>
-                <label class="checkbox">
-                  <input type="checkbox" checked={settings.streaming} onChange={(e) => onChange({ streaming: (e.target as HTMLInputElement).checked })} />
-                  <span>Stream the translation (shows progress while it is generated)</span>
-                </label>
-                <label class="checkbox">
-                  <input type="checkbox" checked={settings.sendImages} onChange={(e) => onChange({ sendImages: (e.target as HTMLInputElement).checked })} />
-                  <span>
-                    Document annotation with images: send the first 8 bounding-box images extracted by Mistral OCR together with the text to the vision model
-                    (Mistral's annotation workflow).
-                  </span>
-                </label>
-                <label class="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={settings.blockTranslations}
-                    onChange={(e) => onChange({ blockTranslations: (e.target as HTMLInputElement).checked })}
-                  />
-                  <span>Also translate each OCR text block after the JSON translation, so the OCR text and the bounding-box view can be shown translated.</span>
-                </label>
+                <Check checked={settings.streaming} onChange={(streaming) => onChange({ streaming })}>
+                  Stream the translation (shows progress while it is generated)
+                </Check>
+                <Check checked={settings.sendImages} onChange={(sendImages) => onChange({ sendImages })}>
+                  Document annotation with images: send the first 8 bounding-box images extracted by Mistral OCR together with the text to the vision model
+                  (Mistral's annotation workflow).
+                </Check>
+                <Check checked={settings.blockTranslations} onChange={(blockTranslations) => onChange({ blockTranslations })}>
+                  Also translate each OCR text block after the JSON translation, so the OCR text and the bounding-box view can be shown translated.
+                </Check>
               </div>
             </div>
           )}

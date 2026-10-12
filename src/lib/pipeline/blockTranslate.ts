@@ -12,7 +12,8 @@ import { runPool } from "../util/pool";
 import type { JsonSchemaObject } from "../mistral/types";
 import { parseModelJson } from "../util/json";
 import { emit, type ProgressListener } from "./events";
-import type { OcrCleanPage, OcrText } from "./ocrText";
+import { textBlocks } from "./blocks";
+import type { OcrText } from "./ocrText";
 import { blockTranslationSystemPrompt, blockTranslationUserPrompt, type PromptContext } from "./prompts";
 
 export interface BlockTranslateOptions extends PromptContext {
@@ -56,29 +57,8 @@ export const BLOCK_TRANSLATIONS_SCHEMA: JsonSchemaObject = {
   additionalProperties: false,
 };
 
-/** Id of an OCR block in the translations map and the views: its page and its position in the OCR result. */
-export function blockId(pageIndex: number, blockIndex: number): string {
-  return `${pageIndex}:${blockIndex}`;
-}
-
-/** Id of a page's block: its own on an edited page (`blockEdits.ts`), else from its position. */
-export function pageBlockId(page: OcrCleanPage, blockIndex: number): string {
-  return page.blocks[blockIndex]?.id ?? blockId(page.index, blockIndex);
-}
-
 const MAX_BLOCKS_PER_BATCH = 40;
 const MAX_CHARS_PER_BATCH = 12_000;
-
-/** The blocks of a page that carry text, with the ids used for their translations. */
-export function textBlocks(page: OcrCleanPage): Array<{ id: string; text: string }> {
-  const items: Array<{ id: string; text: string }> = [];
-  page.blocks.forEach((block, i) => {
-    const text = block.content?.trim();
-    if (!text || block.type === "image") return;
-    items.push({ id: pageBlockId(page, i), text });
-  });
-  return items;
-}
 
 export function batchBlocks(ocr: OcrText, onlyIds?: ReadonlySet<string>): Array<Array<{ id: string; text: string }>> {
   const items: Array<{ id: string; text: string }> = [];

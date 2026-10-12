@@ -1,4 +1,6 @@
-/** Colours per OCR block type (kept readable in both themes), shared by the bounding-box view and the OCR text view. */
+/** Block types on the page views: their colours (kept readable in both themes), labels, and boxes placed over a page. */
+
+/** Colours per OCR block type, shared by the bounding-box views and the OCR text view. */
 export const BLOCK_COLORS: Record<string, string> = {
   image: "#d6336c",
   title: "#7048e8",
@@ -25,4 +27,10 @@ export function blockColor(type: string): string {
 /** "aside_text" → "aside text". */
 export function blockTypeLabel(type: string): string {
   return type.replace(/_/g, " ");
+}
+
+/** Inline style placing a box given in page pixels over a page `width` × `height` px (in percent, so it scales with the page), in `color`. */
+export function boxStyle(box: { x0: number; y0: number; x1: number; y1: number }, width: number, height: number, color = ""): string {
+  const pct = (v: number, total: number) => `${(v / total) * 100}%`;
+  return `left:${pct(box.x0, width)};top:${pct(box.y0, height)};width:${pct(box.x1 - box.x0, width)};height:${pct(box.y1 - box.y0, height)};--box-color:${color}`;
 }

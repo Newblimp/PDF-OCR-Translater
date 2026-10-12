@@ -13,8 +13,9 @@ import {
   type EditedBlock,
   type Rect,
 } from "@/lib/pipeline/blockEdits";
-import { blockColor, blockTypeLabel } from "./blockColors";
-import { usePageRenderer, useRenderedPages } from "./pageImages";
+import { blockColor, blockTypeLabel, boxStyle } from "./blockColors";
+import { usePageFirst, usePageRenderer, useRenderedPages } from "./pageImages";
+import { PageNav } from "./PageNav";
 
 /** Block types a selection can be made into (the OCR API's labels). */
 const BLOCK_TYPES = ["text", "title", "list", "table", "caption", "equation", "code", "references", "aside_text", "signature", "header", "footer", "image"];
@@ -59,19 +60,7 @@ export const EditBoxesView = memo(function EditBoxesView({ doc, ocr, busy, onEdi
   const renderer = usePageRenderer(pagesAvailable ? doc : null);
   const indexes = useMemo(() => pages.map((p) => p.index), [pages]);
   const rendered = useRenderedPages(renderer, indexes);
-  const [renderError, setRenderError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!renderer || rendered[pageIndex]) return;
-    let cancelled = false;
-    setRenderError(null);
-    renderer.get(pageIndex).catch((err: unknown) => {
-      if (!cancelled) setRenderError(err instanceof Error ? err.message : String(err));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [renderer, pageIndex, rendered]);
+  const renderError = usePageFirst(renderer, pageIndex, !!rendered[pageIndex]);
 
   // A selection belongs to its page and to the blocks as they were.
   useEffect(() => setSelection(null), [pageIndex, ocr.text]);
@@ -142,9 +131,6 @@ export const EditBoxesView = memo(function EditBoxesView({ doc, ocr, busy, onEdi
     }
   };
 
-  const pct = (v: number, total: number) => `${(v / total) * 100}%`;
-  const placeStyle = (r: Rect, color: string) =>
-    `left:${pct(r.x0, width)};top:${pct(r.y0, height)};width:${pct(r.x1 - r.x0, width)};height:${pct(r.y1 - r.y0, height)};--box-color:${color}`;
   const image = rendered[pageIndex];
   const editedPages = Object.keys(ocr.edits?.pages ?? {}).length;
 
@@ -152,16 +138,10 @@ export const EditBoxesView = memo(function EditBoxesView({ doc, ocr, busy, onEdi
     <div class="tab-panel edit-boxes" tabIndex={0} onKeyDown={onKeyDown} aria-label="Edit bounding boxes">
       <div class="toolbar">
         <div class="btn-row">
-          <button type="button" class="btn btn-ghost small" disabled={position <= 0} onClick={() => setPosition((i) => i - 1)}>
-            ← Previous
-          </button>
-          <span class="muted small">
+          <PageNav position={position} count={pages.length} onMove={setPosition}>
             Page {pageIndex + 1} · {position + 1} of {pages.length} OCR'd page(s) · {blocks.length} block(s)
             {pageEdited ? " · edited" : ""}
-          </span>
-          <button type="button" class="btn btn-ghost small" disabled={position >= pages.length - 1} onClick={() => setPosition((i) => i + 1)}>
-            Next →
-          </button>
+          </PageNav>
         </div>
         <div class="btn-row">
           <button type="button" class="btn btn-ghost small" disabled={busy || !ocr.undo.length} onClick={onUndo} title="Undo the last edit (Ctrl+Z)">
@@ -209,14 +189,14 @@ export const EditBoxesView = memo(function EditBoxesView({ doc, ocr, busy, onEdi
                   <div
                     key={b.id}
                     class={`edit-box${state}${isEditedBlock(b.id) ? " is-edited" : ""}`}
-                    style={placeStyle(rectOf(b), blockColor(b.type))}
+                    style={boxStyle(rectOf(b), width, height, blockColor(b.type))}
                     data-block={b.id}
                     data-type={b.type}
                     title={`${blockTypeLabel(b.type)}: ${b.content.slice(0, 80)}`}
                   />
                 );
               })}
-              {marquee && !isEmptyRect(marquee) && <div class="edit-marquee" style={placeStyle(marquee, "")} />}
+              {marquee && !isEmptyRect(marquee) && <div class="edit-marquee" style={boxStyle(marquee, width, height)} />}
             </div>
           </div>
         </div>
@@ -252,7 +232,7 @@ export const EditBoxesView = memo(function EditBoxesView({ doc, ocr, busy, onEdi
                 >
                   Make a block
                 </button>
-                <select aria-label="Type of the new block" value={makeType} onChange={(e) => setMakeType((e.target as HTMLSelectElement).value)}>
+                <select aria-label="Type of the new block" value={makeType} onChange={(e) => setMakeType(e.currentTarget.value)}>
                   {BLOCK_TYPES.map((t) => (
                     <option key={t} value={t}>
                       {blockTypeLabel(t)}
@@ -327,7 +307,7 @@ function BlockEditor({
       </p>
       <label class="field">
         <span>Type</span>
-        <select value={block.type} disabled={busy} onChange={(e) => onChange((e.target as HTMLSelectElement).value, block.content)}>
+        <select value={block.type} disabled={busy} onChange={(e) => onChange(e.currentTarget.value, block.content)}>
           {[...new Set([...BLOCK_TYPES, block.type])].map((t) => (
             <option key={t} value={t}>
               {blockTypeLabel(t)}
@@ -338,7 +318,7 @@ function BlockEditor({
       {!isImage && (
         <label class="field">
           <span>Text</span>
-          <textarea rows={8} class="code-area" value={draft} spellcheck={false} onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)} />
+          <textarea rows={8} class="code-area" value={draft} spellcheck={false} onInput={(e) => setDraft(e.currentTarget.value)} />
         </label>
       )}
       <div class="btn-row">

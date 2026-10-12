@@ -20,6 +20,9 @@ describe("settings persistence", () => {
     expect(loadSettings()).toMatchObject({ targetLanguage: "German", theme: "dark" });
     localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ targetLanguage: "Klingon", theme: "neon", provider: "nope" }));
     expect(loadSettings()).toMatchObject({ targetLanguage: "English", theme: "dark", provider: "mistral" });
+    // Every switch and text falls back to its default when stored as something else.
+    localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ streaming: "no", cacheOcr: 0, sourceLanguage: null, domainHint: 7 }));
+    expect(loadSettings()).toMatchObject({ streaming: true, cacheOcr: true, sourceLanguage: "auto", domainHint: DEFAULT_SETTINGS.domainHint });
   });
 });
 

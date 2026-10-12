@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatProvider, JsonChatRequest } from "../llm/provider";
-import { batchBlocks, blockId, translateBlocks } from "./blockTranslate";
+import { batchBlocks, translateBlocks } from "./blockTranslate";
+import { blockId } from "./ocrText";
 import type { OcrText } from "./ocrText";
 
 function ocrWith(blocks: Array<{ page: number; type: string; content: string }>): OcrText {

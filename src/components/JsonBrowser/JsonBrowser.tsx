@@ -4,6 +4,7 @@ import { isPlainObject } from "@/lib/util/json";
 import { humanizeKey } from "@/lib/util/text";
 import { FieldCard, type RenderOptions } from "./FieldCard";
 import { isEmptyValue, pathId, valueToSearchText } from "./valueUtils";
+import { Check } from "../Check";
 
 interface Props {
   data: unknown;
@@ -83,7 +84,7 @@ export function JsonBrowser({ data, schema, streaming = false }: Props) {
           class="outline-search"
           placeholder="Find in fields…"
           value={query}
-          onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
+          onInput={(e) => setQuery(e.currentTarget.value)}
           aria-label="Search fields"
         />
         <div class="btn-row">
@@ -117,7 +118,7 @@ export function JsonBrowser({ data, schema, streaming = false }: Props) {
                   class="outline-check"
                   checked={shown}
                   aria-label={`Show ${f.label}`}
-                  onChange={(e) => setVisible(f.key, (e.target as HTMLInputElement).checked)}
+                  onChange={(e) => setVisible(f.key, e.currentTarget.checked)}
                 />
                 <button type="button" class="outline-link" onClick={() => jumpTo(f.key)}>
                   {f.label}
@@ -130,15 +131,13 @@ export function JsonBrowser({ data, schema, streaming = false }: Props) {
         </ul>
         {hidden.size > 0 && <p class="muted small">{hidden.size} field(s) hidden.</p>}
         <div class="outline-options">
-          <label class="checkbox small">
-            <input type="checkbox" checked={markdown} onChange={(e) => setMarkdown((e.target as HTMLInputElement).checked)} />
-            <span>Render Markdown</span>
-          </label>
+          <Check checked={markdown} onChange={setMarkdown} small>
+            Render Markdown
+          </Check>
           {emptyCount > 0 && (
-            <label class="checkbox small">
-              <input type="checkbox" checked={showEmpty} onChange={(e) => setShowEmpty((e.target as HTMLInputElement).checked)} />
-              <span>Show {emptyCount} empty field(s)</span>
-            </label>
+            <Check checked={showEmpty} onChange={setShowEmpty} small>
+              Show {emptyCount} empty field(s)
+            </Check>
           )}
         </div>
       </aside>

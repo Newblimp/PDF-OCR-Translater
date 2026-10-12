@@ -72,7 +72,7 @@ export const DocumentCard = memo(function DocumentCard({ doc, ocr, busy, onPageS
             placeholder={doc.pageCount ? `all (1-${doc.pageCount})` : "all"}
             disabled={busy}
             aria-invalid={!!selection.error}
-            onInput={(e) => onPageSelection((e.target as HTMLInputElement).value)}
+            onInput={(e) => onPageSelection(e.currentTarget.value)}
           />
           <span class={`small ${selection.error ? "error-text" : "muted"}`}>
             {selection.error

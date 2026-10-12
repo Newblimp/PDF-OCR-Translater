@@ -30,3 +30,32 @@ export function plainUserText(message: UserMessage): string | null {
   if (message.parts.some((p) => p.type === "image")) return null;
   return message.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n\n");
 }
+
+/**
+ * The parts of a Chat Completions request that Mistral and OpenAI share: the
+ * system prompt, the user message (`image` gives an image part the
+ * provider's shape) and the response format.
+ */
+export function chatCompletionsRequest<Image>(request: JsonChatRequest, image: (dataUrl: string) => Image) {
+  const message = userMessage(request);
+  const { format } = request;
+  return {
+    model: request.model,
+    messages: [
+      { role: "system" as const, content: request.system },
+      { role: "user" as const, content: plainUserText(message) ?? message.parts.map((part) => (part.type === "text" ? part : image(part.dataUrl))) },
+    ],
+    response_format:
+      format.type === "json_schema"
+        ? {
+            type: "json_schema" as const,
+            json_schema: {
+              name: format.name,
+              ...(format.description ? { description: format.description } : {}),
+              schema: format.schema,
+              strict: format.strict,
+            },
+          }
+        : { type: "json_object" as const },
+  };
+}

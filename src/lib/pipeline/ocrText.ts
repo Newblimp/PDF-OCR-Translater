@@ -11,6 +11,16 @@ import type { OcrBlock, OcrResponse } from "../mistral/types";
 /** A block of a page; on a page whose blocks were edited it carries its id (which then no longer follows its position). */
 export type PageBlock = OcrBlock & { id?: string };
 
+/** Id of an OCR block in the translations map and the views: its page and its position in the OCR result. */
+export function blockId(pageIndex: number, blockIndex: number): string {
+  return `${pageIndex}:${blockIndex}`;
+}
+
+/** Id of a page's block: its own on an edited page (`blockEdits.ts`), else from its position. */
+export function pageBlockId(page: OcrCleanPage, blockIndex: number): string {
+  return page.blocks[blockIndex]?.id ?? blockId(page.index, blockIndex);
+}
+
 export interface OcrCleanPage {
   /** 0-based page index as reported by the API. */
   index: number;

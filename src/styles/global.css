@@ -16,97 +16,44 @@
     system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", "Courier New", monospace;
   --radius: 8px;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.4);
-  /* Aliases kept for older rules/components. */
-  --surface-2: var(--surface2);
-  --muted: var(--text-muted);
-  --accent-contrast: var(--on-accent);
-  --accent-soft: var(--accent-glow);
-  --danger: var(--bare);
-  --danger-soft: var(--bare-bg);
-  --warn-soft: var(--warn-bg);
-  --ok-soft: var(--ok-bg);
 }
 
-/* DARK THEME — Gruvbox Dark (the default; also what "System" resolves to on a dark OS). */
-:root,
+/*
+ * THEMES — each token is light-dark(light, dark): Gruvbox Dark, and a warm
+ * high-contrast light theme. `color-scheme` picks the side: the OS's ("System",
+ * no data-theme), or the one forced by the theme switch (storage/theme.ts,
+ * public/theme-init.js).
+ */
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#f9f7f5, #282828);
+  --surface: light-dark(#edeae5, #32302f);
+  --surface2: light-dark(#e0ddd7, #3c3836);
+  --border: light-dark(#c4bfb8, #504945);
+  --border2: light-dark(#a8a49c, #665c54);
+  --text: light-dark(#17130f, #f4e8cd);
+  --text-muted: light-dark(#332f2b, #c6b89f);
+  --text-dim: light-dark(#5e5854, #ada197);
+  --accent: light-dark(#8f4d03, #f59b4a);
+  --on-accent: light-dark(#ffffff, #282828);
+  --accent-glow: light-dark(rgba(143, 77, 3, 0.15), rgba(245, 155, 74, 0.15));
+  --warn: light-dark(#8a3c0c, #fabd2f);
+  --warn-bg: light-dark(rgba(138, 60, 12, 0.13), rgba(250, 189, 47, 0.13));
+  --ok: light-dark(#3a5a10, #c3c637);
+  --ok-bg: light-dark(rgba(58, 90, 16, 0.11), rgba(195, 198, 55, 0.1));
+  --bare: light-dark(#991b1b, #fd8271);
+  --bare-bg: light-dark(rgba(153, 27, 27, 0.11), rgba(253, 130, 113, 0.13));
+  --info: light-dark(#1d5878, #8fbfe0);
+  --info-bg: light-dark(rgba(29, 88, 120, 0.12), rgba(143, 191, 224, 0.14));
+  --find: light-dark(#5b3fb0, #c3a6f5);
+  --shadow: 0 1px 3px light-dark(rgba(16, 24, 40, 0.1), rgba(0, 0, 0, 0.3));
+  --shadow-pop: 0 12px 40px light-dark(rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.4));
+}
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #282828;
-  --surface: #32302f;
-  --surface2: #3c3836;
-  --border: #504945;
-  --border2: #665c54;
-  --text: #f4e8cd;
-  --text-muted: #c6b89f;
-  --text-dim: #ada197;
-  --accent: #f59b4a;
-  --on-accent: #282828;
-  --accent-glow: rgba(245, 155, 74, 0.15);
-  --warn: #fabd2f;
-  --warn-bg: rgba(250, 189, 47, 0.13);
-  --ok: #c3c637;
-  --ok-bg: rgba(195, 198, 55, 0.1);
-  --bare: #fd8271;
-  --bare-bg: rgba(253, 130, 113, 0.13);
-  --info: #8fbfe0;
-  --info-bg: rgba(143, 191, 224, 0.14);
-  --find: #c3a6f5;
 }
-/* LIGHT THEME — high contrast. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f9f7f5;
-  --surface: #edeae5;
-  --surface2: #e0ddd7;
-  --border: #c4bfb8;
-  --border2: #a8a49c;
-  --text: #17130f;
-  --text-muted: #332f2b;
-  --text-dim: #5e5854;
-  --accent: #8f4d03;
-  --on-accent: #ffffff;
-  --accent-glow: rgba(143, 77, 3, 0.15);
-  --warn: #8a3c0c;
-  --warn-bg: rgba(138, 60, 12, 0.13);
-  --ok: #3a5a10;
-  --ok-bg: rgba(58, 90, 16, 0.11);
-  --bare: #991b1b;
-  --bare-bg: rgba(153, 27, 27, 0.11);
-  --info: #1d5878;
-  --info-bg: rgba(29, 88, 120, 0.12);
-  --find: #5b3fb0;
-  --shadow: 0 1px 2px rgba(16, 24, 40, 0.1);
-  --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.25);
-}
-/* "System": follow the OS when no theme is forced. */
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme]) {
-    color-scheme: light;
-    --bg: #f9f7f5;
-    --surface: #edeae5;
-    --surface2: #e0ddd7;
-    --border: #c4bfb8;
-    --border2: #a8a49c;
-    --text: #17130f;
-    --text-muted: #332f2b;
-    --text-dim: #5e5854;
-    --accent: #8f4d03;
-    --on-accent: #ffffff;
-    --accent-glow: rgba(143, 77, 3, 0.15);
-    --warn: #8a3c0c;
-    --warn-bg: rgba(138, 60, 12, 0.13);
-    --ok: #3a5a10;
-    --ok-bg: rgba(58, 90, 16, 0.11);
-    --bare: #991b1b;
-    --bare-bg: rgba(153, 27, 27, 0.11);
-    --info: #1d5878;
-    --info-bg: rgba(29, 88, 120, 0.12);
-    --find: #5b3fb0;
-    --shadow: 0 1px 2px rgba(16, 24, 40, 0.1);
-    --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.25);
-  }
 }
 
 /* --------------------------------------------------------------------- base */
@@ -141,9 +88,6 @@ h3 {
   font-size: 13px;
 }
 h4 {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--text-muted);
 }
 p {
@@ -166,6 +110,28 @@ kbd {
 }
 .error-text {
   color: var(--bare);
+}
+/*
+ * Section labels, as refcheck's pane titles: small, uppercase, letter-spaced,
+ * one style everywhere. Their colour gives the level (muted for section
+ * titles, dim for field labels and inactive tabs), set by each rule.
+ */
+h4,
+.side-panel-title,
+.side-rail-label,
+.settings > summary > span:first-child,
+.history > summary > span:first-child,
+.field > span:first-child,
+.field > legend,
+.job-status h2,
+.tab,
+.value-table th,
+.ocr-page-title,
+.bbox-annotation dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 /* Thin scrollbars everywhere, as in refcheck. */
@@ -318,10 +284,6 @@ kbd {
   border-bottom: 1px solid var(--border);
 }
 .side-panel-title {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--text-muted);
 }
 .side-panel-collapse {
@@ -360,10 +322,6 @@ kbd {
 }
 .side-rail-label {
   writing-mode: vertical-rl;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 .side-rail-busy {
   display: grid;
@@ -777,10 +735,6 @@ input[aria-invalid="true"] {
 }
 .settings > summary > span:first-child,
 .history > summary > span:first-child {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
   color: var(--text-muted);
 }
 .settings > summary > span:first-child::before,
@@ -813,10 +767,6 @@ input[aria-invalid="true"] {
 }
 .field > span:first-child,
 .field > legend {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--text-dim);
 }
 .field-wide {
@@ -876,9 +826,6 @@ input[aria-invalid="true"] {
 
 /* --------------------------------------------------------------- job status */
 .job-status h2 {
-  font-size: 11px;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
   color: var(--text-muted);
 }
 .stage-list {
@@ -1046,10 +993,6 @@ input[aria-invalid="true"] {
   border-bottom: 2px solid transparent;
   padding: 10px 10px 8px;
   font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--text-dim);
   cursor: pointer;
   white-space: nowrap;
@@ -1241,6 +1184,11 @@ input[aria-invalid="true"] {
   .dock-splitter {
     display: none;
   }
+}
+/* A view whose code is still loading (lazyView.tsx). */
+.view-loading {
+  margin: 0;
+  padding: 10px 12px;
 }
 .tab-panel {
   padding: 10px 12px 18px;
@@ -1591,11 +1539,7 @@ input[aria-invalid="true"] {
   vertical-align: top;
 }
 .value-table th {
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--text-dim);
-  font-weight: 600;
 }
 .long-text-collapsed .prose {
   position: relative;
@@ -1712,10 +1656,6 @@ input[aria-invalid="true"] {
 }
 .ocr-page-title {
   margin-bottom: 4px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--text-dim);
 }
 
@@ -1784,19 +1724,26 @@ input[aria-invalid="true"] {
   color: var(--text-dim);
   background: var(--surface);
 }
-/* "Select blocks on the PDF": the blocks over the page; one left out is hatched. */
+/*
+ * Boxes to click over a page, in their block type's colour (--box-color):
+ * the bounding-box view's, and "Select blocks on the PDF" beside the OCR text,
+ * where a block left out is hatched.
+ */
+.bbox-box,
 .ocr-pick {
   position: absolute;
   box-sizing: border-box;
   padding: 0;
   margin: 0;
   border: 2px solid var(--box-color, var(--accent));
-  background: color-mix(in srgb, var(--box-color, var(--accent)) 10%, transparent);
+  background: color-mix(in srgb, var(--box-color, var(--accent)) 12%, transparent);
   cursor: pointer;
 }
+.bbox-box:hover,
+.bbox-box-selected,
 .ocr-pick:hover,
 .ocr-pick:focus-visible {
-  background: color-mix(in srgb, var(--box-color, var(--accent)) 28%, transparent);
+  background: color-mix(in srgb, var(--box-color, var(--accent)) 30%, transparent);
   outline: 2px solid #fff;
   outline-offset: 1px;
   z-index: 2;
@@ -1931,21 +1878,11 @@ input[aria-invalid="true"] {
 .edit-boxes:focus {
   outline: none;
 }
+/* The page as in the bounding-box view (.bbox-stage): drags select on it, so neither it nor its image can be picked up. */
 .edit-stage {
-  position: relative;
-  display: inline-block;
-  max-width: 100%;
-  border: 1px solid var(--border);
-  background: #fff;
-  line-height: 0;
-  overflow: hidden;
-  border-radius: 4px;
   user-select: none;
 }
 .edit-stage img {
-  display: block;
-  max-width: 100%;
-  height: auto;
   pointer-events: none;
 }
 /* Drags draw a selection, like a rectangular marquee. */
@@ -2010,7 +1947,9 @@ input[aria-invalid="true"] {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-.bbox-stage {
+/* The page image of the bounding-box views, the boxes placed over it in percent (boxStyle()). */
+.bbox-stage,
+.edit-stage {
   position: relative;
   display: inline-block;
   max-width: 100%;
@@ -2020,7 +1959,8 @@ input[aria-invalid="true"] {
   overflow: hidden;
   border-radius: 4px;
 }
-.bbox-stage img {
+.bbox-stage img,
+.edit-stage img {
   display: block;
   max-width: 100%;
   height: auto;
@@ -2036,22 +1976,6 @@ input[aria-invalid="true"] {
 .bbox-layer {
   position: absolute;
   inset: 0;
-}
-.bbox-box {
-  position: absolute;
-  border: 2px solid var(--box-color, var(--accent));
-  background: color-mix(in srgb, var(--box-color, var(--accent)) 12%, transparent);
-  cursor: pointer;
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-}
-.bbox-box:hover,
-.bbox-box-selected {
-  background: color-mix(in srgb, var(--box-color, var(--accent)) 30%, transparent);
-  outline: 2px solid #fff;
-  outline-offset: 1px;
-  z-index: 2;
 }
 .bbox-box-label {
   position: absolute;
@@ -2105,9 +2029,6 @@ input[aria-invalid="true"] {
   font-size: 12.5px;
 }
 .bbox-annotation dt {
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--text-dim);
   margin-top: 6px;
 }

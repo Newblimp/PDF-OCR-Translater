@@ -224,6 +224,11 @@ export function hasStructure(t: TranslationState): t is TranslationState & { sch
   return t.schema !== null;
 }
 
+/** Whether the JSON format has been filled in the document's own language too ("Show translation" off). */
+export function hasOriginal(t: TranslationState): boolean {
+  return t.originalData !== null && t.originalData !== undefined;
+}
+
 /** The tab a translation opens on: the structured text with the JSON output, the OCR text without it. */
 function translationTab(translation: TranslationState, settings: Settings): ResultTab {
   return settings.jsonOutput && hasStructure(translation) ? "structured" : "ocr";

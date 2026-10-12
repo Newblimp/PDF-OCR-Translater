@@ -1,7 +1,7 @@
 /**
  * Theme handling. The choice is stored with the other settings; this module
  * only applies it to the document so CSS can react via `[data-theme]`.
- * "system" removes the attribute and lets `prefers-color-scheme` decide.
+ * "system" removes the attribute: `color-scheme: light dark` then follows the OS.
  */
 import type { ThemeSetting } from "./settings";
 

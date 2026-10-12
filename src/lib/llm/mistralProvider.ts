@@ -1,8 +1,8 @@
 import { ApiError } from "../http/apiError";
 import { MistralClient } from "../mistral/client";
 import { chatModelOptions } from "../mistral/models";
-import { plainUserText, userMessage } from "./content";
-import type { ChatCompletionRequest, ContentChunk } from "../mistral/types";
+import { chatCompletionsRequest } from "./content";
+import type { ChatCompletionRequest } from "../mistral/types";
 import type { ChatProvider, JsonChatRequest, JsonChatResult, ReasoningEffort } from "./provider";
 
 /** Mistral documents "none" and "high" for its reasoning models; the app's "low" and "medium" think too. */
@@ -12,12 +12,6 @@ function mistralEffort(effort: ReasoningEffort): "none" | "high" {
 
 /** Models that rejected `reasoning_effort` in this session (not every Mistral model reasons): it is no longer sent to them. */
 const NO_REASONING_EFFORT = new Set<string>();
-
-/** Context, images, then the task (see `userMessage()`). */
-function userContent(request: JsonChatRequest): string | ContentChunk[] {
-  const message = userMessage(request);
-  return plainUserText(message) ?? message.parts.map((part): ContentChunk => (part.type === "text" ? part : { type: "image_url", image_url: part.dataUrl }));
-}
 
 /** Mistral chat provider: the default for translation (Mistral Small), with Anthropic and OpenAI as alternatives. */
 export class MistralProvider implements ChatProvider {
@@ -35,25 +29,7 @@ export class MistralProvider implements ChatProvider {
   }
 
   async completeJson(request: JsonChatRequest): Promise<JsonChatResult> {
-    const body: ChatCompletionRequest = {
-      model: request.model,
-      messages: [
-        { role: "system", content: request.system },
-        { role: "user", content: userContent(request) },
-      ],
-      response_format:
-        request.format.type === "json_schema"
-          ? {
-              type: "json_schema",
-              json_schema: {
-                name: request.format.name,
-                description: request.format.description ?? null,
-                schema: request.format.schema,
-                strict: request.format.strict,
-              },
-            }
-          : { type: "json_object" },
-    };
+    const body: ChatCompletionRequest = chatCompletionsRequest(request, (url) => ({ type: "image_url" as const, image_url: url }));
     if (request.temperature !== undefined) body.temperature = request.temperature;
     if (request.maxOutputTokens) body.max_tokens = request.maxOutputTokens;
     if (request.reasoningEffort && !NO_REASONING_EFFORT.has(request.model)) body.reasoning_effort = mistralEffort(request.reasoningEffort);
@@ -71,12 +47,7 @@ export class MistralProvider implements ChatProvider {
   }
 
   private async send(body: ChatCompletionRequest, request: JsonChatRequest): Promise<JsonChatResult> {
-    const result = request.stream
-      ? await this.client.chatStream(body, {
-          ...(request.signal ? { signal: request.signal } : {}),
-          ...(request.onDelta ? { onDelta: request.onDelta } : {}),
-        })
-      : await this.client.chat(body, request.signal);
+    const result = await this.client.complete(body, request);
     return {
       content: result.content,
       finishReason: result.finishReason,

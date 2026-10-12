@@ -4,11 +4,9 @@
  * use any provider listed here.
  */
 import { DEFAULT_ANTHROPIC_MODEL, FALLBACK_ANTHROPIC_MODELS } from "../anthropic/models";
+import { toApiError } from "../http/apiError";
 import { DEFAULT_CHAT_MODEL, FALLBACK_CHAT_MODELS, type ModelOption } from "../mistral/models";
 import { DEFAULT_OPENAI_MODEL, FALLBACK_OPENAI_MODELS } from "../openai/models";
-import { AnthropicProvider } from "./anthropicProvider";
-import { MistralProvider } from "./mistralProvider";
-import { OpenAIProvider } from "./openaiProvider";
 import type { ChatProvider, ProviderId, ReasoningEffort } from "./provider";
 
 export interface ProviderInfo {
@@ -28,7 +26,8 @@ export interface ProviderInfo {
   supportsReasoningEffort: boolean;
   /** The reasoning efforts offered in Settings (the provider maps them onto its API). */
   reasoningEfforts: ReadonlyArray<ReasoningEffort>;
-  create: (apiKey: string) => ChatProvider;
+  /** Imports the implementation (its own chunk, with its client or SDK) and returns its factory. */
+  load: () => Promise<(apiKey: string) => ChatProvider>;
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
@@ -46,7 +45,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     supportsReasoningEffort: true,
     // Mistral Small 4 documents "none" and "high" (https://docs.mistral.ai/capabilities/reasoning).
     reasoningEfforts: ["none", "high"],
-    create: (apiKey) => MistralProvider.fromKey(apiKey),
+    load: () => import("./mistralProvider").then((m) => m.MistralProvider.fromKey),
   },
   anthropic: {
     id: "anthropic",
@@ -61,7 +60,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     supportsTemperature: false,
     supportsReasoningEffort: true,
     reasoningEfforts: ["none", "low", "medium", "high"],
-    create: (apiKey) => AnthropicProvider.fromKey(apiKey),
+    load: () => import("./anthropicProvider").then((m) => m.AnthropicProvider.fromKey),
   },
   openai: {
     id: "openai",
@@ -76,7 +75,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     supportsTemperature: false,
     supportsReasoningEffort: true,
     reasoningEfforts: ["none", "low", "medium", "high"],
-    create: (apiKey) => OpenAIProvider.fromKey(apiKey),
+    load: () => import("./openaiProvider").then((m) => m.OpenAIProvider.fromKey),
   },
 };
 
@@ -92,8 +91,27 @@ export function effortFor(id: ProviderId, effort: ReasoningEffort): ReasoningEff
   return offered.includes(effort) ? effort : effort === "none" ? "none" : (offered[offered.length - 1] ?? effort);
 }
 
+/**
+ * The provider for a key. Its implementation is imported on the first call
+ * (every call is async anyway), so no provider is in the initial bundle; a
+ * chunk that fails to load is a network error and is tried again next time.
+ */
 export function createProvider(id: ProviderId, apiKey: string): ChatProvider {
-  return PROVIDERS[id].create(apiKey);
+  let provider: Promise<ChatProvider> | null = null;
+  const get = () =>
+    (provider ??= PROVIDERS[id].load().then(
+      (create) => create(apiKey),
+      (err: unknown) => {
+        provider = null;
+        throw toApiError(err, id);
+      },
+    ));
+  return {
+    id,
+    label: PROVIDERS[id].label,
+    completeJson: async (request) => (await get()).completeJson(request),
+    listModels: async (signal) => (await get()).listModels(signal),
+  };
 }
 
 /** Build a record with one entry per provider (keeps `Record<ProviderId, T>` literals out of the app). */
