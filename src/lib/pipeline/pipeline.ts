@@ -41,10 +41,7 @@ import { findSchemaViolations, sanitizeSchema } from "./schema";
 import { getBuiltinSchema } from "./schemas";
 import { translateStructured, type StructureTarget, type TranslationOutcome } from "./translate";
 
-export type SchemaMode =
-  | { kind: "infer" }
-  | { kind: "builtin"; id: string }
-  | { kind: "custom"; schema: JsonSchemaObject };
+export type SchemaMode = { kind: "infer" } | { kind: "builtin"; id: string } | { kind: "custom"; schema: JsonSchemaObject };
 
 /** When the JSON format is also filled in the document's own language. */
 export type StructureOriginalMode = "always" | "on_demand" | "never";
@@ -213,7 +210,12 @@ async function fillStructure(
   const stage = target === "original" ? "structure_original" : "translate";
   const chunks = splitDocument(documentText, ocr);
   if (chunks.length > 1) {
-    emit(ctx.onProgress, stage, "start", `Long document: ${chunks.length} parts (${chunks.map((c) => c.label).join(", ")}), filled one after another and merged`);
+    emit(
+      ctx.onProgress,
+      stage,
+      "start",
+      `Long document: ${chunks.length} parts (${chunks.map((c) => c.label).join(", ")}), filled one after another and merged`,
+    );
   }
   const outcomes: TranslationOutcome[] = [];
   let merged: unknown = undefined;

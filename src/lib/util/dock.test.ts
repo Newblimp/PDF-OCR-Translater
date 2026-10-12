@@ -113,7 +113,12 @@ describe("saved layouts", () => {
     const layout = moveTab(moveTab(singleGroup(TABS), "c", { group: "g1", side: "right" }), "d", { group: "g2", side: "bottom" });
     expect(sameArrangement(parseDock(JSON.parse(JSON.stringify(layout)), TABS)!, layout)).toBe(true);
     const repaired = parseDock(
-      { kind: "split", direction: "row", sizes: [2, "x"], children: [{ kind: "group", tabs: ["b", "zz", "b"], active: "zz" }, { kind: "group", tabs: ["c"] }, { kind: "odd" }] },
+      {
+        kind: "split",
+        direction: "row",
+        sizes: [2, "x"],
+        children: [{ kind: "group", tabs: ["b", "zz", "b"], active: "zz" }, { kind: "group", tabs: ["c"] }, { kind: "odd" }],
+      },
       TABS,
     );
     expect(shape(repaired!)).toBe("row([b* a d], [c*])");
@@ -145,7 +150,10 @@ describe("rendering", () => {
 
   it("places groups and splitters as lengths relative to the dock", () => {
     const layout = moveTab(moveTab(singleGroup(TABS), "c", { group: "g1", side: "right" }), "d", { group: "g2", side: "bottom" });
-    const { groups, splitters } = dockGeometry(visibleDock(layout, () => true)!, 6);
+    const { groups, splitters } = dockGeometry(
+      visibleDock(layout, () => true)!,
+      6,
+    );
     const at = (i: number, width: number, height: number) => {
       const r = groups[i]!.rect;
       return [linPx(r.left, width), linPx(r.top, height), linPx(r.width, width), linPx(r.height, height)];

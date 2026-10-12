@@ -21,12 +21,27 @@ const settings: PipelineSettings = {
   domainHint: "test",
 };
 
-const schema = { type: "object", properties: { body: { type: "string" }, refs: { type: "array", items: { type: "string" } } }, required: ["body", "refs"], additionalProperties: false };
+const schema = {
+  type: "object",
+  properties: { body: { type: "string" }, refs: { type: "array", items: { type: "string" } } },
+  required: ["body", "refs"],
+  additionalProperties: false,
+};
 
 /** Pages of ~30k estimated tokens each, so every page becomes its own part. */
 function longOcr(): OcrText {
   const pages = [0, 1].map((index) => ({ index, markdown: "字".repeat(30_000), header: null, footer: null, imageCount: 0, width: 1, height: 1, blocks: [] }));
-  const bboxes = [0, 1].map((pageIndex) => ({ id: `img-${pageIndex}`, pageIndex, x0: 0, y0: 0, x1: 1, y1: 1, pageWidth: 1, pageHeight: 1, dataUrl: "data:image/png;base64,AA" }));
+  const bboxes = [0, 1].map((pageIndex) => ({
+    id: `img-${pageIndex}`,
+    pageIndex,
+    x0: 0,
+    y0: 0,
+    x1: 1,
+    y1: 1,
+    pageWidth: 1,
+    pageHeight: 1,
+    dataUrl: "data:image/png;base64,AA",
+  }));
   return { text: pages.map((p) => p.markdown).join("\n\n"), pages, bboxes, pagesProcessed: 2, chars: 60_001 };
 }
 

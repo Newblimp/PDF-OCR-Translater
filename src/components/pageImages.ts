@@ -13,7 +13,8 @@ export const PAGE_RENDER_WIDTH = 1000;
 export function usePageRenderer(doc: DocState | null): PageRenderer | null {
   const imageUrl = doc?.kind === "image" ? (doc.previews[0] ?? null) : null;
   return useMemo(
-    () => (doc && (doc.kind !== "image" || imageUrl) ? getPageRenderer(doc.id, doc.file, doc.kind === "image" ? "image" : "pdf", imageUrl, PAGE_RENDER_WIDTH) : null),
+    () =>
+      doc && (doc.kind !== "image" || imageUrl) ? getPageRenderer(doc.id, doc.file, doc.kind === "image" ? "image" : "pdf", imageUrl, PAGE_RENDER_WIDTH) : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one renderer per document id; the file never changes for an id
     [doc?.id, imageUrl],
   );

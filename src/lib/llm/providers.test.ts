@@ -127,7 +127,9 @@ describe("providers map the generic request onto each API", () => {
   });
 
   it("Anthropic: the shared context and images come first, with a cache breakpoint on the last of them; cache usage is reported", async () => {
-    const { calls, fetchImpl } = captureAnthropic({ usage: { input_tokens: 3, cache_read_input_tokens: 200, cache_creation_input_tokens: 0, output_tokens: 4 } });
+    const { calls, fetchImpl } = captureAnthropic({
+      usage: { input_tokens: 3, cache_read_input_tokens: 200, cache_creation_input_tokens: 0, output_tokens: 4 },
+    });
     const provider = new AnthropicProvider(createAnthropicClient("k", { fetch: fetchImpl }));
     const result = await provider.completeJson({
       ...request,
@@ -192,7 +194,7 @@ describe("providers map the generic request onto each API", () => {
     expect(result.usage).toMatchObject({ prompt_tokens: 2000, cache_read_tokens: 1536 });
   });
 
-  it("Anthropic: json_object mode sends no format, \"none\" effort maps to low, and max_tokens has a default", async () => {
+  it('Anthropic: json_object mode sends no format, "none" effort maps to low, and max_tokens has a default', async () => {
     const { calls, fetchImpl } = captureAnthropic();
     const provider = new AnthropicProvider(createAnthropicClient("k", { fetch: fetchImpl }));
     await provider.completeJson({ ...request, format: { type: "json_object" }, reasoningEffort: "none", maxOutputTokens: undefined });
@@ -214,7 +216,18 @@ describe("providers map the generic request onto each API", () => {
 
   it("Anthropic: streams text deltas, skips thinking deltas, and takes usage from message_start and message_delta", async () => {
     const frames = [
-      frame({ type: "message_start", message: { id: "m", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [], stop_reason: null, usage: { input_tokens: 7, output_tokens: 1, cache_read_input_tokens: 2 } } }),
+      frame({
+        type: "message_start",
+        message: {
+          id: "m",
+          type: "message",
+          role: "assistant",
+          model: "claude-haiku-5-5",
+          content: [],
+          stop_reason: null,
+          usage: { input_tokens: 7, output_tokens: 1, cache_read_input_tokens: 2 },
+        },
+      }),
       frame({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "", signature: "" } }),
       frame({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "hmm" } }),
       frame({ type: "content_block_stop", index: 0 }),
@@ -249,11 +262,28 @@ describe("providers map the generic request onto each API", () => {
 
   it("Anthropic: a streamed refusal reports its stop details", async () => {
     const frames = [
-      frame({ type: "message_start", message: { id: "m", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [], stop_reason: null, usage: { input_tokens: 7, output_tokens: 0 } } }),
-      frame({ type: "message_delta", delta: { stop_reason: "refusal", stop_sequence: null, stop_details: { type: "refusal", category: "cyber", explanation: "declined" } }, usage: { output_tokens: 0 } }),
+      frame({
+        type: "message_start",
+        message: {
+          id: "m",
+          type: "message",
+          role: "assistant",
+          model: "claude-haiku-5-5",
+          content: [],
+          stop_reason: null,
+          usage: { input_tokens: 7, output_tokens: 0 },
+        },
+      }),
+      frame({
+        type: "message_delta",
+        delta: { stop_reason: "refusal", stop_sequence: null, stop_details: { type: "refusal", category: "cyber", explanation: "declined" } },
+        usage: { output_tokens: 0 },
+      }),
       frame({ type: "message_stop" }),
     ];
-    const err = await new AnthropicProvider(createAnthropicClient("k", { fetch: sse(frames) })).completeJson({ ...request, stream: true }).catch((e: unknown) => e);
+    const err = await new AnthropicProvider(createAnthropicClient("k", { fetch: sse(frames) }))
+      .completeJson({ ...request, stream: true })
+      .catch((e: unknown) => e);
     expect(err).toMatchObject({ kind: "refusal", provider: "anthropic", message: "The model refused to answer: declined" });
   });
 
@@ -266,14 +296,19 @@ describe("providers map the generic request onto each API", () => {
     ];
     const listing: typeof fetch = async (url) => {
       urls.push(String(url));
-      return new Response(JSON.stringify({ data: models, has_more: false, first_id: null, last_id: null }), { headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ data: models, has_more: false, first_id: null, last_id: null }), {
+        headers: { "Content-Type": "application/json" },
+      });
     };
     const options = await new AnthropicProvider(createAnthropicClient("k", { fetch: listing })).listModels();
     expect(urls).toEqual(["https://api.anthropic.com/v1/models?limit=1000"]);
     expect(options.map((o) => o.id)).toEqual(["claude-haiku-5-5", "claude-sonnet-5-5"]);
 
     const rejected: typeof fetch = async () =>
-      new Response(JSON.stringify({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }), { status: 401, headers: { "Content-Type": "application/json" } });
+      new Response(JSON.stringify({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
     const err = await new AnthropicProvider(createAnthropicClient("k", { fetch: rejected })).listModels().catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ kind: "auth", provider: "anthropic", status: 401 });

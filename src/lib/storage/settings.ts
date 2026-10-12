@@ -5,10 +5,7 @@ import { PROVIDERS } from "../llm/registry";
 import { DEFAULT_OCR_MODEL } from "../mistral/models";
 import { DEFAULT_DOMAIN_HINT } from "../pipeline/prompts";
 
-export type SchemaModeSetting =
-  | { kind: "infer" }
-  | { kind: "builtin"; id: string }
-  | { kind: "custom"; schemaText: string };
+export type SchemaModeSetting = { kind: "infer" } | { kind: "builtin"; id: string } | { kind: "custom"; schemaText: string };
 
 export type ThemeSetting = "system" | "light" | "dark";
 
@@ -172,7 +169,8 @@ function normalise(parsed: Partial<Settings>): Settings {
   if (typeof merged.ocrShowPdf !== "boolean") merged.ocrShowPdf = DEFAULT_SETTINGS.ocrShowPdf;
   if (typeof merged.ocrLinkScroll !== "boolean") merged.ocrLinkScroll = DEFAULT_SETTINGS.ocrLinkScroll;
   if (typeof merged.jsonOutput !== "boolean") merged.jsonOutput = DEFAULT_SETTINGS.jsonOutput;
-  if (!Array.isArray(merged.ocrHiddenTypes) || !merged.ocrHiddenTypes.every((t) => typeof t === "string")) merged.ocrHiddenTypes = [...DEFAULT_SETTINGS.ocrHiddenTypes];
+  if (!Array.isArray(merged.ocrHiddenTypes) || !merged.ocrHiddenTypes.every((t) => typeof t === "string"))
+    merged.ocrHiddenTypes = [...DEFAULT_SETTINGS.ocrHiddenTypes];
   if (typeof merged.ocrMatchLayout !== "boolean") merged.ocrMatchLayout = DEFAULT_SETTINGS.ocrMatchLayout;
   if (typeof merged.ocrPickBlocks !== "boolean") merged.ocrPickBlocks = DEFAULT_SETTINGS.ocrPickBlocks;
   return merged;

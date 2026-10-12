@@ -57,8 +57,8 @@ export function ApiKeyDialog({ keys, provider, required, canClose, remember, onR
       <form class="modal" role="dialog" aria-modal="true" aria-labelledby="key-title" onSubmit={submit}>
         <h2 id="key-title">API keys</h2>
         <p>
-          This app calls the providers' APIs directly from your browser. Keys stay in this browser and are never sent anywhere
-          but to the provider they belong to.
+          This app calls the providers' APIs directly from your browser. Keys stay in this browser and are never sent anywhere but to the provider they belong
+          to.
         </p>
         <label class="field">
           <span>Translate with</span>

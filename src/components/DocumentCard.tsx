@@ -85,7 +85,10 @@ export const DocumentCard = memo(function DocumentCard({ doc, ocr, busy, onPageS
       )}
 
       {doc.kind === "text" ? (
-        <pre class="text-preview">{(doc.textContent ?? "").slice(0, 1500)}{(doc.textContent?.length ?? 0) > 1500 ? "\n…" : ""}</pre>
+        <pre class="text-preview">
+          {(doc.textContent ?? "").slice(0, 1500)}
+          {(doc.textContent?.length ?? 0) > 1500 ? "\n…" : ""}
+        </pre>
       ) : (
         <div class="preview-strip" aria-label="Document preview">
           {doc.previews.map((src, i) => (
@@ -95,9 +98,7 @@ export const DocumentCard = memo(function DocumentCard({ doc, ocr, busy, onPageS
             </figure>
           ))}
           {doc.previewStatus === "loading" && <div class="preview-placeholder">Rendering preview…</div>}
-          {doc.previewStatus === "error" && (
-            <div class="preview-placeholder preview-error">Preview unavailable: {doc.previewError}</div>
-          )}
+          {doc.previewStatus === "error" && <div class="preview-placeholder preview-error">Preview unavailable: {doc.previewError}</div>}
           {doc.pageCount !== null && doc.pageCount > doc.previews.length && doc.previewStatus === "ready" && (
             <div class="preview-placeholder">+{doc.pageCount - doc.previews.length} more page(s)</div>
           )}

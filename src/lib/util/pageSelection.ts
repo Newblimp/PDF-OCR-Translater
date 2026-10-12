@@ -15,7 +15,10 @@ export function parsePageSelection(input: string, pageCount: number | null): Pag
   if (!raw) return { pages: null, text: "", error: null };
   const indices = new Set<number>();
   // "2 - 4" is a range; "1 3" are two pages.
-  for (const part of raw.replace(/\s*-\s*/g, "-").split(/[,\s;]+/).filter(Boolean)) {
+  for (const part of raw
+    .replace(/\s*-\s*/g, "-")
+    .split(/[,\s;]+/)
+    .filter(Boolean)) {
     const m = /^(\d+)(?:\s*-\s*(\d+))?$/.exec(part);
     if (!m) return { pages: null, text: raw, error: `"${part}" is not a page number or range (use e.g. 1-3, 7).` };
     const from = Number(m[1]);

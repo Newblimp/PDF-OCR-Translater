@@ -170,10 +170,7 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
         {provider.supportsReasoningEffort && (
           <label class="field">
             <span>Reasoning effort</span>
-            <select
-              value={settings.reasoningEffort}
-              onChange={(e) => onChange({ reasoningEffort: (e.target as HTMLSelectElement).value as ReasoningEffort })}
-            >
+            <select value={settings.reasoningEffort} onChange={(e) => onChange({ reasoningEffort: (e.target as HTMLSelectElement).value as ReasoningEffort })}>
               {EFFORTS.map((e) => (
                 <option key={e} value={e}>
                   {e}
@@ -231,14 +228,9 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
         <div class="field field-wide">
           <span>Behaviour</span>
           <label class="checkbox">
-            <input
-              type="checkbox"
-              checked={settings.bboxAnnotations}
-              onChange={(e) => onChange({ bboxAnnotations: (e.target as HTMLInputElement).checked })}
-            />
+            <input type="checkbox" checked={settings.bboxAnnotations} onChange={(e) => onChange({ bboxAnnotations: (e.target as HTMLInputElement).checked })} />
             <span>
-              Bounding-box annotation: describe every extracted box (stamps, seals, figures, tables) with the vision model, one
-              call per box, up to{" "}
+              Bounding-box annotation: describe every extracted box (stamps, seals, figures, tables) with the vision model, one call per box, up to{" "}
               <input
                 type="number"
                 class="inline-number"
@@ -271,7 +263,11 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
             <button type="button" class="btn btn-ghost small" onClick={() => void clearOcrCache()}>
               Clear local OCR cache
             </button>
-            <button type="button" class="btn btn-ghost small" onClick={() => onChange({ ...structuredClone(DEFAULT_SETTINGS), theme: settings.theme, rememberKeys: settings.rememberKeys })}>
+            <button
+              type="button"
+              class="btn btn-ghost small"
+              onClick={() => onChange({ ...structuredClone(DEFAULT_SETTINGS), theme: settings.theme, rememberKeys: settings.rememberKeys })}
+            >
               Reset to defaults
             </button>
           </div>
@@ -384,8 +380,8 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
                   ))}
                 </select>
                 <span class="muted small">
-                  Fills the same JSON format without translating, so the Structured text tab can show the document's own wording. It reads the
-                  document from the prompt cache when it runs soon after the translation.
+                  Fills the same JSON format without translating, so the Structured text tab can show the document's own wording. It reads the document from the
+                  prompt cache when it runs soon after the translation.
                 </span>
               </label>
               <label class="field">
@@ -412,8 +408,8 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
                 <label class="checkbox">
                   <input type="checkbox" checked={settings.sendImages} onChange={(e) => onChange({ sendImages: (e.target as HTMLInputElement).checked })} />
                   <span>
-                    Document annotation with images: send the first 8 bounding-box images extracted by Mistral OCR together with the
-                    text to the vision model (Mistral's annotation workflow).
+                    Document annotation with images: send the first 8 bounding-box images extracted by Mistral OCR together with the text to the vision model
+                    (Mistral's annotation workflow).
                   </span>
                 </label>
                 <label class="checkbox">
@@ -422,10 +418,7 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
                     checked={settings.blockTranslations}
                     onChange={(e) => onChange({ blockTranslations: (e.target as HTMLInputElement).checked })}
                   />
-                  <span>
-                    Also translate each OCR text block after the JSON translation, so the OCR text and the bounding-box view can be shown
-                    translated.
-                  </span>
+                  <span>Also translate each OCR text block after the JSON translation, so the OCR text and the bounding-box view can be shown translated.</span>
                 </label>
               </div>
             </div>

@@ -137,7 +137,9 @@ export async function translateBlocks(provider: ChatProvider, ocr: OcrText, opti
       if (options.signal?.aborted) throw err;
       if (err instanceof ApiError && err.kind === "auth") throw err; // a bad key fails every batch
       failures++;
-      emit(onProgress, "block_translate", "warning", `A batch of ${batch.length} block(s) failed`, { detail: err instanceof Error ? err.message : String(err) });
+      emit(onProgress, "block_translate", "warning", `A batch of ${batch.length} block(s) failed`, {
+        detail: err instanceof Error ? err.message : String(err),
+      });
     }
     done += batch.length;
     emit(onProgress, "block_translate", "progress", `Translated ${Math.min(done, total)} of ${total} text block(s)`);

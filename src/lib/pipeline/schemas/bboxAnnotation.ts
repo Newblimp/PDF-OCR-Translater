@@ -8,7 +8,10 @@ import type { JsonSchemaObject } from "../../mistral/types";
 export const BBOX_ANNOTATION_SCHEMA: JsonSchemaObject = {
   type: "object",
   properties: {
-    image_type: { type: "string", description: "The type of the image, e.g. 'stamp', 'seal', 'signature', 'table', 'chart', 'diagram', 'photo', 'logo', 'barcode', 'handwriting'." },
+    image_type: {
+      type: "string",
+      description: "The type of the image, e.g. 'stamp', 'seal', 'signature', 'table', 'chart', 'diagram', 'photo', 'logo', 'barcode', 'handwriting'.",
+    },
     short_description: { type: "string", description: "One sentence describing the image, in the target language." },
     summary: { type: "string", description: "Summarise the image and its role in the document, in the target language." },
     text_in_image: { type: "string", description: "Any text visible in the image, transcribed verbatim in the original script; empty string if none." },

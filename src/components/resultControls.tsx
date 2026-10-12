@@ -48,12 +48,7 @@ export function TranslationToggle({
 }) {
   return (
     <label class="checkbox small" title={available ? "Switch between the document's language and the translation" : "Nothing translated yet"}>
-      <input
-        type="checkbox"
-        checked={show && available}
-        disabled={!available}
-        onChange={(e) => onShowTranslation((e.target as HTMLInputElement).checked)}
-      />
+      <input type="checkbox" checked={show && available} disabled={!available} onChange={(e) => onShowTranslation((e.target as HTMLInputElement).checked)} />
       <span>{label}</span>
     </label>
   );

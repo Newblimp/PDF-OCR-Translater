@@ -98,7 +98,12 @@ export function JsonBrowser({ data, schema, streaming = false }: Props) {
           <button type="button" class="btn btn-ghost small" onClick={() => setHidden(new Set())} disabled={hidden.size === 0}>
             Show all
           </button>
-          <button type="button" class="btn btn-ghost small" onClick={() => setHidden(new Set(fields.map((f) => f.key)))} disabled={hidden.size === fields.length}>
+          <button
+            type="button"
+            class="btn btn-ghost small"
+            onClick={() => setHidden(new Set(fields.map((f) => f.key)))}
+            disabled={hidden.size === fields.length}
+          >
             Hide all
           </button>
         </div>
@@ -123,11 +128,7 @@ export function JsonBrowser({ data, schema, streaming = false }: Props) {
           })}
           {listed.length === 0 && <li class="muted small">No field matches.</li>}
         </ul>
-        {hidden.size > 0 && (
-          <p class="muted small">
-            {hidden.size} field(s) hidden.
-          </p>
-        )}
+        {hidden.size > 0 && <p class="muted small">{hidden.size} field(s) hidden.</p>}
         <div class="outline-options">
           <label class="checkbox small">
             <input type="checkbox" checked={markdown} onChange={(e) => setMarkdown((e.target as HTMLInputElement).checked)} />

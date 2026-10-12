@@ -20,7 +20,10 @@ for (const [name, width] of [
     await page.getByRole("dialog").getByRole("button", { name: "Save and verify" }).click();
     await page.getByText("Anthropic key verified").waitFor();
     await page.screenshot({ path: `${out}/${name}-2-empty.png`, fullPage: true });
-    await page.locator('input[type="file"]').first().setInputFiles({ name: "office-action.pdf", mimeType: "application/pdf", buffer: makePdf("Hello patent office") });
+    await page
+      .locator('input[type="file"]')
+      .first()
+      .setInputFiles({ name: "office-action.pdf", mimeType: "application/pdf", buffer: makePdf("Hello patent office") });
     await page.locator(".preview-page img").first().waitFor();
     await page.screenshot({ path: `${out}/${name}-3-loaded.png`, fullPage: true });
     await page.getByRole("button", { name: "OCR + Translate" }).click();

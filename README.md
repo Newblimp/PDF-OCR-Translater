@@ -40,6 +40,7 @@ anywhere else.
    by Mistral per page on top). "OCR + Translate" reuses an OCR result that
    is already loaded for the same file, model and pages instead of paying for
    OCR again.
+
 3. **OCR** runs on `mistral-ocr-latest` with `extract_header` /
    `extract_footer` on, `include_image_base64` (the extracted bounding boxes
    with their cropped images) and `include_blocks` (paragraph-level boxes).
@@ -60,9 +61,10 @@ anywhere else.
    settings (format, streaming, images, original-language structure, max
    output tokens, block translations as a follow-up) sit under that switch.
    **JSON format inference** asks the translation model to design a
-   JSON Schema for *this* document — the API-side counterpart of Mistral's
+   JSON Schema for _this_ document — the API-side counterpart of Mistral's
    playground option "infer a JSON format from the document". You can instead
-   pick the built-in *patent office communication* schema or paste your own.
+   pick the built-in _patent office communication_ schema or paste your own.
+
 5. **BBox annotation** (Mistral's workflow, performed by the selected vision
    model): one call per extracted bounding box with a fixed format
    (`image_type`, `short_description`, `summary`, plus the text in the image
@@ -92,6 +94,7 @@ anywhere else.
    original language share a prefix that the providers' prompt caches serve
    again at a fraction of the price (an explicit cache breakpoint on
    Anthropic; automatic on OpenAI).
+
 7. **Structured text in the original language** (JSON output; on demand by default): the
    same JSON format is filled without translating, so the structured fields
    can be read in the document's own wording. It is produced the first time
@@ -152,6 +155,7 @@ anywhere else.
    translation next to the original, field by field and block by block; it
    prints to PDF and opens in Word. The file loads nothing from outside
    (remote image URLs in the text are removed and it carries its own CSP).
+
 9. **Recent translations**: finished translations are kept in this browser
    (IndexedDB, last 30). They can be reopened from the list (with their OCR
    result while the OCR cache still has it), and loading a document that was
@@ -215,32 +219,32 @@ on any static host.
 
 All defaults live in code so they can be changed in one place:
 
-| Setting | Default | Where |
-| --- | --- | --- |
-| OCR model | `mistral-ocr-latest` (dropdown of `OCR_MODELS`) | `src/lib/mistral/models.ts` |
-| Translation provider | Anthropic (Claude Haiku 5.5); OpenAI and Mistral selectable | `src/lib/llm/registry.ts` |
-| Translation model | `claude-haiku-5-5` (Anthropic) / `gpt-6-luna` (OpenAI) / `mistral-large-latest` (Mistral); dropdown of the models from `/v1/models` | `src/lib/anthropic/models.ts`, `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
-| Reasoning effort (Anthropic, OpenAI) | `none` (Anthropic: effort `low`, its lowest) | Settings panel |
-| JSON output | off: the text blocks are translated one by one; on: JSON format + document annotation, and the JSON tabs | Settings panel (last option); `src/lib/storage/settings.ts` (`jsonOutput`) |
-| Block types left out of the OCR text | page headers and footers | OCR text tab; `src/lib/storage/settings.ts` (`ocrHiddenTypes`) |
-| Max output tokens (JSON output) | provider default (Anthropic: 64k, the API requires a value) | Settings panel, `src/lib/anthropic/models.ts` |
-| Anthropic retries / timeout | 2 retries with backoff (the SDK's default) / 1 hour per request | `src/lib/anthropic/client.ts` |
-| Document annotation with images (JSON output) | on (first 8 boxes, `DOCUMENT_ANNOTATION_MAX_IMAGES`) | Settings panel, `src/lib/pipeline/runOcr.ts` |
-| BBox annotation | on, up to 20 boxes per run | Settings panel; format in `src/lib/pipeline/schemas/bboxAnnotation.ts` |
-| Block translations as a follow-up (JSON output) | on | Settings panel; `src/lib/pipeline/blockTranslate.ts` |
-| Structured text in the original language (JSON output) | on demand (when viewed with "Show translation" off); always; never | Settings panel; `src/lib/pipeline/pipeline.ts` (`structureOriginal()`) |
-| Glossary | empty | Settings panel; `src/lib/pipeline/prompts.ts` (`parseGlossary()`) |
-| Long documents | split above ~40k estimated tokens (`TRANSLATION_CHUNK_TOKENS`) | `src/lib/pipeline/chunks.ts` |
-| Saved translations | on, last 30 | Settings panel; `src/lib/storage/history.ts` |
-| Mistral / OpenAI retries | 2 with backoff, honouring `retry-after` | `src/lib/http/apiFetch.ts` |
-| Model prices for the estimate | Claude Haiku/Sonnet/Opus 5.5 | `src/lib/llm/pricing.ts` |
-| Pages to OCR | all | Document card (`src/lib/util/pageSelection.ts`) |
-| Target / source language | English or German in one click, eight more in a dropdown / auto-detect | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`) |
-| JSON format (JSON output) | inferred from document; built-in `patent_communication`; custom | `src/lib/pipeline/schemas/` |
-| Prompts | schema inference and translation | `src/lib/pipeline/prompts.ts` |
-| Temperature (Mistral only) | 0.2 | Settings panel |
-| API limits (50 MB, 1000 pages) | checked client-side | `src/lib/pipeline/runOcr.ts` |
-| CSP / security headers | `connect-src https://api.mistral.ai https://api.anthropic.com https://api.openai.com` | `public/_headers` |
+| Setting                                                | Default                                                                                                                             | Where                                                                                  |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| OCR model                                              | `mistral-ocr-latest` (dropdown of `OCR_MODELS`)                                                                                     | `src/lib/mistral/models.ts`                                                            |
+| Translation provider                                   | Anthropic (Claude Haiku 5.5); OpenAI and Mistral selectable                                                                         | `src/lib/llm/registry.ts`                                                              |
+| Translation model                                      | `claude-haiku-5-5` (Anthropic) / `gpt-6-luna` (OpenAI) / `mistral-large-latest` (Mistral); dropdown of the models from `/v1/models` | `src/lib/anthropic/models.ts`, `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
+| Reasoning effort (Anthropic, OpenAI)                   | `none` (Anthropic: effort `low`, its lowest)                                                                                        | Settings panel                                                                         |
+| JSON output                                            | off: the text blocks are translated one by one; on: JSON format + document annotation, and the JSON tabs                            | Settings panel (last option); `src/lib/storage/settings.ts` (`jsonOutput`)             |
+| Block types left out of the OCR text                   | page headers and footers                                                                                                            | OCR text tab; `src/lib/storage/settings.ts` (`ocrHiddenTypes`)                         |
+| Max output tokens (JSON output)                        | provider default (Anthropic: 64k, the API requires a value)                                                                         | Settings panel, `src/lib/anthropic/models.ts`                                          |
+| Anthropic retries / timeout                            | 2 retries with backoff (the SDK's default) / 1 hour per request                                                                     | `src/lib/anthropic/client.ts`                                                          |
+| Document annotation with images (JSON output)          | on (first 8 boxes, `DOCUMENT_ANNOTATION_MAX_IMAGES`)                                                                                | Settings panel, `src/lib/pipeline/runOcr.ts`                                           |
+| BBox annotation                                        | on, up to 20 boxes per run                                                                                                          | Settings panel; format in `src/lib/pipeline/schemas/bboxAnnotation.ts`                 |
+| Block translations as a follow-up (JSON output)        | on                                                                                                                                  | Settings panel; `src/lib/pipeline/blockTranslate.ts`                                   |
+| Structured text in the original language (JSON output) | on demand (when viewed with "Show translation" off); always; never                                                                  | Settings panel; `src/lib/pipeline/pipeline.ts` (`structureOriginal()`)                 |
+| Glossary                                               | empty                                                                                                                               | Settings panel; `src/lib/pipeline/prompts.ts` (`parseGlossary()`)                      |
+| Long documents                                         | split above ~40k estimated tokens (`TRANSLATION_CHUNK_TOKENS`)                                                                      | `src/lib/pipeline/chunks.ts`                                                           |
+| Saved translations                                     | on, last 30                                                                                                                         | Settings panel; `src/lib/storage/history.ts`                                           |
+| Mistral / OpenAI retries                               | 2 with backoff, honouring `retry-after`                                                                                             | `src/lib/http/apiFetch.ts`                                                             |
+| Model prices for the estimate                          | Claude Haiku/Sonnet/Opus 5.5                                                                                                        | `src/lib/llm/pricing.ts`                                                               |
+| Pages to OCR                                           | all                                                                                                                                 | Document card (`src/lib/util/pageSelection.ts`)                                        |
+| Target / source language                               | English or German in one click, eight more in a dropdown / auto-detect                                                              | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`)                                     |
+| JSON format (JSON output)                              | inferred from document; built-in `patent_communication`; custom                                                                     | `src/lib/pipeline/schemas/`                                                            |
+| Prompts                                                | schema inference and translation                                                                                                    | `src/lib/pipeline/prompts.ts`                                                          |
+| Temperature (Mistral only)                             | 0.2                                                                                                                                 | Settings panel                                                                         |
+| API limits (50 MB, 1000 pages)                         | checked client-side                                                                                                                 | `src/lib/pipeline/runOcr.ts`                                                           |
+| CSP / security headers                                 | `connect-src https://api.mistral.ai https://api.anthropic.com https://api.openai.com`                                               | `public/_headers`                                                                      |
 
 ## Limitations and notes
 

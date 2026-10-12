@@ -9,7 +9,12 @@ function fakeProvider(handler: (req: JsonChatRequest) => string): ChatProvider {
     id: "openai",
     label: "Fake",
     listModels: async () => [],
-    completeJson: async (req) => ({ content: handler(req), finishReason: "stop", usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }, model: "m" }),
+    completeJson: async (req) => ({
+      content: handler(req),
+      finishReason: "stop",
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      model: "m",
+    }),
   };
 }
 

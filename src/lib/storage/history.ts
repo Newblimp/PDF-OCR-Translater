@@ -39,7 +39,10 @@ function summary<T>(entry: SavedTranslation<T>): SavedTranslationSummary {
 export async function listSavedTranslations(): Promise<SavedTranslationSummary[]> {
   try {
     const all = await withStore(TRANSLATION_STORE, "readonly", (objects) => requestToPromise(objects.getAll() as IDBRequest<Array<SavedTranslation<unknown>>>));
-    return all.filter((e) => e.version === HISTORY_VERSION).map(summary).sort((a, b) => b.createdAt - a.createdAt);
+    return all
+      .filter((e) => e.version === HISTORY_VERSION)
+      .map(summary)
+      .sort((a, b) => b.createdAt - a.createdAt);
   } catch {
     return [];
   }

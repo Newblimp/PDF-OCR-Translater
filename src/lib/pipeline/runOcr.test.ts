@@ -13,12 +13,21 @@ function client(bodies: Record<string, unknown>[], rejectBlocks = false) {
       bodies.push(body);
       if (rejectBlocks && body["include_blocks"]) {
         // Pydantic-style payload: the field name is only in `loc`, not in the message.
-        return new Response(JSON.stringify({ detail: [{ type: "extra_forbidden", loc: ["body", "include_blocks"], msg: "Extra inputs are not permitted" }] }), { status: 422 });
+        return new Response(JSON.stringify({ detail: [{ type: "extra_forbidden", loc: ["body", "include_blocks"], msg: "Extra inputs are not permitted" }] }), {
+          status: 422,
+        });
       }
       return new Response(
         JSON.stringify({
           model: "mistral-ocr-latest",
-          pages: [{ index: 0, markdown: "x ![f](img-0.jpeg)", images: [{ id: "img-0.jpeg", top_left_x: 0, top_left_y: 0, bottom_right_x: 1, bottom_right_y: 1, image_base64: "data:image/png;base64,AA" }], dimensions: { dpi: 200, width: 10, height: 10 } }],
+          pages: [
+            {
+              index: 0,
+              markdown: "x ![f](img-0.jpeg)",
+              images: [{ id: "img-0.jpeg", top_left_x: 0, top_left_y: 0, bottom_right_x: 1, bottom_right_y: 1, image_base64: "data:image/png;base64,AA" }],
+              dimensions: { dpi: 200, width: 10, height: 10 },
+            },
+          ],
           usage_info: { pages_processed: 1 },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },

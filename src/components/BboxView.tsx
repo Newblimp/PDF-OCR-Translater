@@ -234,9 +234,7 @@ function BlockDetails({ block, translation, hasTranslations }: { block: OcrBlock
         </div>
       ) : (
         <p class="muted small">
-          {hasTranslations
-            ? "No translation was returned for this block."
-            : "Not translated yet: run OCR + Translate (or Translate only)."}
+          {hasTranslations ? "No translation was returned for this block." : "Not translated yet: run OCR + Translate (or Translate only)."}
         </p>
       )}
       <h4 class="small muted">Original</h4>

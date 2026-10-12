@@ -567,7 +567,12 @@ async function runOcrStage(rt: Runtime, job: Job, doc: DocState, reuse: boolean)
   const loaded = rt.getState().ocr;
   if (reuse && loaded && loaded.docId === doc.id && loaded.requestKey === requestKey) {
     emit(ctx.onProgress, "prepare", "skipped", "The document was already OCR'd with these settings");
-    emit(ctx.onProgress, "ocr", "skipped", `Reusing the OCR result ${loaded.source === "cache" ? "from this browser's cache" : "of this session"}: no new OCR charge`);
+    emit(
+      ctx.onProgress,
+      "ocr",
+      "skipped",
+      `Reusing the OCR result ${loaded.source === "cache" ? "from this browser's cache" : "of this session"}: no new OCR charge`,
+    );
     return { text: loaded.text, cacheKey: loaded.cacheKey ?? cacheKey };
   }
 
@@ -599,7 +604,14 @@ async function describeSource(state: AppState, text: string, origin: "ocr" | "te
   if (origin === "ocr" && ocr) {
     if (doc) return { text, ocr: ocr.text, name: doc.name, kind: doc.kind, hash: doc.hash, ocrKey: ocr.cacheKey };
     // OCR reopened from "Recent translations".
-    return { text, ocr: ocr.text, name: translation?.sourceName ?? "Saved document", kind: translation?.sourceKind ?? "pdf", hash: translation?.sourceHash ?? null, ocrKey: ocr.cacheKey };
+    return {
+      text,
+      ocr: ocr.text,
+      name: translation?.sourceName ?? "Saved document",
+      kind: translation?.sourceKind ?? "pdf",
+      hash: translation?.sourceHash ?? null,
+      ocrKey: ocr.cacheKey,
+    };
   }
   if (origin === "saved" && translation) {
     return { text, ocr: undefined, name: translation.sourceName, kind: translation.sourceKind, hash: translation.sourceHash, ocrKey: null };
@@ -785,9 +797,11 @@ async function translateStructured(rt: Runtime, job: Job, source: Source): Promi
         ? emit(ctx.onProgress, "block_translate", "skipped", "No text blocks (text input)")
         : !ctx.settings.blockTranslations
           ? emit(ctx.onProgress, "block_translate", "skipped", "Block translations disabled in Settings")
-          : followUp("block_translate", "Block translations", blockTranslations(ctx, source.ocr, shownTextBlockIds(source.ocr.pages, blockFilter(rt.getState(), source.ocr.pages)))).then(
-              (b) => b && patch({ blockTranslations: b.translations, blockUsage: b.usage }),
-            ),
+          : followUp(
+              "block_translate",
+              "Block translations",
+              blockTranslations(ctx, source.ocr, shownTextBlockIds(source.ocr.pages, blockFilter(rt.getState(), source.ocr.pages))),
+            ).then((b) => b && patch({ blockTranslations: b.translations, blockUsage: b.usage })),
     ]);
   } finally {
     // Keep the translation even when the follow-ups were cancelled.

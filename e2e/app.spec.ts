@@ -1,5 +1,16 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { ANTHROPIC_KEY, chatStep, installStreamingTranslationMock, jsonBody, makePdf, MISTRAL_KEY, mockApis, OPENAI_KEY, systemPrompt, type RecordedRequest } from "./helpers";
+import {
+  ANTHROPIC_KEY,
+  chatStep,
+  installStreamingTranslationMock,
+  jsonBody,
+  makePdf,
+  MISTRAL_KEY,
+  mockApis,
+  OPENAI_KEY,
+  systemPrompt,
+  type RecordedRequest,
+} from "./helpers";
 
 const APP_HOST = "localhost:4173";
 const ALLOWED_HOSTS = new Set([APP_HOST, "api.mistral.ai", "api.anthropic.com", "api.openai.com"]);
@@ -55,11 +66,14 @@ function chatRequests(recorded: RecordedRequest[]): RecordedRequest[] {
 }
 
 async function loadPdf(page: Page): Promise<void> {
-  await page.locator('input[type="file"]').first().setInputFiles({
-    name: "office-action.pdf",
-    mimeType: "application/pdf",
-    buffer: makePdf("Hello patent office"),
-  });
+  await page
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({
+      name: "office-action.pdf",
+      mimeType: "application/pdf",
+      buffer: makePdf("Hello patent office"),
+    });
 }
 
 /** Drags a result tab onto a side (or the centre) of a view, as a user arranging split views would. */
@@ -81,11 +95,12 @@ test("asks for both API keys once, verifies them and caches them in the browser"
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(page.getByText("Mistral key verified")).toBeVisible();
   await expect(page.getByText("Anthropic key verified")).toBeVisible();
-  expect(recorded.filter((r) => path(r) === "/v1/models").map((r) => r.host).sort()).toEqual([
-    "api.anthropic.com",
-    "api.anthropic.com",
-    "api.mistral.ai",
-  ]);
+  expect(
+    recorded
+      .filter((r) => path(r) === "/v1/models")
+      .map((r) => r.host)
+      .sort(),
+  ).toEqual(["api.anthropic.com", "api.anthropic.com", "api.mistral.ai"]);
   // Anthropic takes the key in x-api-key and needs the browser CORS opt-in.
   const anthropicModels = recorded.find((r) => r.host === "api.anthropic.com" && r.headers["x-api-key"] === ANTHROPIC_KEY)!;
   expect(anthropicModels.headers).toMatchObject({ "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" });
@@ -185,7 +200,12 @@ test("OCR + translate: Mistral OCR, Claude Haiku 5.5 translation, browsable JSON
   // Document annotation input: the document first, then the bounding-box images (ids referenced in the text), then the task.
   const messages = translate["messages"] as Array<{ role: string; content: unknown }>;
   expect(messages.map((m) => m.role)).toEqual(["user"]);
-  const userContent = messages[0]!.content as Array<{ type: string; text?: string; source?: { type: string; media_type: string; data: string }; cache_control?: unknown }>;
+  const userContent = messages[0]!.content as Array<{
+    type: string;
+    text?: string;
+    source?: { type: string; media_type: string; data: string };
+    cache_control?: unknown;
+  }>;
   expect(Array.isArray(userContent)).toBe(true);
   const userMessage = userContent[0]!.text!;
   expect(userContent.at(-1)!.text).toMatch(/^Task: /);
@@ -256,7 +276,7 @@ test("German toggle changes the target language of the next translation", async 
   await expect(page.getByRole("radio", { name: "German" })).toHaveAttribute("aria-checked", "true");
 });
 
-test("the structured text and the OCR text follow one \"Show translation\" switch", async ({ page }) => {
+test('the structured text and the OCR text follow one "Show translation" switch', async ({ page }) => {
   await setup(page, { json: true });
   await enterKeys(page);
   await loadPdf(page);
@@ -366,10 +386,13 @@ test("Forget during an in-flight verification does not resurrect the keys", asyn
     await new Promise((r) => setTimeout(r, 1500));
     await route.fallback();
   });
-  await page.route((url) => url.host === "api.anthropic.com" && url.pathname === "/v1/models", async (route) => {
-    await new Promise((r) => setTimeout(r, 1500));
-    await route.fallback();
-  });
+  await page.route(
+    (url) => url.host === "api.anthropic.com" && url.pathname === "/v1/models",
+    async (route) => {
+      await new Promise((r) => setTimeout(r, 1500));
+      await route.fallback();
+    },
+  );
   await page.reload();
   await expect(page.getByText("Mistral key verifying…")).toBeVisible();
   await page.getByRole("button", { name: "Forget" }).click();
@@ -465,11 +488,14 @@ test("bounding boxes are drawn over the page with the vision model's description
 test("pages are pre-rendered in the background so navigating is instant", async ({ page }) => {
   await setup(page);
   await enterKeys(page);
-  await page.locator('input[type="file"]').first().setInputFiles({
-    name: "three-pages.pdf",
-    mimeType: "application/pdf",
-    buffer: makePdf("Page one", ["Page two", "Page three"]),
-  });
+  await page
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({
+      name: "three-pages.pdf",
+      mimeType: "application/pdf",
+      buffer: makePdf("Page one", ["Page two", "Page three"]),
+    });
   await expect(page.getByText("3 pages")).toBeVisible();
   await page.getByRole("button", { name: "OCR only" }).click();
   await expect(page.getByRole("tab", { name: "Bounding boxes" })).toBeVisible({ timeout: 20_000 });
@@ -486,11 +512,14 @@ test("pages are pre-rendered in the background so navigating is instant", async 
 test("only the selected pages are sent to OCR", async ({ page }) => {
   const { recorded } = await setup(page);
   await enterKeys(page);
-  await page.locator('input[type="file"]').first().setInputFiles({
-    name: "three-pages.pdf",
-    mimeType: "application/pdf",
-    buffer: makePdf("Page one", ["Page two", "Page three"]),
-  });
+  await page
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({
+      name: "three-pages.pdf",
+      mimeType: "application/pdf",
+      buffer: makePdf("Page one", ["Page two", "Page three"]),
+    });
   await expect(page.getByText("3 pages")).toBeVisible();
   const pagesInput = page.getByLabel("Pages to OCR");
   await pagesInput.fill("4");
@@ -549,9 +578,7 @@ test("the translation is shown live while it streams, even when another tab was 
   await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
   const first = (await panel.locator(".stream-tail").textContent()) ?? "";
   await expect(panel.getByRole("heading", { name: "Document type", exact: true })).toBeVisible();
-  await expect
-    .poll(async () => ((await panel.locator(".stream-tail").textContent()) ?? "").length, { timeout: 5_000 })
-    .toBeGreaterThan(first.length);
+  await expect.poll(async () => ((await panel.locator(".stream-tail").textContent()) ?? "").length, { timeout: 5_000 }).toBeGreaterThan(first.length);
 
   // Then the final, parsed translation replaces it.
   await expect(panel).toBeHidden({ timeout: 20_000 });
@@ -581,7 +608,10 @@ test("cancel stops a running job without an error", async ({ page }) => {
     await new Promise((r) => setTimeout(r, 5_000));
     await route.abort();
   });
-  await page.locator('input[type="file"]').first().setInputFiles({ name: "a.pdf", mimeType: "application/pdf", buffer: makePdf("x") });
+  await page
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({ name: "a.pdf", mimeType: "application/pdf", buffer: makePdf("x") });
   await page.getByRole("button", { name: "OCR only" }).click();
   await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
@@ -699,7 +729,10 @@ test("keys can be kept for the session only", async ({ page }) => {
   expect(await page.evaluate(() => sessionStorage.getItem("pdf-ocr-translater.apiKey.anthropic"))).toBe(ANTHROPIC_KEY);
   // Turning it back on moves the keys to localStorage.
   await page.getByRole("button", { name: "Keys" }).click();
-  await page.getByRole("dialog").getByLabel(/Remember keys in this browser/).check();
+  await page
+    .getByRole("dialog")
+    .getByLabel(/Remember keys in this browser/)
+    .check();
   await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
   expect(await page.evaluate(() => localStorage.getItem("pdf-ocr-translater.apiKey.anthropic"))).toBe(ANTHROPIC_KEY);
   expect(await page.evaluate(() => sessionStorage.getItem("pdf-ocr-translater.apiKey.anthropic"))).toBeNull();
@@ -798,17 +831,22 @@ test("result tabs are arranged in split views by drag and drop, and the arrangem
   await expect(page.getByRole("tablist")).toHaveCount(3);
   await page.getByRole("button", { name: "Reset the layout" }).click();
   await expect(page.getByRole("tablist")).toHaveCount(1);
-  await expect(page.getByRole("tablist").getByRole("tab")).toHaveText(["Bounding boxes", "OCR text", "Structured text", "JSON format", "Raw JSON"], { ignoreCase: true });
+  await expect(page.getByRole("tablist").getByRole("tab")).toHaveText(["Bounding boxes", "OCR text", "Structured text", "JSON format", "Raw JSON"], {
+    ignoreCase: true,
+  });
 });
 
 test("the OCR text is shown beside the PDF pages, with the scrolling of both locked together", async ({ page }) => {
   await setup(page);
   await enterKeys(page);
-  await page.locator('input[type="file"]').first().setInputFiles({
-    name: "long.pdf",
-    mimeType: "application/pdf",
-    buffer: makePdf("Page one", ["Page two", "Page three", "Page four", "Page five", "Page six"]),
-  });
+  await page
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({
+      name: "long.pdf",
+      mimeType: "application/pdf",
+      buffer: makePdf("Page one", ["Page two", "Page three", "Page four", "Page five", "Page six"]),
+    });
   await page.getByRole("button", { name: "OCR only" }).click();
   await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
   await expect(page.getByRole("checkbox", { name: "Lock scrolling" })).toHaveCount(0);
@@ -844,10 +882,12 @@ test("the OCR text is shown beside the PDF pages, with the scrolling of both loc
   });
   await expect.poll(() => pageInView(pdf)).toBe(await pageInView(text));
   await scrollTo(text, "end");
-  await expect.poll(async () => {
-    const s = await scrolled(pdf);
-    return s.max - s.top;
-  }).toBeLessThan(2);
+  await expect
+    .poll(async () => {
+      const s = await scrolled(pdf);
+      return s.max - s.top;
+    })
+    .toBeLessThan(2);
 
   // And the other way round.
   await scrollTo(pdf, 0);
@@ -859,10 +899,12 @@ test("the OCR text is shown beside the PDF pages, with the scrolling of both loc
   await page.waitForTimeout(100);
   expect((await scrolled(pdf)).top).toBe(0);
   await lock.check();
-  await expect.poll(async () => {
-    const s = await scrolled(pdf);
-    return s.max - s.top;
-  }).toBeLessThan(2);
+  await expect
+    .poll(async () => {
+      const s = await scrolled(pdf);
+      return s.max - s.top;
+    })
+    .toBeLessThan(2);
 
   // Matching the page layout makes the text pages as tall as the PDF's; the text follows the pages it sits beside.
   await page.getByRole("checkbox", { name: "Match page layout" }).check();
@@ -876,7 +918,10 @@ test("the OCR text is shown beside the PDF pages, with the scrolling of both loc
   await expect.poll(async () => Math.abs((await scrolled(pdf)).top - (await scrolled(text)).top)).toBeLessThan(3);
   // Picking blocks on the pages keeps the scrolling locked.
   await page.getByRole("checkbox", { name: "Select blocks on the PDF" }).check();
-  await pdf.locator('[data-page="3"]').getByRole("button", { name: /^title block 2/ }).click();
+  await pdf
+    .locator('[data-page="3"]')
+    .getByRole("button", { name: /^title block 2/ })
+    .click();
   await expect(text.locator('[data-page="3"] [data-type="title"]')).toHaveCount(0);
   await expect(text.locator('[data-page="2"] [data-type="title"]')).toHaveCount(1);
   await scrollTo(pdf, 0);

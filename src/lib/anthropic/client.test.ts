@@ -25,7 +25,15 @@ function sseResponse(frames: string[]): Response {
 
 const messageStart = frame({
   type: "message_start",
-  message: { id: "m", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [], stop_reason: null, usage: { input_tokens: 7, output_tokens: 1 } },
+  message: {
+    id: "m",
+    type: "message",
+    role: "assistant",
+    model: "claude-haiku-5-5",
+    content: [],
+    stop_reason: null,
+    usage: { input_tokens: 7, output_tokens: 1 },
+  },
 });
 
 const message = {
@@ -61,7 +69,12 @@ describe("createAnthropicClient", () => {
     const client = await createAnthropicClient("sk-ant", {
       fetch: async (url, init) => {
         calls.push({ url: String(url), headers: new Headers(init?.headers) });
-        return jsonResponse({ data: [{ type: "model", id: "claude-haiku-5-5", display_name: "Claude Haiku 5.5" }], has_more: false, first_id: null, last_id: null });
+        return jsonResponse({
+          data: [{ type: "model", id: "claude-haiku-5-5", display_name: "Claude Haiku 5.5" }],
+          has_more: false,
+          first_id: null,
+          last_id: null,
+        });
       },
     });
     const page = await client.models.list({ limit: 1000 });

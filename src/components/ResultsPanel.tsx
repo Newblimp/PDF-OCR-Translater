@@ -129,8 +129,8 @@ export function ResultsPanel({ state, actions }: Props) {
           </li>
         </ol>
         <p class="muted small">
-          The file is encoded in your browser and sent to api.mistral.ai for OCR; the OCR text and the cropped figure images it returns go to
-          the translation provider (configurable in Settings). Nothing is uploaded to this site's host.
+          The file is encoded in your browser and sent to api.mistral.ai for OCR; the OCR text and the cropped figure images it returns go to the translation
+          provider (configurable in Settings). Nothing is uploaded to this site's host.
         </p>
       </div>
     );
@@ -267,7 +267,13 @@ const SchemaView = memo(function SchemaView({ translation, actions }: { translat
  * original language: ask for it once (on-demand mode), rather than on every
  * flip of the switch in the OCR tab, which does not need it.
  */
-function useOriginalOnDemand(translation: TranslationState, wantTranslation: boolean, jobKind: JobKind | null, structureMode: StructureOriginalMode, actions: ResultActions): void {
+function useOriginalOnDemand(
+  translation: TranslationState,
+  wantTranslation: boolean,
+  jobKind: JobKind | null,
+  structureMode: StructureOriginalMode,
+  actions: ResultActions,
+): void {
   const missing = !hasOriginal(translation);
   useEffect(() => {
     if (!wantTranslation && missing && !jobKind && structureMode !== "never") actions.requestOriginal();
@@ -504,7 +510,8 @@ function PipelineStrip({
         <li class="step step-done">Structured text in the original language: filled by {chat} without translating</li>
       ) : (
         <li class="step step-skipped">
-          Structured text in the original language {structureMode === "never" ? "turned off" : "not produced yet (switch off “Show translation” here to produce it)"}
+          Structured text in the original language{" "}
+          {structureMode === "never" ? "turned off" : "not produced yet (switch off “Show translation” here to produce it)"}
         </li>
       )}
     </ol>

@@ -125,7 +125,16 @@ export const OcrView = memo(function OcrView({
   const textPages = (
     <div class={`ocr-pages${comparing ? " ocr-compare-col" : ""}`} ref={textColumn} aria-label={comparing ? "OCR text" : undefined}>
       {views.map(({ page, blocks }) => (
-        <TextPage key={page.index} page={page} blocks={blocks} filter={filter} translations={translations} markdown={markdown} layout={layout} images={images} />
+        <TextPage
+          key={page.index}
+          page={page}
+          blocks={blocks}
+          filter={filter}
+          translations={translations}
+          markdown={markdown}
+          layout={layout}
+          images={images}
+        />
       ))}
     </div>
   );
@@ -143,11 +152,19 @@ export const OcrView = memo(function OcrView({
             <input type="checkbox" checked={markdown} onChange={(e) => setMarkdown((e.target as HTMLInputElement).checked)} />
             <span>Render Markdown</span>
           </label>
-          <label class="checkbox small" title={canLayout ? "Place each block where it is on the page, its text sized to fit the block" : "These blocks have no positions on a page (text input)"}>
+          <label
+            class="checkbox small"
+            title={
+              canLayout ? "Place each block where it is on the page, its text sized to fit the block" : "These blocks have no positions on a page (text input)"
+            }
+          >
             <input type="checkbox" checked={layout} disabled={!canLayout} onChange={(e) => actions.setOcrMatchLayout((e.target as HTMLInputElement).checked)} />
             <span>Match page layout</span>
           </label>
-          <label class="checkbox small" title={pagesAvailable ? "Show the document's pages beside the text" : "Load the document to see its pages beside the text"}>
+          <label
+            class="checkbox small"
+            title={pagesAvailable ? "Show the document's pages beside the text" : "Load the document to see its pages beside the text"}
+          >
             <input
               type="checkbox"
               checked={comparing}
@@ -387,7 +404,17 @@ function BlockContent({ block, text, markdown, image }: { block: ViewBlock; text
  * picker, the blocks are drawn over each page and a click leaves one out of
  * the text or takes it back.
  */
-const PdfPages = memo(function PdfPages({ doc, views, column, picker }: { doc: DocState; views: PageView[]; column: RefObject<HTMLDivElement>; picker: Picker | null }) {
+const PdfPages = memo(function PdfPages({
+  doc,
+  views,
+  column,
+  picker,
+}: {
+  doc: DocState;
+  views: PageView[];
+  column: RefObject<HTMLDivElement>;
+  picker: Picker | null;
+}) {
   const renderer = usePageRenderer(doc);
   const indexes = useMemo(() => views.map((v) => v.page.index), [views]);
   const rendered = useRenderedPages(renderer, indexes);

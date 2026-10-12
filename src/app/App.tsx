@@ -53,7 +53,11 @@ import {
 
 export function App() {
   const [state, dispatchRaw] = useReducer(reducer, null, () =>
-    initialState(perProvider((id) => loadApiKey(id)), loadSettings(), loadDockLayout(RESULT_TABS) ?? undefined),
+    initialState(
+      perProvider((id) => loadApiKey(id)),
+      loadSettings(),
+      loadDockLayout(RESULT_TABS) ?? undefined,
+    ),
   );
 
   // A stable runtime object lets async operations read the latest state.
@@ -146,12 +150,26 @@ export function App() {
 
   return (
     <div class="app">
-      <Header keys={state.keys} activeProvider={state.settings.provider} theme={state.settings.theme} onChangeKeys={on.openKeys} onForgetKeys={on.forgetKeys} onTheme={on.setTheme} />
+      <Header
+        keys={state.keys}
+        activeProvider={state.settings.provider}
+        theme={state.settings.theme}
+        onChangeKeys={on.openKeys}
+        onForgetKeys={on.forgetKeys}
+        onTheme={on.setTheme}
+      />
 
       <main class="layout">
         <section class="pane pane-input" aria-label="Input">
           {state.doc && !state.pasteMode ? (
-            <DocumentCard doc={state.doc} ocr={state.ocr} busy={busy} onPageSelection={on.setPageSelection} onReplace={on.loadFile} onRemove={on.removeDocument} />
+            <DocumentCard
+              doc={state.doc}
+              ocr={state.ocr}
+              busy={busy}
+              onPageSelection={on.setPageSelection}
+              onReplace={on.loadFile}
+              onRemove={on.removeDocument}
+            />
           ) : state.pasteMode ? (
             <PasteBox text={state.pastedText} onChange={on.pasteText} onClose={on.closePaste} />
           ) : (
@@ -173,7 +191,14 @@ export function App() {
           {state.error && <ErrorBanner error={state.error} onDismiss={on.dismissError} />}
 
           <SettingsPanel settings={state.settings} models={state.models} open={state.settingsOpen} onToggle={on.toggleSettings} onChange={on.changeSettings} />
-          <HistoryPanel history={state.history} busy={busy} currentId={state.translation?.id ?? null} onOpen={on.openSaved} onDelete={on.deleteSaved} onClear={on.clearHistory} />
+          <HistoryPanel
+            history={state.history}
+            busy={busy}
+            currentId={state.translation?.id ?? null}
+            onOpen={on.openSaved}
+            onDelete={on.deleteSaved}
+            onClear={on.clearHistory}
+          />
         </section>
 
         <section class="pane pane-results" aria-label="Results">
@@ -231,6 +256,9 @@ function estimateLabel(state: AppState, sourceText: string | null): string | nul
   });
   const tokens = `≈ ${formatNumber(Math.round(result.inputTokens / 100) * 100)} input + ${formatNumber(Math.round(result.outputTokens / 100) * 100)} output tokens over ${result.calls} call(s)`;
   const cost = result.cost !== null ? ` ≈ ${formatUsd(result.cost)} with ${model}` : ` with ${model} (price not known to the app)`;
-  const notes = [assumed ? `assuming ~${TOKENS_PER_PAGE_GUESS} tokens per page until OCR has run` : "", ocrable && !fromOcr ? "Mistral bills OCR per page on top" : ""].filter(Boolean);
+  const notes = [
+    assumed ? `assuming ~${TOKENS_PER_PAGE_GUESS} tokens per page until OCR has run` : "",
+    ocrable && !fromOcr ? "Mistral bills OCR per page on top" : "",
+  ].filter(Boolean);
   return `Translation estimate: ${tokens}${cost}${notes.length ? ` (${notes.join("; ")})` : ""}. Rough figure: thinking and the actual translation length vary.`;
 }

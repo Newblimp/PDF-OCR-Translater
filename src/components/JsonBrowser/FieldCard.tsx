@@ -89,7 +89,13 @@ export function FieldCard({ path, label, description, value, options, depth, onH
             </button>
           )}
           {onHide && (
-            <button type="button" class="btn btn-ghost small" onClick={onHide} title="Hide this field (restore it from the outline)" aria-label={`Hide ${label}`}>
+            <button
+              type="button"
+              class="btn btn-ghost small"
+              onClick={onHide}
+              title="Hide this field (restore it from the outline)"
+              aria-label={`Hide ${label}`}
+            >
               Hide
             </button>
           )}

@@ -82,7 +82,13 @@ describe("translateBlocks", () => {
         return { content: JSON.stringify({ translations: items.map((i) => ({ id: i.id, text: "x" })) }), finishReason: "stop", usage: null, model: "m" };
       },
     };
-    const out = await translateBlocks(provider, ocr, { model: "m", targetLanguage: "English", sourceLanguage: "auto", domainHint: "t", onlyIds: new Set(["0:0"]) });
+    const out = await translateBlocks(provider, ocr, {
+      model: "m",
+      targetLanguage: "English",
+      sourceLanguage: "auto",
+      domainHint: "t",
+      onlyIds: new Set(["0:0"]),
+    });
     expect(sent).toEqual(["0:0"]);
     expect(out.translations).toEqual({ "0:0": "x" });
   });
