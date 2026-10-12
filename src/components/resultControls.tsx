@@ -1,6 +1,7 @@
 /** Small pieces shared by the result views: downloads, the clipboard, the "Show translation" switch, token usage. */
 import type { TokenUsage } from "@/lib/llm/provider";
 import { formatNumber } from "@/lib/util/text";
+import { Check } from "./Check";
 
 export function download(name: string, content: string, type: string): void {
   const blob = new Blob([content], { type });
@@ -38,18 +39,21 @@ export function TranslationToggle({
   show,
   available,
   onShowTranslation,
-  label = "Show translation",
 }: {
   show: boolean;
   /** False when nothing translated is at hand yet: the switch stays off and explains itself. */
   available: boolean;
   onShowTranslation: (show: boolean) => void;
-  label?: string;
 }) {
   return (
-    <label class="checkbox small" title={available ? "Switch between the document's language and the translation" : "Nothing translated yet"}>
-      <input type="checkbox" checked={show && available} disabled={!available} onChange={(e) => onShowTranslation((e.target as HTMLInputElement).checked)} />
-      <span>{label}</span>
-    </label>
+    <Check
+      checked={show && available}
+      onChange={onShowTranslation}
+      disabled={!available}
+      small
+      title={available ? "Switch between the document's language and the translation" : "Nothing translated yet"}
+    >
+      Show translation
+    </Check>
   );
 }

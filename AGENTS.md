@@ -88,12 +88,15 @@ src/
     resultControls.tsx         download, clipboard, "Show translation" switch, token usage (shared by the views)
     QuickOptions.tsx           above the settings: target language (English / German) and glossary
     DraftText.tsx              text input that commits on blur / Enter (settings, glossary)
+    Check.tsx                  a checkbox with its label (every switch in the toolbars and settings)
+    PageNav.tsx                previous / next page, for the views that show one page at a time
     SideRail.tsx               the side panel's title bar (fold button) and the panel folded into a rail (running job, error)
     useFitText.ts              "Match page layout": text sized to fill each block's box (cqw units, fitted once per content)
-    blockColors.ts             colour per OCR block type (bounding-box view, OCR text view)
+    blockColors.ts             colour per OCR block type; boxStyle() places a box over a page (in percent)
     BboxView.tsx               bounding boxes drawn over the rendered page
     EditBoxesView.tsx          "Edit bounding boxes": marquee / click selection, cut, make a block, delete, change, undo
-    pageImages.ts              hooks: the document's page renderer, pages rendered so far
+    pageImages.ts              hooks: the document's page renderer, pages rendered so far (there on the first paint),
+                               the page on screen rendered first
     useLinkedScroll.ts         scrolls two page columns together (OCR text beside the PDF)
     Dock.tsx                   result tabs in groups and split views (drag and drop, splitters)
     HistoryPanel.tsx           "Recent translations" (saved in IndexedDB)
@@ -408,6 +411,8 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   on blur/Enter) so unrelated re-renders do not clobber typing. The target
   language buttons and the glossary live in `QuickOptions` above the
   settings (which start closed); Settings keeps the full language dropdown.
+- Checkboxes are `Check` (`components/Check.tsx`); event handlers read
+  `e.currentTarget` (typed by Preact) rather than casting `e.target`.
 - `public/theme-init.js` applies the saved theme before the first paint; it
   reads the same localStorage key as `storage/settings.ts` (keep in sync).
 - Anything reaching the DOM from the model goes through `MarkdownText`

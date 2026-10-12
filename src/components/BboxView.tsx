@@ -4,9 +4,12 @@ import type { OcrBlock } from "@/lib/mistral/types";
 import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
 import { pageBlockId, type OcrBbox, type OcrText } from "@/lib/pipeline/ocrText";
 import type { DocState } from "@/app/store";
-import { blockColor, IMAGE_COLOR } from "./blockColors";
+import { rectOf } from "@/lib/pipeline/blockEdits";
+import { blockColor, boxStyle, IMAGE_COLOR } from "./blockColors";
 import { MarkdownText } from "./MarkdownText";
-import { usePageRenderer } from "./pageImages";
+import { usePageFirst, usePageRenderer, useRenderedPages } from "./pageImages";
+import { PageNav } from "./PageNav";
+import { Check } from "./Check";
 
 interface Props {
   doc: DocState | null;
@@ -31,55 +34,16 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
   const [showBlocks, setShowBlocks] = useState(true);
   const [showImages, setShowImages] = useState(true);
   const [selected, setSelected] = useState<Selected>(null);
-  const [rendered, setRendered] = useState<Record<number, string>>({});
-  const [renderedCount, setRenderedCount] = useState(0);
-  const [renderError, setRenderError] = useState<string | null>(null);
 
   const page = pages[Math.min(position, pages.length - 1)];
   const pageIndex = page?.index ?? 0;
   const pageBoxes = useMemo(() => ocr.bboxes.filter((b) => b.pageIndex === pageIndex), [ocr, pageIndex]);
   const pageBlocks = page?.blocks ?? [];
   const annotationById = useMemo(() => new Map(annotations.map((a) => [a.id, a])), [annotations]);
-
   const renderer = usePageRenderer(doc);
-
-  useEffect(() => {
-    if (!renderer) return;
-    const unsubscribe = renderer.subscribe((index) => {
-      const url = renderer.peek(index);
-      if (url) setRendered((r) => (r[index] ? r : { ...r, [index]: url }));
-      setRenderedCount(renderer.renderedCount);
-    });
-    // Seed from what is already rendered (e.g. the tab was re-opened).
-    const seed: Record<number, string> = {};
-    for (const p of pages) {
-      const url = renderer.peek(p.index);
-      if (url) seed[p.index] = url;
-    }
-    setRendered(seed);
-    setRenderedCount(renderer.renderedCount);
-    renderer.prefetchAll(pageIndex);
-    return unsubscribe;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [renderer]);
-
-  // Make sure the current page renders first when the user navigates.
-  useEffect(() => {
-    if (!renderer || rendered[pageIndex]) return;
-    let cancelled = false;
-    setRenderError(null);
-    renderer
-      .get(pageIndex)
-      .then((url) => {
-        if (!cancelled) setRendered((r) => ({ ...r, [pageIndex]: url }));
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setRenderError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [renderer, pageIndex, rendered]);
+  const indexes = useMemo(() => pages.map((p) => p.index), [pages]);
+  const rendered = useRenderedPages(renderer, indexes);
+  const renderError = usePageFirst(renderer, pageIndex, !!rendered[pageIndex]);
 
   // Selection belongs to the page and OCR result it was made on.
   useEffect(() => setSelected(null), [pageIndex, ocr]);
@@ -91,9 +55,7 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
   const width = page.width ?? pageBoxes[0]?.pageWidth ?? null;
   const height = page.height ?? pageBoxes[0]?.pageHeight ?? null;
   const canOverlay = !!width && !!height;
-  const pct = (v: number, total: number) => `${(v / total) * 100}%`;
-  const boxStyle = (x0: number, y0: number, x1: number, y1: number, color: string) =>
-    `left:${pct(x0, width ?? 1)};top:${pct(y0, height ?? 1)};width:${pct(x1 - x0, width ?? 1)};height:${pct(y1 - y0, height ?? 1)};--box-color:${color}`;
+  const renderedCount = renderer?.renderedCount ?? 0;
 
   const blockTypes = Array.from(new Set(pageBlocks.map((b) => b.type)));
   const hasTranslations = Object.keys(blockTranslations).length > 0;
@@ -102,15 +64,9 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
     <div class="tab-panel">
       <div class="toolbar">
         <div class="btn-row">
-          <button type="button" class="btn btn-ghost small" disabled={position <= 0} onClick={() => setPosition((i) => i - 1)}>
-            ← Previous
-          </button>
-          <span class="muted small">
+          <PageNav position={position} count={pages.length} onMove={setPosition}>
             Page {pageIndex + 1} · {position + 1} of {pages.length} OCR'd page(s) · {pageBoxes.length} bounding box(es) · {pageBlocks.length} block(s)
-          </span>
-          <button type="button" class="btn btn-ghost small" disabled={position >= pages.length - 1} onClick={() => setPosition((i) => i + 1)}>
-            Next →
-          </button>
+          </PageNav>
           {doc?.kind === "pdf" && (
             <span class="muted small" data-rendered-pages={renderedCount}>
               {renderedCount}/{doc.pageCount ?? pages.length} page(s) rendered
@@ -118,14 +74,12 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
           )}
         </div>
         <div class="btn-row">
-          <label class="checkbox small">
-            <input type="checkbox" checked={showImages} onChange={(e) => setShowImages((e.target as HTMLInputElement).checked)} />
-            <span>Image boxes (sent to the vision model)</span>
-          </label>
-          <label class="checkbox small">
-            <input type="checkbox" checked={showBlocks} onChange={(e) => setShowBlocks((e.target as HTMLInputElement).checked)} />
-            <span>Paragraph blocks</span>
-          </label>
+          <Check checked={showImages} onChange={setShowImages} small>
+            Image boxes (sent to the vision model)
+          </Check>
+          <Check checked={showBlocks} onChange={setShowBlocks} small>
+            Paragraph blocks
+          </Check>
         </div>
       </div>
 
@@ -161,7 +115,7 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
                       type="button"
                       key={id}
                       class={`bbox-box${selected?.kind === "block" && selected.id === id ? " bbox-box-selected" : ""}`}
-                      style={boxStyle(block.top_left_x, block.top_left_y, block.bottom_right_x, block.bottom_right_y, blockColor(block.type))}
+                      style={boxStyle(rectOf(block), width, height, blockColor(block.type))}
                       title={`${block.type}: ${block.content.slice(0, 80)}`}
                       aria-label={`${block.type} block ${i + 1}${block.content ? `: ${block.content.slice(0, 60)}` : ""}`}
                       onClick={() => setSelected({ kind: "block", block, id })}
@@ -175,7 +129,7 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
                     type="button"
                     key={bbox.id}
                     class={`bbox-box${selected?.kind === "bbox" && selected.bbox.id === bbox.id ? " bbox-box-selected" : ""}`}
-                    style={boxStyle(bbox.x0, bbox.y0, bbox.x1, bbox.y1, IMAGE_COLOR)}
+                    style={boxStyle(bbox, width, height, IMAGE_COLOR)}
                     title={bbox.id}
                     aria-label={`Image box ${bbox.id}`}
                     onClick={() => setSelected({ kind: "bbox", bbox })}

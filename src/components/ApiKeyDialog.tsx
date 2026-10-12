@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { ProviderId } from "@/lib/llm/provider";
 import { OCR_PROVIDER, PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
 import type { KeyState } from "@/app/store";
+import { Check } from "./Check";
 
 interface Props {
   keys: Record<ProviderId, KeyState>;
@@ -62,7 +63,7 @@ export function ApiKeyDialog({ keys, provider, required, canClose, remember, onR
         </p>
         <label class="field">
           <span>Translate with</span>
-          <select value={provider} onChange={(e) => onProvider((e.target as HTMLSelectElement).value as ProviderId)}>
+          <select value={provider} onChange={(e) => onProvider(e.currentTarget.value as ProviderId)}>
             {PROVIDER_IDS.map((id) => (
               <option key={id} value={id}>
                 {PROVIDERS[id].label}
@@ -93,7 +94,7 @@ export function ApiKeyDialog({ keys, provider, required, canClose, remember, onR
                   disabled={busy}
                   placeholder={`Paste your ${info.label} key`}
                   aria-invalid={keys[p].status === "invalid"}
-                  onInput={(e) => setValues((v) => ({ ...v, [p]: (e.target as HTMLInputElement).value }))}
+                  onInput={(e) => setValues((v) => ({ ...v, [p]: e.currentTarget.value }))}
                 />
                 <a href={info.keyUrl} target="_blank" rel="noopener noreferrer" class="btn btn-ghost small">
                   Get key
@@ -103,14 +104,12 @@ export function ApiKeyDialog({ keys, provider, required, canClose, remember, onR
             </label>
           );
         })}
-        <label class="checkbox small">
-          <input type="checkbox" checked={show} onChange={(e) => setShow((e.target as HTMLInputElement).checked)} />
-          <span>Show keys</span>
-        </label>
-        <label class="checkbox small">
-          <input type="checkbox" checked={remember} onChange={(e) => onRemember((e.target as HTMLInputElement).checked)} />
-          <span>Remember keys in this browser (off: they are forgotten when this tab closes)</span>
-        </label>
+        <Check checked={show} onChange={setShow} small>
+          Show keys
+        </Check>
+        <Check checked={remember} onChange={onRemember} small>
+          Remember keys in this browser (off: they are forgotten when this tab closes)
+        </Check>
         <div class="modal-actions">
           {canClose && (
             <button type="button" class="btn btn-ghost" onClick={onClose} disabled={busy}>

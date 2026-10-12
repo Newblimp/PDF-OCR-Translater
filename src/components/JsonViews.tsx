@@ -55,22 +55,35 @@ export const SchemaView = memo(function SchemaView({ translation, actions }: { t
   );
 });
 
+/** Props of the views that show the JSON translated or in the document's own language. */
+interface ShownJsonProps {
+  translation: TranslationState;
+  /** "Show translation" (the switch shared by the tabs). */
+  showTranslation: boolean;
+  jobKind: JobKind | null;
+  structureMode: StructureOriginalMode;
+  baseName: string;
+  actions: ResultActions;
+}
+
 /**
- * With "Show translation" off, a view of the structured text needs it in the
- * original language: ask for it once (on-demand mode), rather than on every
- * flip of the switch in the OCR tab, which does not need it.
+ * The JSON a view shows: the translation, or with "Show translation" off the
+ * structure in the original language once there is one. While it is missing
+ * it is asked for, once (on-demand mode), rather than on every flip of the
+ * switch in the OCR tab, which does not need it.
  */
-function useOriginalOnDemand(
-  translation: TranslationState,
-  wantTranslation: boolean,
-  jobKind: JobKind | null,
-  structureMode: StructureOriginalMode,
-  actions: ResultActions,
-): void {
-  const missing = !hasOriginal(translation);
+function useShownJson({ translation, showTranslation: want, jobKind, structureMode, baseName, actions }: ShownJsonProps) {
+  const original = hasOriginal(translation);
   useEffect(() => {
-    if (!wantTranslation && missing && !jobKind && structureMode !== "never") actions.requestOriginal();
-  }, [wantTranslation, missing, jobKind, structureMode, actions, translation.id]);
+    if (!want && !original && !jobKind && structureMode !== "never") actions.requestOriginal();
+  }, [want, original, jobKind, structureMode, actions, translation.id]);
+  const translated = want || !original;
+  return {
+    original,
+    translated,
+    data: translated ? translation.data : translation.originalData,
+    fileName: `${baseName}.${translated ? "translation" : "original"}.json`,
+  };
 }
 
 /** True when the original-language structured text is available for the toggle. */
@@ -99,27 +112,9 @@ async function downloadBilingual(translation: StructuredTranslation, ocr: OcrSta
 }
 
 /** The JSON format filled by the model: translated, or in the document's own language. */
-export const StructuredView = memo(function StructuredView({
-  translation,
-  ocr,
-  showTranslation: wantTranslation,
-  jobKind,
-  structureMode,
-  baseName: name,
-  actions,
-}: {
-  translation: StructuredTranslation;
-  ocr: OcrState | null;
-  showTranslation: boolean;
-  jobKind: JobKind | null;
-  structureMode: StructureOriginalMode;
-  baseName: string;
-  actions: ResultActions;
-}) {
-  useOriginalOnDemand(translation, wantTranslation, jobKind, structureMode, actions);
-  const original = hasOriginal(translation);
-  const showTranslation = wantTranslation || !original;
-  const data = showTranslation ? translation.data : translation.originalData;
+export const StructuredView = memo(function StructuredView(props: ShownJsonProps & { translation: StructuredTranslation; ocr: OcrState | null }) {
+  const { translation, ocr, showTranslation: wantTranslation, jobKind, structureMode, baseName: name, actions } = props;
+  const { original, translated: showTranslation, data, fileName } = useShownJson(props);
   const violations = showTranslation ? translation.violations : translation.originalViolations;
   const usage = showTranslation ? translation.usage : translation.originalUsage;
   const truncated = showTranslation && (translation.finishReason === "length" || translation.finishReason === "model_length");
@@ -137,11 +132,7 @@ export const StructuredView = memo(function StructuredView({
           <button type="button" class="btn btn-ghost small" onClick={() => void copy(prettyJson(data))}>
             Copy JSON
           </button>
-          <button
-            type="button"
-            class="btn btn-ghost small"
-            onClick={() => download(`${name}.${showTranslation ? "translation" : "original"}.json`, prettyJson(data), "application/json")}
-          >
+          <button type="button" class="btn btn-ghost small" onClick={() => download(fileName, prettyJson(data), "application/json")}>
             Download JSON
           </button>
           <button type="button" class="btn btn-ghost small" onClick={() => void downloadBilingual(translation, ocr, name)}>
@@ -201,25 +192,9 @@ export const StructuredView = memo(function StructuredView({
   );
 });
 
-export const RawJsonView = memo(function RawJsonView({
-  translation,
-  showTranslation: wantTranslation,
-  jobKind,
-  structureMode,
-  baseName: name,
-  actions,
-}: {
-  translation: TranslationState;
-  showTranslation: boolean;
-  jobKind: JobKind | null;
-  structureMode: StructureOriginalMode;
-  baseName: string;
-  actions: ResultActions;
-}) {
-  useOriginalOnDemand(translation, wantTranslation, jobKind, structureMode, actions);
-  const original = hasOriginal(translation);
-  const showTranslation = wantTranslation || !original;
-  const data = showTranslation ? translation.data : translation.originalData;
+export const RawJsonView = memo(function RawJsonView(props: ShownJsonProps) {
+  const { translation, showTranslation: wantTranslation, actions } = props;
+  const { translated: showTranslation, data, fileName } = useShownJson(props);
   const text = useMemo(() => prettyJson(data), [data]);
   return (
     <div class="tab-panel">
@@ -232,11 +207,7 @@ export const RawJsonView = memo(function RawJsonView({
           <button type="button" class="btn btn-ghost small" onClick={() => void copy(text)}>
             Copy
           </button>
-          <button
-            type="button"
-            class="btn btn-ghost small"
-            onClick={() => download(`${name}.${showTranslation ? "translation" : "original"}.json`, text, "application/json")}
-          >
+          <button type="button" class="btn btn-ghost small" onClick={() => download(fileName, text, "application/json")}>
             Download
           </button>
         </div>
