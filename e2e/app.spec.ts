@@ -893,8 +893,13 @@ test("the OCR text is shown beside the PDF pages, with the scrolling of both loc
   await scrollTo(pdf, 0);
   await expect.poll(async () => (await scrolled(text)).top).toBeLessThan(2);
 
+  // Locked, neither column can bounce past its ends on its own (elastic overscroll); unlocked, each may.
+  const overscroll = (column: Locator) => column.evaluate((el) => getComputedStyle(el).overscrollBehaviorY);
+  expect([await overscroll(pdf), await overscroll(text)]).toEqual(["none", "none"]);
+
   // Unlocked, each column scrolls on its own; locking again lines the pages up with the text.
   await lock.uncheck();
+  expect([await overscroll(pdf), await overscroll(text)]).toEqual(["contain", "contain"]);
   await scrollTo(text, "end");
   await page.waitForTimeout(100);
   expect((await scrolled(pdf)).top).toBe(0);
@@ -932,6 +937,35 @@ test("the OCR text is shown beside the PDF pages, with the scrolling of both loc
   await page.getByRole("checkbox", { name: "Show PDF" }).uncheck();
   await expect(pdf).toHaveCount(0);
   await expect(text.locator(".ocr-page")).toHaveCount(6);
+});
+
+test("the side panel folds into a rail that shows a running job, and stays folded after a reload", async ({ page }) => {
+  await setup(page);
+  await enterKeys(page);
+  await page.route("https://api.mistral.ai/v1/ocr", async (route) => {
+    await new Promise((r) => setTimeout(r, 5_000));
+    await route.abort();
+  });
+  await loadPdf(page);
+  const results = page.getByRole("region", { name: "Results" });
+  const width = (await results.boundingBox())!.width;
+  await page.getByRole("button", { name: "OCR only" }).click();
+
+  await page.getByRole("button", { name: "Hide the side panel" }).click();
+  await expect(page.getByRole("button", { name: "OCR + Translate" })).toBeHidden();
+  await expect.poll(async () => (await results.boundingBox())!.width).toBeGreaterThan(width + 200);
+  const rail = page.locator(".side-rail");
+  await expect(rail.getByRole("status")).toContainText("Running");
+  await rail.getByRole("button", { name: "Cancel the running job" }).click();
+  await expect(rail.getByRole("status")).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.getByText("Anthropic key verified")).toBeVisible();
+  await expect(page.getByRole("button", { name: "…or paste text to translate" })).toBeHidden();
+  await rail.getByRole("button", { name: "Show the side panel" }).click();
+  await expect(page.getByRole("button", { name: "…or paste text to translate" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hide the side panel" })).toHaveAttribute("aria-expanded", "true");
 });
 
 test("without the JSON output the OCR text is translated block by block: no JSON format, no JSON tabs", async ({ page }) => {

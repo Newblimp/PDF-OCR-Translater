@@ -119,7 +119,9 @@ anywhere else.
      download and the block translations. **Show PDF** puts the document's
      pages beside the text, each side scrolling on its own; **Lock
      scrolling** (on by default) scrolls both together page by page, so the
-     same page stays in view on both sides. **Select blocks on the PDF**
+     same page stays in view on both sides; while locked, neither side
+     bounces (elastic overscroll) past its ends, so they never drift apart.
+     **Select blocks on the PDF**
      draws the blocks over the pages: a click leaves a block out of the text
      (it is hatched on the page), another click takes it back, and hovering
      one highlights it in the text; "Take them all back" undoes it.
@@ -172,7 +174,11 @@ file, the OCR model and the pages) so translating the same file again costs
 no OCR credits. The OCR cache and the saved translations can be cleared from
 the UI. Mistral and OpenAI requests that hit a rate limit (429), a server
 error (5xx) or a dropped connection are retried twice with backoff, as the
-Anthropic SDK does for Anthropic. The header also offers a
+Anthropic SDK does for Anthropic. The panel button at the left of the
+header folds the side panel (document, actions, settings, recent
+translations) into a narrow rail, leaving the width to the results; the rail
+shows a running job (with Cancel) and an error, and the choice is
+remembered. The header also offers a
 light / system / dark theme switch; the look (Gruvbox dark by default) is
 shared with [refcheck](https://github.com/Newblimp/refcheck).
 

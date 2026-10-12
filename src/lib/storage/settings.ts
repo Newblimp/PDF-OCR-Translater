@@ -82,6 +82,8 @@ export interface Settings {
   ocrMatchLayout: boolean;
   /** OCR text tab: the blocks are drawn over the pages beside the text, and clicking one leaves it out or takes it back. */
   ocrPickBlocks: boolean;
+  /** The side panel (document, actions, settings, recent translations) is folded into a narrow rail. */
+  sidePanelCollapsed: boolean;
   /** Last model-default migration applied (see MODEL_DEFAULT_MIGRATIONS); runs each one once. */
   modelDefaultsRevision: number;
 }
@@ -131,6 +133,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ocrHiddenTypes: ["header", "footer"],
   ocrMatchLayout: false,
   ocrPickBlocks: false,
+  sidePanelCollapsed: false,
   modelDefaultsRevision: MODEL_DEFAULT_MIGRATIONS.length,
 };
 
@@ -173,6 +176,7 @@ function normalise(parsed: Partial<Settings>): Settings {
     merged.ocrHiddenTypes = [...DEFAULT_SETTINGS.ocrHiddenTypes];
   if (typeof merged.ocrMatchLayout !== "boolean") merged.ocrMatchLayout = DEFAULT_SETTINGS.ocrMatchLayout;
   if (typeof merged.ocrPickBlocks !== "boolean") merged.ocrPickBlocks = DEFAULT_SETTINGS.ocrPickBlocks;
+  if (typeof merged.sidePanelCollapsed !== "boolean") merged.sidePanelCollapsed = DEFAULT_SETTINGS.sidePanelCollapsed;
   return merged;
 }
 
