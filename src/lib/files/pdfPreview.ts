@@ -8,11 +8,55 @@
  * `URL.revokeObjectURL()`. Browsers without a WebP encoder fall back to PNG.
  */
 
+/** A rectangle in the pixel coordinates of a page image `pageWidth` px wide (the OCR's page coordinates). */
+export interface PageRect {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
 export interface PdfPreview {
   pageCount: number;
   /** Render a page (1-based) at roughly `width` CSS px; returns an object URL the caller must revoke. */
   renderPage(pageNumber: number, width: number): Promise<string>;
+  /** A region of a page (1-based) as a PNG data URL, at the scale of a `pageWidth` px wide page image, with `blank` areas painted white. */
+  renderRegion(pageNumber: number, pageWidth: number, region: PageRect, blank: PageRect[]): Promise<string>;
   destroy(): void;
+}
+
+/** White margin around a region, so the OCR model does not meet text right at the edge. */
+const REGION_PADDING = 12;
+
+/** A region image: white canvas, the page painted by `draw` (in page pixels, offset), the blank areas painted over. */
+export async function regionImage(
+  region: PageRect,
+  blank: PageRect[],
+  draw: (context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, dx: number, dy: number) => Promise<void>,
+): Promise<string> {
+  const width = Math.max(1, Math.round(region.x1 - region.x0));
+  const height = Math.max(1, Math.round(region.y1 - region.y0));
+  const canvas = document.createElement("canvas");
+  canvas.width = width + 2 * REGION_PADDING;
+  canvas.height = height + 2 * REGION_PADDING;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas 2D context unavailable");
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const dx = REGION_PADDING - region.x0;
+  const dy = REGION_PADDING - region.y0;
+  await draw(context, canvas, dx, dy);
+  context.fillStyle = "#fff";
+  // Outside the region (the padding) and the blank areas stay white.
+  context.fillRect(0, 0, canvas.width, REGION_PADDING);
+  context.fillRect(0, canvas.height - REGION_PADDING, canvas.width, REGION_PADDING);
+  context.fillRect(0, 0, REGION_PADDING, canvas.height);
+  context.fillRect(canvas.width - REGION_PADDING, 0, REGION_PADDING, canvas.height);
+  for (const b of blank) context.fillRect(b.x0 + dx, b.y0 + dy, b.x1 - b.x0, b.y1 - b.y0);
+  const url = canvas.toDataURL("image/png");
+  canvas.width = 0;
+  canvas.height = 0;
+  return url;
 }
 
 const PAGE_IMAGE_TYPE = "image/webp";
@@ -68,6 +112,18 @@ export async function openPdfPreview(data: ArrayBuffer): Promise<PdfPreview> {
       canvas.height = 0;
       if (!blob) throw new Error("The page could not be encoded");
       return URL.createObjectURL(blob);
+    },
+    async renderRegion(pageNumber, pageWidth, region, blank) {
+      const page = await doc.getPage(pageNumber);
+      const base = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: pageWidth / base.width });
+      try {
+        return await regionImage(region, blank, async (context, canvas, dx, dy) => {
+          await page.render({ canvas, canvasContext: context, viewport, transform: [1, 0, 0, 1, dx, dy] }).promise;
+        });
+      } finally {
+        page.cleanup();
+      }
     },
     destroy() {
       void loadingTask.destroy();

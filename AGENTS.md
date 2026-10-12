@@ -80,6 +80,7 @@ src/
     useFitText.ts              "Match page layout": text sized to fill each block's box (cqw units, fitted once per content)
     blockColors.ts             colour per OCR block type (bounding-box view, OCR text view)
     BboxView.tsx               bounding boxes drawn over the rendered page
+    EditBoxesView.tsx          "Edit bounding boxes": marquee / click selection, cut, make a block, delete, change, undo
     pageImages.ts              hooks: the document's page renderer, pages rendered so far
     useLinkedScroll.ts         scrolls two page columns together (OCR text beside the PDF)
     Dock.tsx                   result tabs in groups and split views (drag and drop, splitters)
@@ -111,6 +112,8 @@ src/
     pipeline/
       runOcr.ts                document → OCR (headers/footers extracted, bbox images + blocks)
       bboxAnnotate.ts          vision model, one call per bounding box (bbox annotation)
+      blockEdits.ts            edits of the OCR's blocks: rectangles, cut plan, ids, applyEdits() (OCR text + edits)
+      regionOcr.ts             an area of a page read again by Mistral OCR (image_url)
       blocks.ts                the text as blocks: view blocks, type/one-by-one filter, text of the kept blocks,
                                text input split into paragraph blocks (textPages)
       blockTranslate.ts        batch translation of text blocks (the translation without JSON output; a follow-up with it)
@@ -230,6 +233,24 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `BboxView` shows them above the original block text, and the OCR text view
   shows each block translated when "Show translation" is on (blocks without
   a translation keep their original text, marked).
+- **Edit bounding boxes** (`EditBoxesView.tsx`, `runner.editBoxes()`,
+  `pipeline/blockEdits.ts`): `OcrState` keeps the OCR text as returned
+  (`base`), the user's `edits` (`BlockEdits`: the block lists of the edited
+  pages, images made of selections, an id counter) and an `undo` stack;
+  `text` is `applyEdits(base, edits)` (edited pages rebuilt from their
+  blocks, headers and footers out of the Markdown), so every view and the
+  translation read the edited text without knowing about edits. Block ids:
+  the OCR's blocks keep `${page}:${index}` (stored on edited pages, see
+  `PageBlock.id` / `pageBlockId()`), new or changed blocks get
+  `${page}:e${n}`, so translations of untouched blocks stay valid and changed
+  ones show as untranslated. Translations remember their OCR result by
+  `OcrState.fingerprint` (of `base`), not by their source text, so
+  `ocrBelongsTo()` holds across edits. Cutting through text, making a block
+  and reading a block again render the area with the cut blanked
+  (`PageRenderer.region()`) and send it to `ocrRegion()` (job kind "edit",
+  stage `region_ocr`). Edits are saved with the OCR cache entry (`edits`)
+  and restored with it; the reducer carries the blocks left out one by one
+  over to the edited pages.
 - **OCR text view** (`OcrView.tsx`): renders `blocks.pageBlocks()` (a page
   without blocks is one stand-in block of its Markdown), so filters work on
   both languages. Block types are switched off in `Settings.ocrHiddenTypes`;

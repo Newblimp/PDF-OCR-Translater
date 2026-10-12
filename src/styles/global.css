@@ -1890,6 +1890,77 @@ input[aria-invalid="true"] {
   font-size: 12px;
 }
 
+/* -------------------------------------------------- edit bounding boxes */
+.edit-boxes:focus {
+  outline: none;
+}
+.edit-stage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  background: #fff;
+  line-height: 0;
+  overflow: hidden;
+  border-radius: 4px;
+  user-select: none;
+}
+.edit-stage img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  pointer-events: none;
+}
+/* Drags draw a selection, like a rectangular marquee. */
+.edit-layer {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+.edit-layer.is-busy {
+  cursor: progress;
+}
+.edit-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px solid var(--box-color, var(--accent));
+  background: color-mix(in srgb, var(--box-color, var(--accent)) 8%, transparent);
+  pointer-events: none;
+}
+.edit-box.is-edited {
+  border-style: dashed;
+}
+.edit-box.is-selected {
+  background: color-mix(in srgb, var(--box-color, var(--accent)) 28%, transparent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* Inside the selection: deleted by a cut. Crossed by it: trimmed, read again. */
+.edit-box.is-inside {
+  background: color-mix(in srgb, #e03131 30%, transparent);
+}
+.edit-box.is-crossed {
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, #f08c00 35%, transparent) 0 5px, transparent 5px 10px);
+}
+.edit-marquee {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px dashed #111;
+  outline: 1.5px dashed #fff;
+  outline-offset: -3px;
+  background: rgba(28, 126, 214, 0.12);
+  pointer-events: none;
+}
+.edit-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.edit-actions .muted.small {
+  margin: 0;
+}
+
 /* ---------------------------------------------------------- bbox overview */
 .bbox-layout {
   display: grid;

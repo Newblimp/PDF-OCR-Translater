@@ -7,7 +7,7 @@
  * blocks (without positions) so it goes through the same path.
  */
 import type { OcrBlock } from "../mistral/types";
-import { blockId } from "./blockTranslate";
+import { pageBlockId } from "./blockTranslate";
 import { pageDelimiter, type OcrCleanPage, type OcrText } from "./ocrText";
 
 export interface ViewBlock {
@@ -52,9 +52,9 @@ export function pageBlocks(page: OcrCleanPage): ViewBlock[] {
     const text = block.content?.trim() ?? "";
     if (type === "image") {
       const imageId = block.image_id || MARKDOWN_IMAGE.exec(text)?.[1] || IMAGE_PLACEHOLDER.exec(text)?.[1] || null;
-      out.push({ id: blockId(page.index, i), type, text: "", imageId, box: boxOf(block), wholePage: false });
+      out.push({ id: pageBlockId(page, i), type, text: "", imageId, box: boxOf(block), wholePage: false });
     } else if (text) {
-      out.push({ id: blockId(page.index, i), type, text, imageId: null, box: boxOf(block), wholePage: false });
+      out.push({ id: pageBlockId(page, i), type, text, imageId: null, box: boxOf(block), wholePage: false });
     }
   });
   return out;

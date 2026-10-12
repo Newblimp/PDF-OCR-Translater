@@ -10,6 +10,7 @@ import { OCR_PROVIDER, perProvider } from "@/lib/llm/registry";
 import type { ModelOption } from "@/lib/mistral/models";
 import type { JsonSchemaObject, OcrResponse } from "@/lib/mistral/types";
 import type { ProgressEvent, StageId } from "@/lib/pipeline/events";
+import { applyEdits, type BlockEdits } from "@/lib/pipeline/blockEdits";
 import type { OcrCleanPage, OcrText } from "@/lib/pipeline/ocrText";
 import type { StructuredMode } from "@/lib/pipeline/translate";
 import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
@@ -17,15 +18,16 @@ import type { FileKind } from "@/lib/files/fileKind";
 import type { SavedTranslationSummary, SourceKind } from "@/lib/storage/history";
 import type { Settings } from "@/lib/storage/settings";
 import { activateTab, moveTab, resizeSplit, singleGroup, type DockNode, type DockTarget } from "@/lib/util/dock";
+import { textFingerprint } from "@/lib/util/text";
 
 /**
  * "ocr", "translate" and "both" are the three action buttons; "original" fills
  * the JSON format in the document's own language on demand; "retry" re-runs
  * the bounding boxes or text blocks that failed.
  */
-export type JobKind = "ocr" | "translate" | "both" | "original" | "retry";
+export type JobKind = "ocr" | "translate" | "both" | "original" | "retry" | "edit";
 /** Result tabs, in their default order. "bboxes" is shown first. */
-export const RESULT_TABS = ["bboxes", "ocr", "structured", "schema", "json"] as const;
+export const RESULT_TABS = ["bboxes", "edit", "ocr", "structured", "schema", "json"] as const;
 export type ResultTab = (typeof RESULT_TABS)[number];
 
 /** All result tabs in one group, as before the user arranges them. */
@@ -64,7 +66,16 @@ export interface OcrState {
   source: "api" | "cache";
   model: string;
   response: OcrResponse;
+  /** The OCR text as the API returned it. */
+  base: OcrText;
+  /** The user's block edits ("Edit bounding boxes"); null for none. Kept in the OCR cache with the result. */
+  edits: BlockEdits | null;
+  /** Earlier states of `edits`, for undo (this session only). */
+  undo: Array<BlockEdits | null>;
+  /** `base` with the edits applied: what every view and the translation read. */
   text: OcrText;
+  /** Identity of this OCR result (its text as returned): translations remember it, and edits do not change it. */
+  fingerprint: string;
   /** Document id the OCR belongs to. */
   docId: string;
   /** OCR model and pages the result was requested with (`ocrRequestKey()`): "OCR + Translate" reuses a result with the same key. */
@@ -73,9 +84,22 @@ export interface OcrState {
   cacheKey: string | null;
 }
 
-/** Whether `translation` was made from this OCR result (its text is exactly what was translated). */
-export function ocrBelongsTo(ocr: OcrState, translation: Pick<TranslationState, "sourceText">): boolean {
-  return ocr.text.text === translation.sourceText;
+/** An OCR state for an OCR result (as returned) and its saved edits. */
+export function makeOcrState(fields: Omit<OcrState, "edits" | "undo" | "text" | "fingerprint"> & { edits?: BlockEdits | null }): OcrState {
+  const edits = fields.edits ?? null;
+  return { ...fields, edits, undo: [], text: applyEdits(fields.base, edits), fingerprint: textFingerprint(fields.base.text) };
+}
+
+/** How many edits "Undo" goes back. */
+const UNDO_LIMIT = 50;
+
+/**
+ * Whether `translation` was made from this OCR result, whatever was edited
+ * since (its block translations fit the blocks that were not changed).
+ * Translations saved before edits existed name it by their text.
+ */
+export function ocrBelongsTo(ocr: OcrState, translation: Pick<TranslationState, "sourceText" | "ocrFingerprint">): boolean {
+  return translation.ocrFingerprint ? translation.ocrFingerprint === ocr.fingerprint : translation.sourceText === ocr.base.text;
 }
 
 /** Identifies an OCR request of a document: the model and the selected pages (null = all). */
@@ -93,6 +117,8 @@ export interface TranslationState {
   sourceHash: string | null;
   /** OCR cache key of the OCR result that was translated, to restore it with a saved translation. */
   ocrKey: string | null;
+  /** `OcrState.fingerprint` of the OCR result that was translated (null for text input). */
+  ocrFingerprint: string | null;
   /** The text that was translated (needed for on-demand follow-ups and re-runs). */
   sourceText: string;
   /**
@@ -216,6 +242,9 @@ export type Action =
   | { type: "paste/mode"; enabled: boolean }
   | { type: "paste/text"; text: string }
   | { type: "ocr/set"; ocr: OcrState | null }
+  /** New block edits of the OCR result on screen (null: back to the OCR as returned); the previous ones can be undone. */
+  | { type: "ocr/edit"; edits: BlockEdits | null }
+  | { type: "ocr/undo" }
   | { type: "translation/set"; translation: TranslationState | null }
   | { type: "translation/patch"; patch: Partial<TranslationState> }
   | { type: "job/start"; job: JobState }
@@ -317,6 +346,17 @@ export function reducer(state: AppState, action: Action): AppState {
     case "ocr/set":
       // A fresh OCR result invalidates a translation made from the previous one.
       return { ...state, ocr: action.ocr, translation: action.ocr?.source === "api" ? null : state.translation, blockSelection: null };
+    case "ocr/edit":
+    case "ocr/undo": {
+      const ocr = state.ocr;
+      if (!ocr || (action.type === "ocr/undo" && !ocr.undo.length)) return state;
+      const edits = action.type === "ocr/edit" ? action.edits : (ocr.undo[ocr.undo.length - 1] ?? null);
+      const undo = action.type === "ocr/edit" ? [...ocr.undo, ocr.edits].slice(-UNDO_LIMIT) : ocr.undo.slice(0, -1);
+      const text = applyEdits(ocr.base, edits);
+      // Blocks left out one by one stay out: the ids of the blocks that were not changed hold.
+      const blockSelection = state.blockSelection?.pages === ocr.text.pages ? { ...state.blockSelection, pages: text.pages } : state.blockSelection;
+      return { ...state, ocr: { ...ocr, edits, undo, text }, blockSelection };
+    }
     case "translation/set":
       return {
         ...state,

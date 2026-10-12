@@ -2,7 +2,7 @@ import { memo } from "preact/compat";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { OcrBlock } from "@/lib/mistral/types";
 import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
-import { blockId } from "@/lib/pipeline/blockTranslate";
+import { pageBlockId } from "@/lib/pipeline/blockTranslate";
 import type { OcrBbox, OcrText } from "@/lib/pipeline/ocrText";
 import type { DocState } from "@/app/store";
 import { blockColor, IMAGE_COLOR } from "./blockColors";
@@ -156,7 +156,7 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
               {canOverlay &&
                 showBlocks &&
                 pageBlocks.map((block, i) => {
-                  const id = blockId(pageIndex, i);
+                  const id = pageBlockId(page, i);
                   return (
                     <button
                       type="button"
