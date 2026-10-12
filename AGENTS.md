@@ -366,8 +366,10 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 - **Theme / visual style**: shared with github.com/Newblimp/refcheck (Gruvbox
   dark default, warm high-contrast light, system font stacks, orange accent,
   uppercase letter-spaced section labels, dot chips). Tokens keep refcheck's
-  names in `src/styles/global.css` (`:root[data-theme]` plus a
-  `prefers-color-scheme` block for "system"); icons live in
+  names in `src/styles/global.css`, each declared once as
+  `light-dark(light, dark)`; `color-scheme` picks the side (`light dark`
+  follows the OS for "system", `:root[data-theme]` forces one; this needs
+  Chrome 123 / Firefox 120 / Safari 17.5 or later); icons live in
   `src/components/icons.tsx`; `storage/theme.ts` and `public/theme-init.js`
   apply the choice. Keep the two apps' stylesheets in step when changing
   tokens.
