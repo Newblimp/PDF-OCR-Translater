@@ -7,8 +7,7 @@
  * blocks (without positions) so it goes through the same path.
  */
 import type { OcrBlock } from "../mistral/types";
-import { pageBlockId } from "./blockTranslate";
-import { pageDelimiter, type OcrCleanPage, type OcrText } from "./ocrText";
+import { pageBlockId, pageDelimiter, type OcrCleanPage, type OcrText } from "./ocrText";
 
 export interface ViewBlock {
   id: string;
@@ -58,6 +57,17 @@ export function pageBlocks(page: OcrCleanPage): ViewBlock[] {
     }
   });
   return out;
+}
+
+/** The blocks of a page that carry text, with the ids used for their translations. */
+export function textBlocks(page: OcrCleanPage): Array<{ id: string; text: string }> {
+  const items: Array<{ id: string; text: string }> = [];
+  page.blocks.forEach((block, i) => {
+    const text = block.content?.trim();
+    if (!text || block.type === "image") return;
+    items.push({ id: pageBlockId(page, i), text });
+  });
+  return items;
 }
 
 export function isShown(block: Pick<ViewBlock, "id" | "type">, filter: BlockFilter): boolean {

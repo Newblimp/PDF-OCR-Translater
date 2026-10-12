@@ -1,5 +1,5 @@
 import { memo } from "preact/compat";
-import { parseGlossary } from "@/lib/pipeline/prompts";
+import { parseGlossary } from "@/lib/pipeline/glossary";
 import { QUICK_TARGET_LANGUAGES, type Settings, type TargetLanguage } from "@/lib/storage/settings";
 import { DraftText } from "./DraftText";
 

@@ -9,7 +9,7 @@
  * errors are mapped onto the same `ApiError`s. Together they are the app's
  * whole network surface: grep for `apiFetch(` and `createAnthropicClient(`.
  */
-import { ApiError, kindForStatus, type ApiProvider } from "./apiError";
+import { ApiError, extractErrorMessage, kindForStatus, toApiError, type ApiProvider } from "./apiError";
 
 export interface ApiFetchOptions {
   provider: ApiProvider;
@@ -99,15 +99,6 @@ async function waitBeforeRetry(ms: number | null, options: ApiFetchOptions): Pro
   }
 }
 
-export function toApiError(err: unknown, provider: ApiProvider): ApiError {
-  if (err instanceof ApiError) return err;
-  if ((err instanceof DOMException || err instanceof Error) && err.name === "AbortError") {
-    return new ApiError("Request cancelled", "aborted", provider);
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  return new ApiError(`Network error: ${message}`, "network", provider);
-}
-
 async function errorFromResponse(res: Response, provider: ApiProvider): Promise<ApiError> {
   let body: unknown = null;
   let message = `HTTP ${res.status} ${res.statusText}`.trim();
@@ -125,23 +116,4 @@ async function errorFromResponse(res: Response, provider: ApiProvider): Promise<
     // body could not be read
   }
   return new ApiError(message, kindForStatus(res.status), provider, res.status, body);
-}
-
-/** Best-effort extraction of a human-readable message from an error payload. */
-export function extractErrorMessage(body: unknown): string {
-  if (!body || typeof body !== "object") return "";
-  const b = body as Record<string, unknown>;
-  if (typeof b["message"] === "string") return b["message"];
-  const error = b["error"];
-  if (typeof error === "string") return error;
-  if (error && typeof error === "object" && typeof (error as Record<string, unknown>)["message"] === "string") {
-    return (error as Record<string, string>)["message"] ?? "";
-  }
-  const detail = b["detail"];
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) {
-    return detail.map((d) => (d && typeof d === "object" && "msg" in d ? String((d as { msg: unknown }).msg) : JSON.stringify(d))).join("; ");
-  }
-  if (detail && typeof detail === "object") return JSON.stringify(detail);
-  return "";
 }

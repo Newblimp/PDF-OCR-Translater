@@ -17,7 +17,7 @@ import {
   type EditedBlock,
 } from "./blockEdits";
 import { pageBlocks } from "./blocks";
-import { textBlocks } from "./blockTranslate";
+import { textBlocks } from "./blocks";
 import type { OcrText } from "./ocrText";
 
 function block(type: string, x0: number, y0: number, x1: number, y1: number, content: string, image_id?: string) {

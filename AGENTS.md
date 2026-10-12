@@ -23,8 +23,16 @@ AI). Keep it current when you change the architecture.
   in build-time env vars, or in URLs.
 - TypeScript everywhere, `strict` plus `exactOptionalPropertyTypes` and
   `noUncheckedIndexedAccess`. `npm run typecheck` must pass.
-- Responsiveness first: heavy libraries (pdf.js, marked/DOMPurify, the
-  Anthropic SDK) are loaded lazily; long lists use `content-visibility`;
+- Responsiveness first: the page loads only what its first screen needs.
+  Heavy libraries (pdf.js, marked/DOMPurify, the Anthropic SDK) and the
+  app's own heavy parts are imported on first use, each its own chunk: the
+  result views (`lazyView()` in `ResultsPanel.tsx`), the pipeline's stages
+  (`pipeline()` in `runner.ts`), the provider implementations
+  (`createProvider()` in `registry.ts`) and the Mistral client
+  (`ocrClient()` in `runner.ts`). Keep it that way: a static import of one of
+  them from the shell (App, store, side panel, settings) puts it back into
+  the first download; `npx vite build` lists the chunks. Long lists use
+  `content-visibility`;
   network calls are cancellable via `AbortController`; the translation
   streams so progress is visible; independent stages run concurrently;
   components are memoised with stable handlers so streaming does not
@@ -71,7 +79,8 @@ src/
     runner.ts                  side effects: load document, verify key, run jobs
   components/                  presentational Preact components (memoised; handlers come from App, created once)
     JsonBrowser/               browsable view of the translated JSON
-    ResultsPanel.tsx           the result tabs (which are available), structured text, JSON format, raw JSON
+    ResultsPanel.tsx           the result tabs: which are available, and their views (loaded on first use, lazyView.tsx)
+    JsonViews.tsx              with JSON output: structured text, JSON format, raw JSON, the live stream view
     OcrView.tsx                OCR text tab: blocks filtered by type and one by one, PDF beside it (block picking), page layout
     resultControls.tsx         download, clipboard, "Show translation" switch, token usage (shared by the views)
     QuickOptions.tsx           above the settings: target language (English / German) and glossary
@@ -87,8 +96,8 @@ src/
     HistoryPanel.tsx           "Recent translations" (saved in IndexedDB)
   lib/
     http/
-      apiFetch.ts              authenticated fetch + error mapping + retries with backoff (Mistral, OpenAI)
-      apiError.ts              ApiError (kind, provider, hint); permanent / image rejection checks
+      apiFetch.ts              authenticated fetch + retries with backoff (Mistral, OpenAI)
+      apiError.ts              ApiError (kind, provider, hint); error mapping; permanent / image rejection checks
       sse.ts                   pure SSE parser
       chatStream.ts            streamed Chat Completions reader shared by Mistral and OpenAI
     llm/
@@ -114,14 +123,15 @@ src/
       bboxAnnotate.ts          vision model, one call per bounding box (bbox annotation)
       blockEdits.ts            edits of the OCR's blocks: rectangles, cut plan, ids, applyEdits() (OCR text + edits)
       regionOcr.ts             an area of a page read again by Mistral OCR (image_url)
-      blocks.ts                the text as blocks: view blocks, type/one-by-one filter, text of the kept blocks,
+      blocks.ts                the text as blocks: view and text blocks, type/one-by-one filter, text of the kept blocks,
                                text input split into paragraph blocks (textPages)
       blockTranslate.ts        batch translation of text blocks (the translation without JSON output; a follow-up with it)
-      ocrText.ts               OCR response → clean text for translation
+      ocrText.ts               OCR response → clean text for translation; block ids (blockId, pageBlockId)
       inferSchema.ts           text → JSON Schema (json_object mode)
       schema.ts                schema sanitiser for strict mode + light validator
       schemas/                 built-in schemas (registry in index.ts)
       prompts.ts               all prompt text
+      glossary.ts              the glossary setting parsed into term pairs
       translate.ts             text + first 8 bbox images + schema → JSON (document annotation);
                                fallbacks: without images → non-streaming → json_object; keeps truncated output
       chunks.ts                long documents: split along pages/paragraphs, merge the parts' JSON
@@ -151,7 +161,7 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 
 - **New document family / schema**: add a file under
   `src/lib/pipeline/schemas/` and register it in `schemas/index.ts`. Adjust
-  `DEFAULT_DOMAIN_HINT` in `prompts.ts` if the default should change.
+  `DEFAULT_DOMAIN_HINT` in `storage/settings.ts` if the default should change.
 - **Prompt tuning**: only `src/lib/pipeline/prompts.ts`. Prompts must keep
   the word "JSON" (required by Mistral's `json_object` mode). The document
   calls share `documentSystemPrompt()` (settings only, never the document or
@@ -326,7 +336,8 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `src/lib/http/apiError.ts` (it is the `ProviderId` type); (2) implement
   `ChatProvider` (`src/lib/llm/provider.ts`) on a client in `src/lib/<name>/`;
   (3) add a `ProviderInfo` entry to `PROVIDERS` in `src/lib/llm/registry.ts`
-  (labels, key URL, default/fallback models, capability flags, `create`);
+  (labels, key URL, default/fallback models, capability flags, and `load`,
+  a dynamic import of the implementation);
   (4) add its host to the CSP in `public/_headers` and to the e2e mocks.
   Everything else (key storage, key dialog fields, header pills, settings
   model lists, `initialState`) iterates `PROVIDER_IDS` / `perProvider()`.

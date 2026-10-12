@@ -11,6 +11,7 @@
  * The chat prompts mention "JSON" explicitly: `json_object` mode requires
  * the word to appear in the conversation.
  */
+import { parseGlossary } from "./glossary";
 import { pageDelimiter } from "./ocrText";
 
 export interface PromptContext {
@@ -24,26 +25,11 @@ export interface PromptContext {
   glossary?: string | undefined;
 }
 
-export const DEFAULT_DOMAIN_HINT =
-  "Official communications from a patent office (for example CNIPA, the China National Intellectual Property Administration): office actions, notifications, decisions and similar correspondence to applicants or agents.";
-
 /** Characters of document text used for schema inference (a sample is enough). */
 export const SCHEMA_INFERENCE_SAMPLE_CHARS = 60_000;
 
 function sourceClause(sourceLanguage: string): string {
   return sourceLanguage.trim().toLowerCase() === "auto" || !sourceLanguage.trim() ? "the source language (detect it automatically)" : sourceLanguage.trim();
-}
-
-/** Glossary entries as `source = target` pairs; blank lines and `#` comments are ignored. */
-export function parseGlossary(glossary: string | undefined): Array<{ source: string; target: string }> {
-  const entries: Array<{ source: string; target: string }> = [];
-  for (const raw of (glossary ?? "").split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const match = /^(.+?)\s*(?:=>|=|→|\t)\s*(.+)$/.exec(line);
-    if (match) entries.push({ source: match[1]!.trim(), target: match[2]!.trim() });
-  }
-  return entries;
 }
 
 function glossaryLines(ctx: PromptContext): string[] {

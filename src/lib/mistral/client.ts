@@ -42,6 +42,9 @@ export interface MistralClientOptions {
   maxRetries?: number;
 }
 
+/** What the OCR steps need of the client: the pipeline takes any object with `ocr()` (the runner's imports the client on first use). */
+export type OcrClient = Pick<MistralClient, "ocr">;
+
 export class MistralClient {
   private readonly apiKey: string;
   readonly baseUrl: string;

@@ -7,7 +7,7 @@
  * bounding boxes; the UI overlays the boxes on the page images.
  */
 import { ApiError } from "../http/apiError";
-import type { MistralClient } from "../mistral/client";
+import type { OcrClient } from "../mistral/client";
 import type { OcrRequest, OcrResponse } from "../mistral/types";
 import { emit, type ProgressListener } from "./events";
 import { buildOcrText, type OcrText } from "./ocrText";
@@ -43,7 +43,7 @@ export function isImageMime(mime: string): boolean {
   return mime.startsWith("image/");
 }
 
-export async function runOcr(client: MistralClient, input: OcrInput, options: RunOcrOptions): Promise<OcrOutcome> {
+export async function runOcr(client: OcrClient, input: OcrInput, options: RunOcrOptions): Promise<OcrOutcome> {
   const { onProgress } = options;
   emit(
     onProgress,

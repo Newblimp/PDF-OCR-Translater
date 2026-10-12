@@ -6,7 +6,7 @@
 import { ApiError } from "@/lib/http/apiError";
 import { addUsage, emptyUsage, type ProviderId } from "@/lib/llm/provider";
 import { createProvider, effortFor, PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
-import { MistralClient } from "@/lib/mistral/client";
+import type { OcrClient } from "@/lib/mistral/client";
 import { classifyFile } from "@/lib/files/fileKind";
 import { fileToDataUrl } from "@/lib/files/dataUrl";
 import { sha256Hex } from "@/lib/files/hash";
@@ -33,17 +33,7 @@ import { ocrTextFromPages, shownTextBlockIds, textPages, type BlockFilter } from
 import { ocrRegion } from "@/lib/pipeline/regionOcr";
 import { runPool } from "@/lib/util/pool";
 import { emit, type StageId } from "@/lib/pipeline/events";
-import {
-  blockTranslations,
-  describeBboxes,
-  ocrOnly,
-  resolveSchema,
-  structureOriginal,
-  translateDocument,
-  type PipelineContext,
-  type PipelineSettings,
-  type SchemaMode,
-} from "@/lib/pipeline/pipeline";
+import type { PipelineContext, PipelineSettings, SchemaMode } from "@/lib/pipeline/pipeline";
 import { parsePageSelection } from "@/lib/util/pageSelection";
 import { buildOcrText, type OcrCleanPage, type OcrText } from "@/lib/pipeline/ocrText";
 import { OCR_MAX_FILE_BYTES } from "@/lib/pipeline/runOcr";
@@ -84,6 +74,9 @@ export interface Runtime {
   getState(): AppState;
   dispatch(action: Action): void;
 }
+
+/** The pipeline's stages (prompts, schemas, the steps), imported when the first job runs: the page does not need them before. */
+const pipeline = () => import("@/lib/pipeline/pipeline");
 
 /** How many pages to render as thumbnails when a PDF is dropped. */
 const PREVIEW_PAGES = 4;
@@ -479,11 +472,21 @@ function beginJob(rt: Runtime, kind: JobKind, stages: StageId[], needsChat: bool
   return {
     controller,
     ctx: {
-      ocr: new MistralClient({ apiKey: mistralKey ?? "" }),
+      ocr: ocrClient(mistralKey ?? ""),
       chat: createProvider(settings.provider, chatKey ?? mistralKey ?? ""),
       settings: pipelineSettings,
       signal: controller.signal,
       onProgress: (event) => rt.dispatch({ type: "job/event", event }),
+    },
+  };
+}
+
+/** Mistral OCR with this key; the client (and the HTTP layer) is imported with the first request. */
+function ocrClient(apiKey: string): OcrClient {
+  return {
+    async ocr(request, signal) {
+      const { MistralClient } = await import("@/lib/mistral/client");
+      return new MistralClient({ apiKey }).ocr(request, signal);
     },
   };
 }
@@ -602,6 +605,7 @@ async function runOcrStage(rt: Runtime, job: Job, doc: DocState, reuse: boolean)
     return { text: loaded.text, cacheKey: loaded.cacheKey ?? cacheKey, fingerprint: loaded.fingerprint };
   }
 
+  const { ocrOnly } = await pipeline();
   emit(ctx.onProgress, "prepare", "start", `Encoding ${doc.name} (${formatBytes(doc.size)})`);
   const dataUrl = await fileToDataUrl(doc.file, doc.mimeType);
   emit(ctx.onProgress, "prepare", "done", "Document encoded");
@@ -687,6 +691,7 @@ function runTranslation(rt: Runtime, job: Job, source: Source): Promise<void> {
  */
 async function translateByBlocks(rt: Runtime, job: Job, source: Source): Promise<void> {
   const { ctx, controller } = job;
+  const { blockTranslations, describeBboxes } = await pipeline();
   const warnings: string[] = [];
   const followUp = followUps(job, warnings);
   const pages = source.ocr?.pages ?? textPages(source.text);
@@ -768,6 +773,7 @@ async function translateByBlocks(rt: Runtime, job: Job, source: Source): Promise
  */
 async function translateStructured(rt: Runtime, job: Job, source: Source): Promise<void> {
   const { ctx, controller } = job;
+  const { blockTranslations, describeBboxes, resolveSchema, structureOriginal, translateDocument } = await pipeline();
   const warnings: string[] = [];
   const followUp = followUps(job, warnings);
 
@@ -868,6 +874,7 @@ export async function ensureOriginalStructure(rt: Runtime, force = false): Promi
   if (!job) return;
   originalRequested.add(t.id);
   try {
+    const { structureOriginal } = await pipeline();
     const ocr = ocrOf(state, t);
     const original = await structureOriginal(job.ctx, t.sourceText, t.schema, ocr);
     job.controller.signal.throwIfAborted();
@@ -904,6 +911,7 @@ export async function retryFailed(rt: Runtime, what: "bboxes" | "blocks"): Promi
   const job = beginJob(rt, "retry", [what === "bboxes" ? "bbox_annotate" : "block_translate"], true, t);
   if (!job) return;
   try {
+    const { blockTranslations, describeBboxes } = await pipeline();
     if (what === "bboxes") {
       const out = await describeBboxes(job.ctx, ocr, ids);
       job.controller.signal.throwIfAborted();

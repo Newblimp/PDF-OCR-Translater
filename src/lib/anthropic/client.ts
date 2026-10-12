@@ -10,8 +10,7 @@
  * leaves this browser except to the API.
  */
 import type Anthropic from "@anthropic-ai/sdk";
-import { ApiError, kindForStatus } from "../http/apiError";
-import { extractErrorMessage, toApiError } from "../http/apiFetch";
+import { ApiError, extractErrorMessage, kindForStatus, toApiError } from "../http/apiError";
 
 export const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
 

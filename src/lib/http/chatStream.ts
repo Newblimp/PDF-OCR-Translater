@@ -4,8 +4,7 @@
  * `choices[].delta.content`, usage in a late chunk, and errors as a chunk
  * without `choices` that carries `error` (or Mistral's `message`).
  */
-import { ApiError, type ApiProvider } from "./apiError";
-import { extractErrorMessage, toApiError } from "./apiFetch";
+import { ApiError, extractErrorMessage, toApiError, type ApiProvider } from "./apiError";
 import { readSseStream } from "./sse";
 
 export interface StreamedChat<U> {

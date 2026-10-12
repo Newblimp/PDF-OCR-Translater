@@ -26,7 +26,7 @@
  * store decides what to display and what to cache.
  */
 import { addUsage, emptyUsage, type ChatProvider, type ReasoningEffort } from "../llm/provider";
-import type { MistralClient } from "../mistral/client";
+import type { OcrClient } from "../mistral/client";
 import type { JsonSchemaObject } from "../mistral/types";
 import { parsePartialJson } from "../util/partialJson";
 import { annotateBboxes, type BboxAnnotateOutcome } from "./bboxAnnotate";
@@ -69,8 +69,8 @@ export interface PipelineSettings extends PromptContext {
 }
 
 export interface PipelineContext {
-  /** Mistral client used for OCR. */
-  ocr: MistralClient;
+  /** Mistral OCR. */
+  ocr: OcrClient;
   /** Vision-capable chat provider used for schema inference, bbox annotation and translation. */
   chat: ChatProvider;
   settings: PipelineSettings;

@@ -3,7 +3,6 @@ import type { ProviderId, ReasoningEffort } from "../llm/provider";
 import type { StructureOriginalMode } from "../pipeline/pipeline";
 import { PROVIDERS } from "../llm/registry";
 import { DEFAULT_OCR_MODEL } from "../mistral/models";
-import { DEFAULT_DOMAIN_HINT } from "../pipeline/prompts";
 
 export type SchemaModeSetting = { kind: "infer" } | { kind: "builtin"; id: string } | { kind: "custom"; schemaText: string };
 
@@ -25,6 +24,10 @@ export const TARGET_LANGUAGES = [
 /** Shown as one-click buttons; the rest are in a dropdown next to them. */
 export const QUICK_TARGET_LANGUAGES: ReadonlyArray<TargetLanguage> = ["English", "German"];
 export type TargetLanguage = (typeof TARGET_LANGUAGES)[number];
+
+/** The document family the prompts describe by default (Settings → "Document family hint"). */
+export const DEFAULT_DOMAIN_HINT =
+  "Official communications from a patent office (for example CNIPA, the China National Intellectual Property Administration): office actions, notifications, decisions and similar correspondence to applicants or agents.";
 
 export interface Settings {
   /** Provider used for translation (and schema inference). OCR is always Mistral. */
