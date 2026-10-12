@@ -1,14 +1,13 @@
 import { memo } from "preact/compat";
-import { useEffect, useRef, useState } from "preact/hooks";
 import type { ProviderId, ReasoningEffort } from "@/lib/llm/provider";
-import { PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
+import { effortFor, PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
 import { OCR_MODELS, type ModelOption } from "@/lib/mistral/models";
 import { BUILTIN_SCHEMAS } from "@/lib/pipeline/schemas";
 import type { StructureOriginalMode } from "@/lib/pipeline/pipeline";
-import { parseGlossary } from "@/lib/pipeline/prompts";
 import { clearOcrCache } from "@/lib/storage/ocrCache";
-import { DEFAULT_SETTINGS, QUICK_TARGET_LANGUAGES, TARGET_LANGUAGES, type Settings, type TargetLanguage } from "@/lib/storage/settings";
+import { DEFAULT_SETTINGS, TARGET_LANGUAGES, type Settings, type TargetLanguage } from "@/lib/storage/settings";
 import { prettyJson } from "@/lib/util/json";
+import { DraftText } from "./DraftText";
 
 interface Props {
   settings: Settings;
@@ -18,65 +17,19 @@ interface Props {
   onChange: (patch: Partial<Settings>) => void;
 }
 
-const EFFORTS: ReasoningEffort[] = ["none", "low", "medium", "high"];
+const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: "none (fastest)", low: "low", medium: "medium", high: "high" };
+
+const EFFORT_HINTS: Record<ProviderId, string> = {
+  mistral: "“none” answers straight away (the default); “high” makes Mistral Small think first: slower, more tokens. Models that do not reason get none.",
+  anthropic: "“none” is fastest and cheapest (Claude's lowest effort, “low”); higher values spend reasoning tokens before answering.",
+  openai: "“none” is fastest and cheapest; higher values spend reasoning tokens before answering.",
+};
 
 const STRUCTURE_ORIGINAL: Array<{ value: StructureOriginalMode; label: string }> = [
   { value: "on_demand", label: "When “Show translation” is switched off (one extra call, only if needed)" },
   { value: "always", label: "After every translation (one extra call per run)" },
   { value: "never", label: "Never" },
 ];
-
-interface DraftProps {
-  value: string;
-  /** Called on blur / Enter with the trimmed text (or `fallback` when empty). */
-  onCommit: (value: string) => void;
-  fallback?: string;
-  placeholder?: string;
-  rows?: number;
-  class?: string;
-  spellcheck?: boolean;
-  "aria-label"?: string;
-}
-
-/**
- * Text input that keeps a local draft while focused and commits on blur or
- * Enter. Controlled inputs that commit on every keystroke would be reset by
- * unrelated re-renders (streaming progress, model lists arriving).
- */
-function DraftText({ value, onCommit, fallback, rows, ...rest }: DraftProps) {
-  const [draft, setDraft] = useState(value);
-  const focused = useRef(false);
-  useEffect(() => {
-    if (!focused.current) setDraft(value);
-  }, [value]);
-  const commit = () => {
-    const next = draft.trim() || fallback || "";
-    setDraft(next);
-    if (next !== value) onCommit(next);
-  };
-  const common = {
-    value: draft,
-    onFocus: () => {
-      focused.current = true;
-    },
-    onInput: (e: Event) => setDraft((e.target as HTMLInputElement | HTMLTextAreaElement).value),
-    onBlur: () => {
-      focused.current = false;
-      commit();
-    },
-    ...rest,
-  };
-  if (rows) return <textarea rows={rows} {...common} />;
-  return (
-    <input
-      type="text"
-      {...common}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-      }}
-    />
-  );
-}
 
 export const SettingsPanel = memo(function SettingsPanel({ settings, models, open, onToggle, onChange }: Props) {
   const provider = PROVIDERS[settings.provider];
@@ -104,36 +57,17 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
       </summary>
 
       <div class="settings-grid">
-        <div class="field field-wide">
-          <span>Target language</span>
-          <div class="btn-row">
-            <div class="segmented" role="radiogroup" aria-label="Target language">
-              {QUICK_TARGET_LANGUAGES.map((lang) => (
-                <button
-                  key={lang}
-                  type="button"
-                  role="radio"
-                  aria-checked={settings.targetLanguage === lang}
-                  class={`segment${settings.targetLanguage === lang ? " segment-active" : ""}`}
-                  onClick={() => onChange({ targetLanguage: lang })}
-                >
-                  {lang}
-                </button>
-              ))}
-            </div>
-            <select
-              aria-label="Other target language"
-              value={settings.targetLanguage}
-              onChange={(e) => onChange({ targetLanguage: (e.target as HTMLSelectElement).value as TargetLanguage })}
-            >
-              {TARGET_LANGUAGES.map((lang) => (
-                <option key={lang} value={lang}>
-                  {lang}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <label class="field">
+          <span>Target language (all languages)</span>
+          <select value={settings.targetLanguage} onChange={(e) => onChange({ targetLanguage: (e.target as HTMLSelectElement).value as TargetLanguage })}>
+            {TARGET_LANGUAGES.map((lang) => (
+              <option key={lang} value={lang}>
+                {lang}
+              </option>
+            ))}
+          </select>
+          <span class="muted small">English and German are one click away above the settings.</span>
+        </label>
 
         <label class="field">
           <span>Translation provider</span>
@@ -170,17 +104,17 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
         {provider.supportsReasoningEffort && (
           <label class="field">
             <span>Reasoning effort</span>
-            <select value={settings.reasoningEffort} onChange={(e) => onChange({ reasoningEffort: (e.target as HTMLSelectElement).value as ReasoningEffort })}>
-              {EFFORTS.map((e) => (
+            <select
+              value={effortFor(settings.provider, settings.reasoningEffort)}
+              onChange={(e) => onChange({ reasoningEffort: (e.target as HTMLSelectElement).value as ReasoningEffort })}
+            >
+              {provider.reasoningEfforts.map((e) => (
                 <option key={e} value={e}>
-                  {e}
+                  {EFFORT_LABELS[e]}
                 </option>
               ))}
             </select>
-            <span class="muted small">
-              “none” is fastest and cheapest{settings.provider === "anthropic" ? " (Claude's lowest effort, “low”)" : ""}; higher values spend reasoning tokens
-              before answering.
-            </span>
+            <span class="muted small">{EFFORT_HINTS[settings.provider]}</span>
           </label>
         )}
 
@@ -272,24 +206,6 @@ export const SettingsPanel = memo(function SettingsPanel({ settings, models, ope
             </button>
           </div>
         </div>
-
-        <label class="field field-wide">
-          <span>Glossary (optional)</span>
-          <DraftText
-            rows={4}
-            class="code-area"
-            spellcheck={false}
-            value={settings.glossary}
-            placeholder={"One term per line: source = target\n审查员 = examiner\n驳回 = rejection"}
-            aria-label="Glossary"
-            onCommit={(glossary) => onChange({ glossary })}
-          />
-          <span class="muted small">
-            {parseGlossary(settings.glossary).length
-              ? `${parseGlossary(settings.glossary).length} term(s) the translation must use.`
-              : "Required translations of specific terms, sent with every translation call."}
-          </span>
-        </label>
 
         <label class="field field-wide">
           <span>Document family hint (shown to the model)</span>

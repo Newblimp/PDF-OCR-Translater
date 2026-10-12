@@ -9,7 +9,7 @@ import { DEFAULT_OPENAI_MODEL, FALLBACK_OPENAI_MODELS } from "../openai/models";
 import { AnthropicProvider } from "./anthropicProvider";
 import { MistralProvider } from "./mistralProvider";
 import { OpenAIProvider } from "./openaiProvider";
-import type { ChatProvider, ProviderId } from "./provider";
+import type { ChatProvider, ProviderId, ReasoningEffort } from "./provider";
 
 export interface ProviderInfo {
   id: ProviderId;
@@ -26,6 +26,8 @@ export interface ProviderInfo {
   fallbackModels: ReadonlyArray<ModelOption>;
   supportsTemperature: boolean;
   supportsReasoningEffort: boolean;
+  /** The reasoning efforts offered in Settings (the provider maps them onto its API). */
+  reasoningEfforts: ReadonlyArray<ReasoningEffort>;
   create: (apiKey: string) => ChatProvider;
 }
 
@@ -41,7 +43,9 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     defaultModel: DEFAULT_CHAT_MODEL,
     fallbackModels: FALLBACK_CHAT_MODELS,
     supportsTemperature: true,
-    supportsReasoningEffort: false,
+    supportsReasoningEffort: true,
+    // Mistral Small 4 documents "none" and "high" (https://docs.mistral.ai/capabilities/reasoning).
+    reasoningEfforts: ["none", "high"],
     create: (apiKey) => MistralProvider.fromKey(apiKey),
   },
   anthropic: {
@@ -56,6 +60,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     fallbackModels: FALLBACK_ANTHROPIC_MODELS,
     supportsTemperature: false,
     supportsReasoningEffort: true,
+    reasoningEfforts: ["none", "low", "medium", "high"],
     create: (apiKey) => AnthropicProvider.fromKey(apiKey),
   },
   openai: {
@@ -70,6 +75,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     fallbackModels: FALLBACK_OPENAI_MODELS,
     supportsTemperature: false,
     supportsReasoningEffort: true,
+    reasoningEfforts: ["none", "low", "medium", "high"],
     create: (apiKey) => OpenAIProvider.fromKey(apiKey),
   },
 };
@@ -79,6 +85,12 @@ export const PROVIDER_IDS: ProviderId[] = Object.keys(PROVIDERS) as ProviderId[]
 
 /** The provider whose key is always required because it performs OCR. */
 export const OCR_PROVIDER: ProviderId = "mistral";
+
+/** The effort shown and sent for a provider: the setting, or the closest one the provider offers (Mistral: "low"/"medium" think, as "high"). */
+export function effortFor(id: ProviderId, effort: ReasoningEffort): ReasoningEffort {
+  const offered = PROVIDERS[id].reasoningEfforts;
+  return offered.includes(effort) ? effort : effort === "none" ? "none" : (offered[offered.length - 1] ?? effort);
+}
 
 export function createProvider(id: ProviderId, apiKey: string): ChatProvider {
   return PROVIDERS[id].create(apiKey);

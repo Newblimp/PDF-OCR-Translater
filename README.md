@@ -36,9 +36,9 @@ anywhere else.
    - **Translate only** — translate the OCR text of the loaded file (this
      session's result or the local cache), a dropped text file, or pasted text.
 
-   Below the buttons, a rough **token and cost estimate** of the translation
-   is shown (cost for Claude models, whose prices the app knows; OCR is billed
-   by Mistral per page on top). "OCR + Translate" reuses an OCR result that
+   Below the buttons, the **target language** (English or German in one
+   click; the other languages are in Settings) and the **glossary** are
+   always at hand; the settings start closed. "OCR + Translate" reuses an OCR result that
    is already loaded for the same file, model and pages instead of paying for
    OCR again.
 
@@ -79,9 +79,9 @@ anywhere else.
    falls back step by step (without images, non-streaming, then
    `json_object` mode). If the output limit cuts the JSON off, the fields
    received up to that point are kept and the result says so. Target language:
-   **English** or **German** in one click, eight more (French, Spanish,
-   Italian, Portuguese, Dutch, Japanese, Korean, Chinese) from a dropdown. An
-   optional **glossary** (`source = target`, one per line) is sent with every
+   **English** or **German** in one click above the settings, eight more (French, Spanish,
+   Italian, Portuguese, Dutch, Japanese, Korean, Chinese) from a dropdown in Settings. An
+   optional **glossary** (`source = target`, one per line, above the settings) is sent with every
    translation call. The "Structured text" tab starts with a step strip that
    states which model did what, including how many images were sent.
 
@@ -231,7 +231,7 @@ All defaults live in code so they can be changed in one place:
 | OCR model                                              | `mistral-ocr-latest` (dropdown of `OCR_MODELS`)                                                                                     | `src/lib/mistral/models.ts`                                                            |
 | Translation provider                                   | Mistral (Mistral Small); Anthropic and OpenAI selectable                                                                            | `src/lib/llm/registry.ts`                                                              |
 | Translation model                                      | `mistral-small-latest` (Mistral) / `claude-haiku-5-5` (Anthropic) / `gpt-6-luna` (OpenAI); dropdown of the models from `/v1/models` | `src/lib/anthropic/models.ts`, `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
-| Reasoning effort (Anthropic, OpenAI)                   | `none` (Anthropic: effort `low`, its lowest)                                                                                        | Settings panel                                                                         |
+| Reasoning effort                                       | `none` (Mistral: `none` or `high`; Anthropic: effort `low`, its lowest)                                                             | Settings panel                                                                         |
 | JSON output                                            | off: the text blocks are translated one by one; on: JSON format + document annotation, and the JSON tabs                            | Settings panel (last option); `src/lib/storage/settings.ts` (`jsonOutput`)             |
 | Block types left out of the OCR text                   | page headers and footers                                                                                                            | OCR text tab; `src/lib/storage/settings.ts` (`ocrHiddenTypes`)                         |
 | Max output tokens (JSON output)                        | provider default (Anthropic: 64k, the API requires a value)                                                                         | Settings panel, `src/lib/anthropic/models.ts`                                          |
@@ -240,11 +240,10 @@ All defaults live in code so they can be changed in one place:
 | BBox annotation                                        | on, up to 20 boxes per run                                                                                                          | Settings panel; format in `src/lib/pipeline/schemas/bboxAnnotation.ts`                 |
 | Block translations as a follow-up (JSON output)        | on                                                                                                                                  | Settings panel; `src/lib/pipeline/blockTranslate.ts`                                   |
 | Structured text in the original language (JSON output) | on demand (when viewed with "Show translation" off); always; never                                                                  | Settings panel; `src/lib/pipeline/pipeline.ts` (`structureOriginal()`)                 |
-| Glossary                                               | empty                                                                                                                               | Settings panel; `src/lib/pipeline/prompts.ts` (`parseGlossary()`)                      |
+| Glossary                                               | empty                                                                                                                               | Above the settings; `src/lib/pipeline/prompts.ts` (`parseGlossary()`)                  |
 | Long documents                                         | split above ~40k estimated tokens (`TRANSLATION_CHUNK_TOKENS`)                                                                      | `src/lib/pipeline/chunks.ts`                                                           |
 | Saved translations                                     | on, last 30                                                                                                                         | Settings panel; `src/lib/storage/history.ts`                                           |
 | Mistral / OpenAI retries                               | 2 with backoff, honouring `retry-after`                                                                                             | `src/lib/http/apiFetch.ts`                                                             |
-| Model prices for the estimate                          | Mistral Small 4, Claude Haiku/Sonnet/Opus 5.5                                                                                       | `src/lib/llm/pricing.ts`                                                               |
 | Pages to OCR                                           | all                                                                                                                                 | Document card (`src/lib/util/pageSelection.ts`)                                        |
 | Target / source language                               | English or German in one click, eight more in a dropdown / auto-detect                                                              | `src/lib/storage/settings.ts` (`TARGET_LANGUAGES`)                                     |
 | JSON format (JSON output)                              | inferred from document; built-in `patent_communication`; custom                                                                     | `src/lib/pipeline/schemas/`                                                            |
@@ -283,10 +282,13 @@ All defaults live in code so they can be changed in one place:
   example in the middle of a streamed translation) is reported straight away.
 - GPT-5.x and current Claude models do not accept a custom `temperature`;
   the app never sends one to OpenAI or Anthropic. The reasoning effort
-  defaults to `none` (OpenAI `reasoning_effort`; Anthropic
+  defaults to `none` (Mistral and OpenAI `reasoning_effort`; Anthropic
   `output_config.effort: "low"`, since Claude has no "none") for speed and
-  cost and can be raised in Settings. Claude's adaptive thinking stays on;
-  its thinking blocks are discarded.
+  cost and can be raised in Settings. Mistral documents `none` and `high`
+  for Mistral Small 4, so Settings offers those two for Mistral (`high`
+  makes the model think first; its thinking is discarded, like Claude's
+  adaptive thinking). A Mistral model that rejects the parameter is asked
+  again without it, and it is not sent to that model again in the session.
 - Anthropic's structured outputs carry no schema name and have no
   `json_object` mode: schema inference (and the last translation fallback)
   rely on the prompt and the app's JSON extraction. Only Claude models that
@@ -296,8 +298,6 @@ All defaults live in code so they can be changed in one place:
   Anthropic (the previous default provider) to Mistral, and Mistral Large
   (the previous Mistral default) to Mistral Small. Picking them again in
   Settings sticks; a browser that used OpenAI keeps it.
-- Mistral Small 4 accepts a reasoning effort, but the app sends none to
-  Mistral (as before), so the model's own default applies.
 - The API keys live in `localStorage` of this origin (or `sessionStorage`
   with "Remember keys" off). Anyone with access to the browser profile can
   read them.

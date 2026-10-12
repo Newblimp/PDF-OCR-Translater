@@ -147,6 +147,12 @@ export interface ChatCompletionRequest {
   random_seed?: number | null;
   response_format?: ResponseFormat;
   safe_prompt?: boolean;
+  /**
+   * Reasoning models (Mistral Small 4, Medium 3.5): "none" answers straight
+   * away, "high" thinks first (a thinking chunk ahead of the text). The values
+   * documented for `mistral-small-latest`. https://docs.mistral.ai/capabilities/reasoning
+   */
+  reasoning_effort?: "none" | "high";
 }
 
 export interface UsageInfo {

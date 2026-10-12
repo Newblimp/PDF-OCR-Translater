@@ -90,13 +90,17 @@ describe("providers map the generic request onto each API", () => {
     expect((body["messages"] as Array<{ role: string }>).map((m) => m.role)).toEqual(["system", "user"]);
   });
 
-  it("Mistral: strict json_schema, temperature, max_tokens, no reasoning_effort", async () => {
+  it("Mistral: strict json_schema, temperature, max_tokens, reasoning_effort", async () => {
     const { calls, fetchImpl } = capture();
     const provider = new MistralProvider(new MistralClient({ apiKey: "k", fetchImpl }));
     await provider.completeJson(request);
     const body = calls[0]!.body;
-    expect(body).toMatchObject({ temperature: 0.2, max_tokens: 1000, response_format: { type: "json_schema", json_schema: { strict: true } } });
-    expect(body).not.toHaveProperty("reasoning_effort");
+    expect(body).toMatchObject({
+      temperature: 0.2,
+      max_tokens: 1000,
+      reasoning_effort: "high", // "low" thinks: Mistral documents only "none" and "high"
+      response_format: { type: "json_schema", json_schema: { strict: true } },
+    });
   });
 
   it("Anthropic: structured outputs, effort, max_tokens, system prompt, base64 images, no temperature; text blocks only", async () => {

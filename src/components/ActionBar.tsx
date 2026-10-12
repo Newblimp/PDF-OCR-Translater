@@ -7,8 +7,6 @@ interface Props {
   canTranslate: boolean;
   translateSource: SourceOrigin | null;
   hasDocument: boolean;
-  /** Token/cost estimate of the translation, when one can be made. */
-  estimate: string | null;
   onRun: (kind: "ocr" | "translate" | "both") => void;
   onCancel: () => void;
 }
@@ -20,7 +18,7 @@ const SOURCE_LABEL = {
   saved: "Translates the source text of the reopened translation again.",
 } as const;
 
-export const ActionBar = memo(function ActionBar({ running, canOcr, canTranslate, translateSource, hasDocument, estimate, onRun, onCancel }: Props) {
+export const ActionBar = memo(function ActionBar({ running, canOcr, canTranslate, translateSource, hasDocument, onRun, onCancel }: Props) {
   const translateHint = translateSource
     ? SOURCE_LABEL[translateSource]
     : hasDocument
@@ -47,7 +45,6 @@ export const ActionBar = memo(function ActionBar({ running, canOcr, canTranslate
         )}
       </div>
       {(hasDocument || translateSource) && !running && <p class="muted small">{translateHint}</p>}
-      {estimate && !running && <p class="muted small estimate">{estimate}</p>}
     </div>
   );
 });

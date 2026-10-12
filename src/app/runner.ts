@@ -5,7 +5,7 @@
  */
 import { ApiError } from "@/lib/http/apiError";
 import { addUsage, emptyUsage, type ProviderId } from "@/lib/llm/provider";
-import { createProvider, PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
+import { createProvider, effortFor, PROVIDER_IDS, PROVIDERS } from "@/lib/llm/registry";
 import { MistralClient } from "@/lib/mistral/client";
 import { classifyFile } from "@/lib/files/fileKind";
 import { fileToDataUrl } from "@/lib/files/dataUrl";
@@ -945,7 +945,7 @@ function toPipelineSettings(settings: Settings): PipelineSettings | { error: Non
     schemaMode,
     streaming: settings.streaming,
     temperature: settings.temperature,
-    reasoningEffort: info.supportsReasoningEffort ? settings.reasoningEffort : undefined,
+    reasoningEffort: info.supportsReasoningEffort ? effortFor(settings.provider, settings.reasoningEffort) : undefined,
     maxOutputTokens: settings.maxOutputTokens ?? undefined,
     sendImages: settings.sendImages,
     bboxAnnotations: settings.bboxAnnotations,

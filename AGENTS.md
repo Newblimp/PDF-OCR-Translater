@@ -74,6 +74,9 @@ src/
     ResultsPanel.tsx           the result tabs (which are available), structured text, JSON format, raw JSON
     OcrView.tsx                OCR text tab: blocks filtered by type and one by one, PDF beside it (block picking), page layout
     resultControls.tsx         download, clipboard, "Show translation" switch, token usage (shared by the views)
+    QuickOptions.tsx           above the settings: target language (English / German) and glossary
+    DraftText.tsx              text input that commits on blur / Enter (settings, glossary)
+    SideRail.tsx               the side panel folded into a rail (running job, error)
     useFitText.ts              "Match page layout": text sized to fill each block's box (cqw units, fitted once per content)
     blockColors.ts             colour per OCR block type (bounding-box view, OCR text view)
     BboxView.tsx               bounding boxes drawn over the rendered page
@@ -90,7 +93,6 @@ src/
     llm/
       provider.ts              ChatProvider interface (JSON completions), token usage helpers
       content.ts               user message order shared by the providers: context, images, task
-      pricing.ts               list prices for the cost estimate
       anthropicProvider.ts     Anthropic implementation (Claude Haiku 5.5)
       openaiProvider.ts        OpenAI implementation (GPT Luna)
       mistralProvider.ts       Mistral implementation (Mistral Small, the default)
@@ -123,7 +125,6 @@ src/
       pipeline.ts              the stages: ocrOnly, resolveSchema, describeBboxes, translateDocument,
                                structureOriginal, blockTranslations (composed by app/runner.ts);
                                PipelineSettings.structured = JSON output
-      estimate.ts              token / cost estimate shown before a run
       events.ts                progress events shared by the steps
     export/bilingual.ts        bilingual HTML export (translation next to the original)
     markdown.ts                lazy marked + DOMPurify renderers (app view; export without remote resources)
@@ -317,12 +318,10 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   ids — so a model id stored earlier appears as a "(custom)" entry.
   When a default model or the default provider changes, append the old
   default to `DEFAULT_MIGRATIONS` in `src/lib/storage/settings.ts` so saved
-  choices move over once (and price the new default in `pricing.ts`).
+  choices move over once.
 - **More target languages**: extend `TARGET_LANGUAGES` in
   `src/lib/storage/settings.ts`; the dropdown renders from it and
   `QUICK_TARGET_LANGUAGES` picks the one-click buttons.
-- **Prices for the estimate**: `src/lib/llm/pricing.ts`; models without an
-  entry get a token estimate only.
 - **Theme / visual style**: shared with github.com/Newblimp/refcheck (Gruvbox
   dark default, warm high-contrast light, system font stacks, orange accent,
   uppercase letter-spaced section labels, dot chips). Tokens keep refcheck's
@@ -345,7 +344,11 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `toAppError()`.
 - OpenAI GPT-5.x and current Claude models reject `temperature`; those
   providers never send it. The reasoning effort is sent only to providers
-  that support it (Anthropic maps "none" to `output_config.effort: "low"`).
+  that support it, offered per provider (`ProviderInfo.reasoningEfforts`,
+  `effortFor()`): Anthropic maps "none" to `output_config.effort: "low"`;
+  Mistral takes "none" or "high" (the others map to "high"), and
+  `MistralProvider` resends a rejected request without it and stops sending
+  it to that model for the session.
 - The Anthropic provider streams with `messages.stream()` (text deltas via
   `on("text")`, result from `finalMessage()`), reads only `text` blocks
   (adaptive thinking adds `thinking` blocks first), maps `stop_reason` onto
@@ -363,8 +366,10 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   defeats `memo()` and re-renders the subtree on every streaming update.
 - Page images and previews are object URLs: whoever creates one revokes it
   (`releaseDocument()` in the runner, `dispose()` in `pageRenderCache.ts`).
-- Settings text inputs use `DraftText` (commit on blur/Enter) so unrelated
-  re-renders do not clobber typing.
+- Settings text inputs use `DraftText` (`components/DraftText.tsx`, commit
+  on blur/Enter) so unrelated re-renders do not clobber typing. The target
+  language buttons and the glossary live in `QuickOptions` above the
+  settings (which start closed); Settings keeps the full language dropdown.
 - `public/theme-init.js` applies the saved theme before the first paint; it
   reads the same localStorage key as `storage/settings.ts` (keep in sync).
 - Anything reaching the DOM from the model goes through `MarkdownText`
