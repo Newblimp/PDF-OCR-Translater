@@ -306,7 +306,7 @@ const TextPage = memo(function TextPage({
   const untranslatable = !!translations && blocks.length > 0 && blocks.every((b) => b.wholePage);
   return (
     <section class={`ocr-page${sheet ? " ocr-page-layout" : ""}`} id={`ocr-page-${page.index + 1}`} data-page={page.index}>
-      <h3 class="ocr-page-title muted small">Page {page.index + 1}</h3>
+      <h3 class="ocr-page-title">Page {page.index + 1}</h3>
       {untranslatable ? (
         <p class="muted small">The OCR API returned no text blocks for this page, so it cannot be shown translated.</p>
       ) : (
@@ -453,7 +453,7 @@ const PdfPages = memo(function PdfPages({
         const error = errors[page.index];
         return (
           <section class="ocr-pdf-page" key={page.index} data-page={page.index}>
-            <h3 class="ocr-page-title muted small">Page {page.index + 1}</h3>
+            <h3 class="ocr-page-title">Page {page.index + 1}</h3>
             <div class="ocr-pdf-sheet" style={`aspect-ratio:${page.width ?? 1000}/${page.height ?? 1414}`}>
               {url ? (
                 <img src={url} alt={`Page ${page.index + 1}`} />

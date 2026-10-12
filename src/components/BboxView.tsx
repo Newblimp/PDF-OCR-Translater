@@ -180,7 +180,7 @@ function BlockDetails({ block, translation, hasTranslations }: { block: OcrBlock
       <p class="muted small">
         ({block.top_left_x}, {block.top_left_y}) – ({block.bottom_right_x}, {block.bottom_right_y}) px
       </p>
-      <h4 class="small muted">Translation</h4>
+      <h4>Translation</h4>
       {translation ? (
         <div class="block-translation">
           <MarkdownText text={translation} markdown={true} />
@@ -190,7 +190,7 @@ function BlockDetails({ block, translation, hasTranslations }: { block: OcrBlock
           {hasTranslations ? "No translation was returned for this block." : "Not translated yet: run OCR + Translate (or Translate only)."}
         </p>
       )}
-      <h4 class="small muted">Original</h4>
+      <h4>Original</h4>
       <pre class="text-preview">{block.content || "(no text)"}</pre>
     </div>
   );

@@ -88,9 +88,6 @@ h3 {
   font-size: 13px;
 }
 h4 {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--text-muted);
 }
 p {
@@ -113,6 +110,28 @@ kbd {
 }
 .error-text {
   color: var(--bare);
+}
+/*
+ * Section labels, as refcheck's pane titles: small, uppercase, letter-spaced,
+ * one style everywhere. Their colour gives the level (muted for section
+ * titles, dim for field labels and inactive tabs), set by each rule.
+ */
+h4,
+.side-panel-title,
+.side-rail-label,
+.settings > summary > span:first-child,
+.history > summary > span:first-child,
+.field > span:first-child,
+.field > legend,
+.job-status h2,
+.tab,
+.value-table th,
+.ocr-page-title,
+.bbox-annotation dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 /* Thin scrollbars everywhere, as in refcheck. */
@@ -265,10 +284,6 @@ kbd {
   border-bottom: 1px solid var(--border);
 }
 .side-panel-title {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--text-muted);
 }
 .side-panel-collapse {
@@ -307,10 +322,6 @@ kbd {
 }
 .side-rail-label {
   writing-mode: vertical-rl;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 .side-rail-busy {
   display: grid;
@@ -724,10 +735,6 @@ input[aria-invalid="true"] {
 }
 .settings > summary > span:first-child,
 .history > summary > span:first-child {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
   color: var(--text-muted);
 }
 .settings > summary > span:first-child::before,
@@ -760,10 +767,6 @@ input[aria-invalid="true"] {
 }
 .field > span:first-child,
 .field > legend {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--text-dim);
 }
 .field-wide {
@@ -823,9 +826,6 @@ input[aria-invalid="true"] {
 
 /* --------------------------------------------------------------- job status */
 .job-status h2 {
-  font-size: 11px;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
   color: var(--text-muted);
 }
 .stage-list {
@@ -993,10 +993,6 @@ input[aria-invalid="true"] {
   border-bottom: 2px solid transparent;
   padding: 10px 10px 8px;
   font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--text-dim);
   cursor: pointer;
   white-space: nowrap;
@@ -1543,11 +1539,7 @@ input[aria-invalid="true"] {
   vertical-align: top;
 }
 .value-table th {
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--text-dim);
-  font-weight: 600;
 }
 .long-text-collapsed .prose {
   position: relative;
@@ -1664,10 +1656,6 @@ input[aria-invalid="true"] {
 }
 .ocr-page-title {
   margin-bottom: 4px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--text-dim);
 }
 
@@ -2041,9 +2029,6 @@ input[aria-invalid="true"] {
   font-size: 12.5px;
 }
 .bbox-annotation dt {
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--text-dim);
   margin-top: 6px;
 }
