@@ -281,8 +281,9 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   and restored with it; the reducer carries the blocks left out one by one
   over to the edited pages.
 - **OCR text view** (`OcrView.tsx`): renders `blocks.pageBlocks()` (a page
-  without blocks is one stand-in block of its Markdown), so filters work on
-  both languages. Block types are switched off in `Settings.ocrHiddenTypes`;
+  without blocks is one stand-in block of its Markdown, id `${page}:page`,
+  translated like any other: `textBlocks()` derives from `pageBlocks()`),
+  so filters work on both languages. Block types are switched off in `Settings.ocrHiddenTypes`;
   single blocks in `AppState.blockSelection`, which belongs to the `pages`
   array it was picked on (`excludedBlocks(state, pages)`; other pages start
   with none, so no reset rules are needed). Copy and download use
