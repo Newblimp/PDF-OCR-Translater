@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockTypeCounts, filteredText, pageBlocks, shownTextBlockIds, textPages, type BlockFilter } from "./blocks";
+import { blockTypeCounts, filteredText, pageBlocks, shownTextBlockIds, textBlocks, textPages, type BlockFilter } from "./blocks";
 import type { OcrCleanPage } from "./ocrText";
 
 function page(index: number, blocks: Array<{ type: string; content: string; image_id?: string }>, markdown = ""): OcrCleanPage {
@@ -51,6 +51,14 @@ describe("filters", () => {
   it("leaves out hidden block types and single blocks from the blocks to translate", () => {
     expect([...shownTextBlockIds(pages, filter())]).toEqual(["0:0", "0:1", "0:4", "2:0"]);
     expect([...shownTextBlockIds(pages, filter(["header"], ["2:0"]))]).toEqual(["0:1", "0:4"]);
+  });
+
+  it("translates a page the OCR returned without blocks as one block, so its text is not lost", () => {
+    const bare = { ...page(3, []), markdown: "# Page\n\ntext" };
+    expect(textBlocks(bare)).toEqual([{ id: "3:page", text: "# Page\n\ntext" }]);
+    expect([...shownTextBlockIds([...pages, bare], filter(["header"], ["2:0"]))]).toEqual(["0:1", "0:4", "3:page"]);
+    expect(filteredText([bare], filter(), { "3:page": "# Seite\n\nText" })).toBe("# Seite\n\nText");
+    expect(textBlocks({ ...page(4, []), markdown: "  " })).toEqual([]);
   });
 
   it("counts the block types in a stable order", () => {

@@ -19,7 +19,7 @@ export interface ViewBlock {
   imageId: string | null;
   /** Pixel box in the page image; null when unknown (text input, a page without blocks). */
   box: { x0: number; y0: number; x1: number; y1: number } | null;
-  /** Stand-in for a page the OCR API returned no blocks for: its whole Markdown, which has no block translation. */
+  /** Stand-in for a page the OCR API returned no blocks for: its whole Markdown, translated as one block. */
   wholePage: boolean;
 }
 
@@ -59,15 +59,13 @@ export function pageBlocks(page: OcrCleanPage): ViewBlock[] {
   return out;
 }
 
-/** The blocks of a page that carry text, with the ids used for their translations. */
+/**
+ * The blocks of a page that carry text, with the ids used for their
+ * translations: every block but the images, including the stand-in for a
+ * page without blocks, so no text the OCR returned goes untranslated.
+ */
 export function textBlocks(page: OcrCleanPage): Array<{ id: string; text: string }> {
-  const items: Array<{ id: string; text: string }> = [];
-  page.blocks.forEach((block, i) => {
-    const text = block.content?.trim();
-    if (!text || block.type === "image") return;
-    items.push({ id: pageBlockId(page, i), text });
-  });
-  return items;
+  return pageBlocks(page).flatMap((b) => (b.type === "image" ? [] : [{ id: b.id, text: b.text }]));
 }
 
 export function isShown(block: Pick<ViewBlock, "id" | "type">, filter: BlockFilter): boolean {
@@ -79,7 +77,7 @@ export function shownTextBlockIds(pages: readonly OcrCleanPage[], filter: BlockF
   const ids = new Set<string>();
   for (const page of pages) {
     // The same blocks as `textBlocks()`: every non-image block with text.
-    for (const b of pageBlocks(page)) if (b.type !== "image" && !b.wholePage && isShown(b, filter)) ids.add(b.id);
+    for (const b of pageBlocks(page)) if (b.type !== "image" && isShown(b, filter)) ids.add(b.id);
   }
   return ids;
 }

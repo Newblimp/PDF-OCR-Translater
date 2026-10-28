@@ -7,6 +7,7 @@ import {
   makePdf,
   MISTRAL_KEY,
   mockApis,
+  OCR_PAGE,
   OPENAI_KEY,
   REGION_TEXT,
   systemPrompt,
@@ -1047,6 +1048,27 @@ test("without the JSON output the OCR text is translated block by block: no JSON
   await expect(page.getByLabel("Stream the translation (shows progress while it is generated)")).toBeVisible();
   // This translation filled no JSON format, so the JSON tabs stay away.
   await expect(page.getByRole("tab", { name: "Structured text" })).toHaveCount(0);
+});
+
+test("a page the OCR returns without blocks is translated as one block", async ({ page }) => {
+  const { recorded } = await setup(page);
+  await enterMistralKey(page);
+  // An OCR model or request without paragraph blocks: only the page Markdown.
+  await page.route("https://api.mistral.ai/v1/ocr", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ model: "mistral-ocr-latest", pages: [{ ...OCR_PAGE, blocks: [] }], usage_info: { pages_processed: 1, doc_size_bytes: 1234 } }),
+    }),
+  );
+  await loadPdf(page);
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden({ timeout: 20_000 });
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".ocr-page")).toContainText("[EN] # 第一次审查意见通知书");
+  await expect(page.locator(".ocr-block-untranslated")).toHaveCount(0);
+  const sent = JSON.stringify(chatRequests(recorded).find((c) => step(c) === "block_translations")!.body);
+  expect(sent).toContain("0:page");
 });
 
 test("block types and single blocks are left out of the OCR text (picked on the PDF), and the page layout can be matched", async ({ page }) => {
