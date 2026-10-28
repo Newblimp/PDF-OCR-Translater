@@ -42,7 +42,7 @@ import {
   verifyAndSaveApiKey,
   type Runtime,
 } from "./runner";
-import { canRunOcr, missingKeys, requiredProviders, selectSourceText, type Action, type AppState, type ResultTab } from "./store";
+import { hasOcrDocument, missingKeys, primaryAction, requiredProviders, type Action, type AppState, type ResultTab } from "./store";
 
 /** `store` holds the state the app renders; `runtime` is the runner's way to it (the same store), made once in `main.tsx`. */
 export function App({ store, runtime: rt }: { store: Store<AppState, Action>; runtime: Runtime }) {
@@ -119,8 +119,7 @@ export function App({ store, runtime: rt }: { store: Store<AppState, Action>; ru
   // The arrangement of the result tabs is kept for the next visit.
   useEffect(() => saveDockLayout(state.resultLayout), [state.resultLayout]);
 
-  const sourceText = selectSourceText(state);
-  const ocrPossible = canRunOcr(state);
+  const primary = primaryAction(state);
   const busy = !!state.job;
   const collapsed = state.settings.sidePanelCollapsed;
 
@@ -161,10 +160,10 @@ export function App({ store, runtime: rt }: { store: Store<AppState, Action>; ru
 
             <ActionBar
               running={state.job?.kind ?? null}
-              canOcr={ocrPossible}
-              canTranslate={!busy && !!sourceText}
-              translateSource={sourceText?.origin ?? null}
-              hasDocument={!!state.doc || state.pasteMode}
+              primary={primary?.kind ?? null}
+              reusesOcr={primary?.kind === "both" && primary.reusesOcr}
+              translateSource={primary?.kind === "translate" ? primary.origin : null}
+              ocrDocument={hasOcrDocument(state)}
               onRun={on.run}
               onCancel={on.cancel}
             />

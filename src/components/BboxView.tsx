@@ -186,9 +186,7 @@ function BlockDetails({ block, translation, hasTranslations }: { block: OcrBlock
           <MarkdownText text={translation} markdown={true} />
         </div>
       ) : (
-        <p class="muted small">
-          {hasTranslations ? "No translation was returned for this block." : "Not translated yet: run OCR + Translate (or Translate only)."}
-        </p>
+        <p class="muted small">{hasTranslations ? "No translation was returned for this block." : "Not translated yet: press Translate."}</p>
       )}
       <h4>Original</h4>
       <pre class="text-preview">{block.content || "(no text)"}</pre>
@@ -224,7 +222,7 @@ function BboxDetails({ bbox, annotation }: { bbox: OcrBbox; annotation: BboxAnno
       ) : annotation?.error ? (
         <p class="error-text small">Description failed: {annotation.error}</p>
       ) : (
-        <p class="muted small">Not described by the vision model (run OCR + Translate, or enable bounding-box annotation in Settings).</p>
+        <p class="muted small">Not described by the vision model (press Translate, or enable bounding-box descriptions in Settings).</p>
       )}
     </div>
   );

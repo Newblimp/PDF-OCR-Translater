@@ -30,17 +30,16 @@ anywhere else.
 1. **Drop or pick a file** — PDF, PNG/JPEG/WebP (OCR), or `.txt`/`.md`
    (translation only). A preview of the first pages is rendered locally with
    pdf.js.
-2. **Choose an action**
-   - **OCR + Translate** — full pipeline.
-   - **OCR only** — get the Markdown text of the document.
-   - **Translate only** — translate the OCR text of the loaded file (this
-     session's result or the local cache), a dropped text file, or pasted text.
+2. **Press Translate** — one button: a PDF or an image is read by Mistral
+   OCR first, then translated; a text file or pasted text is translated
+   directly. An OCR result already loaded for the same file, model and pages
+   (this session's, or the local cache's) is reused instead of paying for
+   OCR again; the line under the button says which. **OCR only** beside it
+   gets the Markdown text of the document without translating it.
 
    Below the buttons, the **target language** (English or German in one
    click; the other languages are in Settings) and the **glossary** are
-   always at hand; the settings start closed. "OCR + Translate" reuses an OCR result that
-   is already loaded for the same file, model and pages instead of paying for
-   OCR again.
+   always at hand; the settings start closed.
 
 3. **OCR** runs on `mistral-ocr-latest` with `extract_header` /
    `extract_footer` on, `include_image_base64` (the extracted bounding boxes

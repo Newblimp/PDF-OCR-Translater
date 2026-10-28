@@ -7,6 +7,7 @@ import {
   makeOcrState,
   missingKeys,
   ocrBelongsTo,
+  primaryAction,
   reducer,
   requiredProviders,
   restoredTranslation,
@@ -15,6 +16,7 @@ import {
   translationDefaults,
   usableKey,
   type AppState,
+  type DocState,
   type OcrState,
   type TranslationState,
 } from "./store";
@@ -292,6 +294,59 @@ describe("box edits", () => {
     expect(ocrBelongsTo(edited, translationFixture({ sourceText: "丙", ocrFingerprint: "other" }))).toBe(false);
     // Saved before translations remembered the OCR result: by the text as returned.
     expect(ocrBelongsTo(edited, translationFixture({ sourceText: "甲\n\n乙", ocrFingerprint: null }))).toBe(true);
+  });
+});
+
+describe("the main action", () => {
+  const pdf = (patch: Partial<DocState> = {}): DocState => ({
+    id: "d",
+    file: new File([], "a.pdf"),
+    name: "a.pdf",
+    size: 1,
+    kind: "pdf",
+    mimeType: "application/pdf",
+    hash: null,
+    pageCount: 3,
+    previews: [],
+    previewStatus: "ready",
+    previewError: null,
+    textContent: null,
+    pageSelection: "",
+    ...patch,
+  });
+  const ocrOf = (requestKey: string, docId = "d"): OcrState =>
+    makeOcrState({
+      source: "api",
+      model: "mistral-ocr-latest",
+      response: { model: "m", pages: [], usage_info: { pages_processed: 0 } },
+      base: { text: "源文本", pages: [], bboxes: [], pagesProcessed: 0, chars: 3 },
+      docId,
+      requestKey,
+      cacheKey: null,
+    });
+
+  it("OCRs a PDF before translating it, reusing its OCR result for the same model and pages", () => {
+    let state = initialState({ anthropic: null, mistral: "m", openai: null }, DEFAULT_SETTINGS);
+    expect(primaryAction(state)).toBeNull();
+    state = reducer(state, { type: "doc/set", doc: pdf() });
+    expect(primaryAction(state)).toEqual({ kind: "both", reusesOcr: false });
+    state = reducer(state, { type: "ocr/set", ocr: ocrOf("mistral-ocr-latest|all") });
+    expect(primaryAction(state)).toEqual({ kind: "both", reusesOcr: true });
+    // Other pages, or a page selection that does not parse: OCR again.
+    state = reducer(state, { type: "doc/patch", id: "d", patch: { pageSelection: "1-2" } });
+    expect(primaryAction(state)).toEqual({ kind: "both", reusesOcr: false });
+    state = reducer(state, { type: "doc/patch", id: "d", patch: { pageSelection: "9" } });
+    expect(primaryAction(state)).toEqual({ kind: "both", reusesOcr: false });
+  });
+
+  it("translates the text at hand without a PDF or image", () => {
+    let state = initialState({ anthropic: null, mistral: "m", openai: null }, DEFAULT_SETTINGS);
+    state = reducer(state, { type: "paste/mode", enabled: true });
+    expect(primaryAction(state)).toBeNull();
+    state = reducer(state, { type: "paste/text", text: "你好" });
+    expect(primaryAction(state)).toEqual({ kind: "translate", origin: "pasted" });
+    state = reducer(state, { type: "doc/set", doc: pdf({ kind: "text", textContent: "文本", mimeType: "text/plain" }) });
+    expect(primaryAction(state)).toEqual({ kind: "translate", origin: "textfile" });
   });
 });
 

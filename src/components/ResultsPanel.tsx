@@ -109,7 +109,7 @@ export function ResultsPanel({ state, actions }: Props) {
         <h2>Results appear here</h2>
         <ol>
           <li>Drop a PDF (for example a CNIPA office action).</li>
-          <li>Choose “OCR + Translate”.</li>
+          <li>Press “Translate”.</li>
           <li>
             Browse the bounding boxes and the OCR text, original or translated block by block; leave out block types or single blocks.
             {settings.jsonOutput ? " The structured text fills a JSON format with the translation." : " Turn on “JSON output” in Settings for structured text."}

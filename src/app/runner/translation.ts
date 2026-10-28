@@ -1,6 +1,6 @@
 /**
- * The translation jobs: "OCR only", "Translate only" and "OCR + Translate"
- * (`runJob()`), with or without the JSON output, and the jobs that add to a
+ * The translation jobs: "OCR only", and "Translate" (`runJob()`: "both" OCRs
+ * the document first, "translate" translates the text at hand), with or without the JSON output, and the jobs that add to a
  * translation on screen: its structure in the original language and the
  * retries of what failed.
  */
@@ -86,7 +86,7 @@ export async function runJob(rt: Runtime, kind: "ocr" | "translate" | "both"): P
 
 /**
  * OCR the loaded document, or reuse the result already loaded for it with the
- * same model and pages (`reuse`, used by "OCR + Translate": no second charge).
+ * same model and pages (`reuse`, used by "Translate": no second charge).
  */
 async function runOcrStage(rt: Runtime, job: Job, doc: DocState, reuse: boolean): Promise<{ text: OcrText; cacheKey: string | null; fingerprint: string }> {
   const { ctx } = job;

@@ -539,8 +539,11 @@ h4,
   gap: 6px;
   align-items: center;
 }
-.action-bar .btn-row .btn {
+/* The one main action fills the row; "OCR only" sits beside it. */
+.action-bar .btn-wide {
   flex: 1 1 auto;
+  padding: 9px 14px;
+  font-size: 14px;
 }
 
 /* Segmented toggles (theme, language), the refcheck pill-toggle. */

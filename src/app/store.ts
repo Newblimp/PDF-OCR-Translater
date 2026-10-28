@@ -18,10 +18,12 @@ import type { FileKind } from "@/lib/files/fileKind";
 import type { SavedTranslationSummary, SourceKind } from "@/lib/storage/history";
 import type { Settings } from "@/lib/storage/settings";
 import { activateTab, moveTab, resizeSplit, singleGroup, type DockNode, type DockTarget } from "@/lib/util/dock";
+import { parsePageSelection } from "@/lib/util/pageSelection";
 import { textFingerprint } from "@/lib/util/text";
 
 /**
- * "ocr", "translate" and "both" are the three action buttons; "original" fills
+ * "ocr" is "OCR only"; "both" and "translate" are "Translate" (`primaryAction()`:
+ * with OCR first for a PDF or an image, or the text at hand); "original" fills
  * the JSON format in the document's own language on demand; "retry" re-runs
  * the bounding boxes or text blocks that failed.
  */
@@ -78,7 +80,7 @@ export interface OcrState {
   fingerprint: string;
   /** Document id the OCR belongs to. */
   docId: string;
-  /** OCR model and pages the result was requested with (`ocrRequestKey()`): "OCR + Translate" reuses a result with the same key. */
+  /** OCR model and pages the result was requested with (`ocrRequestKey()`): "Translate" reuses a result with the same key. */
   requestKey: string;
   /** Key of the result in this browser's OCR cache (null when the document hash is unknown). */
   cacheKey: string | null;
@@ -487,7 +489,7 @@ export function reducer(state: AppState, action: Action): AppState {
 
 export type SourceOrigin = "ocr" | "textfile" | "pasted" | "saved";
 
-/** Text that "Translate only" would use, and where it comes from. */
+/** The text a translation without OCR would use (`primaryAction()` "translate"), and where it comes from. */
 export function selectSourceText(state: AppState): { text: string; origin: SourceOrigin } | null {
   if (state.pasteMode) {
     const text = state.pastedText.trim();
@@ -526,5 +528,28 @@ export function selectTextPages(state: Pick<AppState, "ocr" | "translation">): {
 }
 
 export function canRunOcr(state: AppState): boolean {
-  return !state.job && !state.pasteMode && !!state.doc && (state.doc.kind === "pdf" || state.doc.kind === "image");
+  return !state.job && hasOcrDocument(state);
+}
+
+/** A PDF or an image is loaded (and the paste box is not open): there is something to OCR. */
+export function hasOcrDocument(state: Pick<AppState, "doc" | "pasteMode">): boolean {
+  return !state.pasteMode && !!state.doc && (state.doc.kind === "pdf" || state.doc.kind === "image");
+}
+
+/**
+ * What the one main button ("Translate") does now: OCR the loaded PDF or
+ * image and translate it ("both"; `reusesOcr` when its OCR result for these
+ * pages is already loaded, so no new OCR is paid for), or translate the text
+ * at hand ("translate": a text file, pasted text, a reopened translation);
+ * null when there is nothing to translate.
+ */
+export function primaryAction(state: AppState): { kind: "both"; reusesOcr: boolean } | { kind: "translate"; origin: SourceOrigin } | null {
+  const { doc, ocr, settings } = state;
+  if (doc && hasOcrDocument(state)) {
+    const selection = parsePageSelection(doc.pageSelection, doc.pageCount);
+    const reusesOcr = !selection.error && !!ocr && ocr.docId === doc.id && ocr.requestKey === ocrRequestKey(settings.ocrModel, selection.pages);
+    return { kind: "both", reusesOcr };
+  }
+  const source = selectSourceText(state);
+  return source ? { kind: "translate", origin: source.origin } : null;
 }

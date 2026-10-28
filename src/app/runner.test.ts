@@ -145,7 +145,7 @@ beforeEach(() => {
   localStorage.clear();
 });
 
-describe("OCR + Translate without the JSON output", () => {
+describe("Translate a PDF without the JSON output", () => {
   it("OCRs the document, translates the blocks the OCR text tab keeps, describes the boxes and saves the result", async () => {
     const store = loadedStore();
     const events = recordEvents(store);

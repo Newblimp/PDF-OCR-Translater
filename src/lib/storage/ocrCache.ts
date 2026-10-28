@@ -1,7 +1,7 @@
 /**
  * Local-only cache of OCR results in IndexedDB, keyed by the SHA-256 of the
- * file bytes, the OCR model and the selected pages. Lets "Translate only"
- * and "OCR + Translate" reuse an earlier OCR run without paying for it again,
+ * file bytes, the OCR model and the selected pages. Lets "Translate" reuse
+ * an earlier OCR run without paying for it again,
  * and survives page reloads. Nothing here leaves the browser.
  */
 import type { OcrResponse } from "../mistral/types";

@@ -3,7 +3,7 @@ import type { PipelineSettings } from "./pipeline";
 
 /** What a translation job is about to run, which decides the stages it lists (`translationStages()`). */
 export interface TranslationPlan {
-  /** The job OCRs the document first ("OCR + Translate"). */
+  /** The job OCRs the document first ("Translate" with a PDF or an image). */
   withOcr: boolean;
   /** The text comes with its OCR result: its bounding boxes can be described and its blocks translated. */
   withBoxes: boolean;

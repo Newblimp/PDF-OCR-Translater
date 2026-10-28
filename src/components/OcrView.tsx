@@ -229,7 +229,7 @@ export const OcrView = memo(function OcrView({
         <p class="muted small">
           {busy
             ? "The block translations are still being produced; the OCR text is shown in its original language."
-            : "No per-block translations for this text yet: run “OCR + Translate” (with the JSON output, keep “Translate each OCR text block” enabled in Settings)."}
+            : "No per-block translations for this text yet: press “Translate” (with the JSON output, keep “Translate each OCR text block” enabled in Settings)."}
           {!busy && canRetry && shownIds.size > 0 && (
             <>
               {" "}

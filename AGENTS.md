@@ -105,6 +105,7 @@ src/
     JsonViews.tsx              with JSON output: structured text, JSON format, raw JSON, the live stream view
     OcrView.tsx                OCR text tab: blocks filtered by type and one by one, PDF beside it (block picking), page layout
     resultControls.tsx         download, clipboard, "Show translation" switch, token usage (shared by the views)
+    ActionBar.tsx              the one main action, "Translate" (what it does: `primaryAction()` in the store), and "OCR only"
     QuickOptions.tsx           above the settings: target language (English / German) and glossary
     DraftText.tsx              text input that commits on blur / Enter (settings, glossary)
     Check.tsx                  a checkbox with its label (every switch in the toolbars and settings)

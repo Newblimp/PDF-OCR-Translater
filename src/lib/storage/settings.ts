@@ -45,7 +45,7 @@ export interface Settings {
   temperature: number;
   /** Every provider (Mistral offers "none" and "high"; Anthropic's lowest is "low"). "none", the default, keeps translation fast and cheap. */
   reasoningEffort: ReasoningEffort;
-  /** Cache OCR results in this browser (IndexedDB) so "Translate only" can reuse them. */
+  /** Cache OCR results in this browser (IndexedDB) so "Translate" can reuse them. */
   cacheOcr: boolean;
   theme: ThemeSetting;
   /** Optional ceiling for generated tokens per translation; null = provider default (model maximum). */

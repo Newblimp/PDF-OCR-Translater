@@ -137,7 +137,7 @@ test("OCR + translate: Mistral OCR, Claude Haiku 5.5 translation, browsable JSON
   await expect(page.getByText("1 page")).toBeVisible();
   await expect(page.locator(".preview-page img")).toHaveCount(1);
 
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
 
   // Browsable output.
@@ -241,7 +241,7 @@ test("sections collapse and expand individually, in bulk, and via the outline", 
   await setup(page, { json: true });
   await enterKeys(page);
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
 
   const summary = page.locator("#field-summary");
@@ -271,7 +271,7 @@ test("German toggle changes the target language of the next translation", async 
 
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("申请号：CN202310000001.2\n\n权利要求1不具备创造性。");
-  await page.getByRole("button", { name: "Translate only" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("Erster Prüfungsbescheid")).toBeVisible();
   await expect(page.locator(".toolbar")).toContainText("→ German");
@@ -293,7 +293,7 @@ test('the structured text and the OCR text follow one "Show translation" switch'
   await setup(page, { json: true });
   await enterKeys(page);
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
 
   // Translated by default.
@@ -370,7 +370,7 @@ test("Mistral is the default: one key, Mistral Small translates block by block, 
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
   await expect(page.getByText(/estimate|≈ \$/)).toHaveCount(0); // no cost hint
-  await page.getByRole("button", { name: "Translate only" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.locator(".ocr-page")).toContainText("[EN] 权利要求1不具备创造性。", { timeout: 20_000 });
   expect(recorded.every((r) => r.host === "api.mistral.ai")).toBe(true);
   const chats = chatRequests(recorded);
@@ -388,7 +388,7 @@ test("Mistral is the default: one key, Mistral Small translates block by block, 
   await expect(effort).toHaveValue("none");
   await expect(effort.locator("option")).toHaveText(["none (fastest)", "high"]);
   await effort.selectOption("high");
-  await page.getByRole("button", { name: "Translate only" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect.poll(() => chatRequests(recorded).length).toBe(2);
   expect(chatRequests(recorded)[1]!.body).toMatchObject({ reasoning_effort: "high" });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
@@ -447,7 +447,7 @@ test("with the JSON output, Mistral Small infers the JSON format and fills it", 
   await enterMistralKey(page);
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
-  await page.getByRole("button", { name: "Translate only" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".toolbar").first()).toContainText("Mistral · mistral-small-latest");
   const chats = chatRequests(recorded);
@@ -470,7 +470,7 @@ test("OpenAI (GPT Luna) can still be chosen as translation provider", async ({ p
 
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("权利要求1不具备创造性。");
-  await page.getByRole("button", { name: "Translate only" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".toolbar")).toContainText("OpenAI (GPT Luna) · gpt-6-luna");
   const chats = chatRequests(recorded);
@@ -490,7 +490,7 @@ test("bounding boxes are drawn over the page with the vision model's description
   await setup(page, { json: true });
   await enterKeys(page);
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".pipeline-strip")).toBeVisible();
 
@@ -578,7 +578,7 @@ test("fields can be hidden and shown individually and in bulk", async ({ page })
   await setup(page, { json: true });
   await enterKeys(page);
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".pipeline-strip")).toBeVisible();
   await expect(page.locator(".fields > .field-card")).toHaveCount(5);
@@ -606,7 +606,7 @@ test("the translation is shown live while it streams, even when another tab was 
   // "OCR only" leaves the OCR tab active; a following translation must still show its stream.
   await page.getByRole("button", { name: "OCR only" }).click();
   await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
-  await page.getByRole("button", { name: "Translate only" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
 
   // While the job is still running, partial output is visible and grows.
   const panel = page.locator(".stream-panel");
@@ -629,7 +629,7 @@ test("cancelling during streaming stops cleanly", async ({ page }) => {
   await setup(page, { json: true });
   await enterKeys(page);
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.locator(".stream-panel")).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
@@ -676,7 +676,7 @@ test("a failing follow-up step leaves a warning on the translation instead of fa
   await enterKeys(page);
   await failStep(page, "block_translations", 401);
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
   await expect(page.getByRole("alert")).toHaveCount(0);
@@ -690,7 +690,7 @@ test("blocks that came back without a translation can be retried", async ({ page
   await enterKeys(page);
   const failing = await failStep(page, "block_translations", 400, 1);
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
   // A later change of the target language does not leak into the retry: it runs in the translation's own language.
@@ -710,7 +710,7 @@ test("OCR + Translate reuses the OCR result already loaded, and results are kept
   await loadPdf(page);
   await page.getByRole("button", { name: "OCR only" }).click();
   await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
   expect(recorded.filter((r) => r.url.endsWith("/v1/ocr"))).toHaveLength(1);
@@ -738,7 +738,7 @@ test("OCR + Translate reuses the OCR result already loaded, and results are kept
   await history.getByRole("button", { name: "Open" }).click();
   await expect(page.getByText("The examiner finds claim 1 lacks inventive step.")).toBeVisible();
   await expect(page.getByRole("tab", { name: "OCR text" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Translate only" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Translate", exact: true })).toBeEnabled();
 });
 
 test("the glossary and other target languages reach the translation prompt", async ({ page }) => {
@@ -751,7 +751,7 @@ test("the glossary and other target languages reach the translation prompt", asy
   await expect(page.getByText("2 term(s) the translation must use.")).toBeVisible();
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("审查员认为权利要求1不具备创造性。");
-  await page.getByRole("button", { name: "Translate only" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   const translate = chatRequests(recorded).find((r) => step(r) === "translated_document")!.body!;
   expect(systemPrompt(translate)).toContain("Target language of the translation: French.");
@@ -781,7 +781,7 @@ test("the bilingual export holds the translation next to the original", async ({
   await setup(page, { json: true });
   await enterKeys(page);
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
   await translationSwitch(page).uncheck();
   await expect(page.locator(".fields")).toContainText("审查员认为权利要求1不具备创造性。", { timeout: 20_000 });
@@ -799,7 +799,7 @@ test("result tabs are arranged in split views by drag and drop, and the arrangem
   await setup(page, { json: true });
   await enterKeys(page);
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
   await expect(page.getByRole("tablist")).toHaveCount(1);
@@ -998,7 +998,7 @@ test("the side panel folds into a rail that shows a running job, and stays folde
   // The button that folds the panel is part of the panel, not of the header.
   await expect(page.locator("header").getByRole("button", { name: "Hide the side panel" })).toHaveCount(0);
   await page.getByRole("region", { name: "Input" }).getByRole("button", { name: "Hide the side panel" }).click();
-  await expect(page.getByRole("button", { name: "OCR + Translate" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Translate", exact: true })).toBeHidden();
   await expect.poll(async () => (await results.boundingBox())!.width).toBeGreaterThan(width + 200);
   const rail = page.locator(".side-rail");
   await expect(rail.getByRole("status")).toContainText("Running");
@@ -1018,7 +1018,7 @@ test("without the JSON output the OCR text is translated block by block: no JSON
   const { recorded, foreign } = await setup(page);
   await enterMistralKey(page);
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden({ timeout: 20_000 });
 
@@ -1062,7 +1062,7 @@ test("a page the OCR returns without blocks is translated as one block", async (
     }),
   );
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden({ timeout: 20_000 });
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.locator(".ocr-page")).toContainText("[EN] # 第一次审查意见通知书");
@@ -1107,7 +1107,7 @@ test("block types and single blocks are left out of the OCR text (picked on the 
   expect(markdown).toBe("第一次审查意见通知书\n\n权利要求1不具备创造性。");
 
   // Only what is in the text is translated.
-  await page.getByRole("button", { name: "Translate only" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(text).toContainText("[EN] 权利要求1不具备创造性。", { timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
   const first = JSON.stringify(chatRequests(recorded).find((c) => step(c) === "block_translations")!.body);
@@ -1144,7 +1144,7 @@ test("without the JSON output pasted text is translated paragraph by paragraph a
   await enterMistralKey(page);
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("申请号：CN202310000001.2\n\n权利要求1不具备创造性。");
-  await page.getByRole("button", { name: "Translate only" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
   const text = page.locator(".ocr-page");
   await expect(text).toContainText("[EN] 申请号：CN202310000001.2");
@@ -1234,7 +1234,7 @@ test("bounding boxes are edited by selection: cut (read again), made, deleted, u
   const { recorded } = await setup(page);
   await enterMistralKey(page);
   await loadPdf(page);
-  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden({ timeout: 20_000 });
   const text = page.locator(".ocr-pages");

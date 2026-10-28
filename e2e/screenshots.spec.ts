@@ -26,7 +26,7 @@ for (const [name, width] of [
       .setInputFiles({ name: "office-action.pdf", mimeType: "application/pdf", buffer: makePdf("Hello patent office") });
     await page.locator(".preview-page img").first().waitFor();
     await page.screenshot({ path: `${out}/${name}-3-loaded.png`, fullPage: true });
-    await page.getByRole("button", { name: "OCR + Translate" }).click();
+    await page.getByRole("button", { name: "Translate", exact: true }).click();
     await page.getByRole("tab", { name: "Structured text" }).waitFor();
     await page.locator(".field-card .prose table").waitFor();
     await page.screenshot({ path: `${out}/${name}-4-translation.png`, fullPage: true });
