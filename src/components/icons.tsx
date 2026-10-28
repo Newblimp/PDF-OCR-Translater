@@ -9,12 +9,11 @@ const stroke = {
 
 const DOC = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z";
 
+/** The favicon's magnifying glass (`public/favicon.svg`, same geometry), cropped to the glass and drawn in the accent colour. */
 export const LogoIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" {...stroke} aria-hidden="true">
-    <path d={DOC} />
-    <polyline points="14 2 14 8 20 8" />
-    <line x1="9" y1="13" x2="15" y2="13" />
-    <line x1="9" y1="17" x2="12" y2="17" />
+  <svg width="20" height="20" viewBox="4 4 16 16" {...stroke} stroke-width="1.6" aria-hidden="true">
+    <circle cx="10.75" cy="10.75" r="5.75" />
+    <line x1="14.85" y1="14.85" x2="19" y2="19" />
   </svg>
 );
 
