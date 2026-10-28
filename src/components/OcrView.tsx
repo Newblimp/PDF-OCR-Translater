@@ -12,6 +12,7 @@ import { copy, download, TranslationToggle, usageText } from "./resultControls";
 import type { ResultActions } from "./ResultsPanel";
 import { FIT_BLOCK, useFitText } from "./useFitText";
 import { useLinkedScroll } from "./useLinkedScroll";
+import { InfoPop } from "./InfoPop";
 import { Check } from "./Check";
 
 const NO_TRANSLATIONS: Record<string, string> = {};
@@ -115,12 +116,14 @@ export const OcrView = memo(function OcrView({
   );
   const setTypeShown = (type: string, shown: boolean) => actions.setOcrHiddenTypes(shown ? hiddenTypes.filter((t) => t !== type) : [...hiddenTypes, type]);
 
+  // In view: what is shown; behind the ⓘ: how it was made (models, sizes, tokens).
+  const summary = `${pages.length} page(s)${showTranslation && translation ? ` · translated into ${translation.targetLanguage}` : " · original language"}${ocr?.source === "cache" ? " · OCR from this browser's cache" : ""}`;
   const source = ocr
-    ? `${ocr.model} · ${ocr.text.pagesProcessed} page(s) · ${ocr.text.chars.toLocaleString()} characters (~${formatNumber(tokens)} tokens)${ocr.source === "cache" ? " · from local cache" : ""}${ocr.text.bboxes.length ? ` · ${ocr.text.bboxes.length} bounding box(es)` : ""}`
-    : `${translation?.sourceName ?? "Text"} · ${pages.length} page(s) · ${sourceText.length.toLocaleString()} characters (~${formatNumber(tokens)} tokens) · paragraphs as blocks`;
+    ? `OCR by ${ocr.model}: ${ocr.text.pagesProcessed} page(s), ${ocr.text.chars.toLocaleString()} characters (~${formatNumber(tokens)} tokens)${ocr.text.bboxes.length ? `, ${ocr.text.bboxes.length} figure(s)` : ""}.`
+    : `${translation?.sourceName ?? "Text"}: ${pages.length} page(s), ${sourceText.length.toLocaleString()} characters (~${formatNumber(tokens)} tokens), its paragraphs as blocks.`;
   const translatedBy =
     showTranslation && translation
-      ? ` · translated into ${translation.targetLanguage} per text block${translation.blockUsage ? ` (${usageText(translation.blockUsage)})` : ""}`
+      ? ` Translated into ${translation.targetLanguage} block by block by ${translation.model}${translation.blockUsage ? ` (${usageText(translation.blockUsage)})` : ""}.`
       : "";
 
   const textPages = (
@@ -144,8 +147,11 @@ export const OcrView = memo(function OcrView({
     <div class={`tab-panel${comparing ? " tab-panel-fill" : ""}`}>
       <div class="toolbar">
         <span class="muted small">
-          {source}
-          {translatedBy}
+          {summary}{" "}
+          <InfoPop label="How this text was made">
+            {source}
+            {translatedBy}
+          </InfoPop>
         </span>
         <div class="btn-row">
           <TranslationToggle show={wantTranslation} available={translationsAvailable} onShowTranslation={actions.setShowTranslation} />
@@ -200,8 +206,8 @@ export const OcrView = memo(function OcrView({
         </div>
       </div>
       {types.length > 0 && (
-        <div class="block-filter" role="group" aria-label="Blocks in the text">
-          <span class="muted small">Blocks in the text:</span>
+        <div class="block-filter" role="group" aria-label="Show in the text">
+          <span class="muted small">Show in the text:</span>
           {types.map(({ type, count }) => (
             <label key={type} class="block-chip small" style={`--box-color:${blockColor(type)}`}>
               <input
@@ -229,7 +235,7 @@ export const OcrView = memo(function OcrView({
         <p class="muted small">
           {busy
             ? "The block translations are still being produced; the OCR text is shown in its original language."
-            : "No per-block translations for this text yet: run “OCR + Translate” (with the JSON output, keep “Translate each OCR text block” enabled in Settings)."}
+            : "No per-block translations for this text yet: press “Translate” (with the JSON output, keep “Also translate each text block” on in Settings → Advanced)."}
           {!busy && canRetry && shownIds.size > 0 && (
             <>
               {" "}

@@ -1,6 +1,6 @@
 /**
- * The translation jobs: "OCR only", "Translate only" and "OCR + Translate"
- * (`runJob()`), with or without the JSON output, and the jobs that add to a
+ * The translation jobs: "OCR only", and "Translate" (`runJob()`: "both" OCRs
+ * the document first, "translate" translates the text at hand), with or without the JSON output, and the jobs that add to a
  * translation on screen: its structure in the original language and the
  * retries of what failed.
  */
@@ -64,7 +64,7 @@ export async function runJob(rt: Runtime, kind: "ocr" | "translate" | "both"): P
   const translateSource = kind === "translate" ? selectSourceText(state) : null;
   const withBoxes = kind === "both" || translateSource?.origin === "ocr";
   const stages: JobSpec["stages"] = kind === "ocr" ? ["prepare", "ocr"] : (settings) => translationStages({ settings, withOcr: kind === "both", withBoxes });
-  await withJob(rt, { kind, stages, needsChat: kind !== "ocr" }, async (job) => {
+  await withJob(rt, { kind, stages, needsChat: kind !== "ocr", again: () => runJob(rt, kind) }, async (job) => {
     let source: Source;
     if (kind === "translate") {
       if (!translateSource) throw new Error("Nothing to translate: run OCR first, drop a text file, or paste text.");
@@ -86,7 +86,7 @@ export async function runJob(rt: Runtime, kind: "ocr" | "translate" | "both"): P
 
 /**
  * OCR the loaded document, or reuse the result already loaded for it with the
- * same model and pages (`reuse`, used by "OCR + Translate": no second charge).
+ * same model and pages (`reuse`, used by "Translate": no second charge).
  */
 async function runOcrStage(rt: Runtime, job: Job, doc: DocState, reuse: boolean): Promise<{ text: OcrText; cacheKey: string | null; fingerprint: string }> {
   const { ctx } = job;
@@ -226,7 +226,7 @@ async function translateByBlocks(rt: Runtime, job: Job, source: Source): Promise
   const followUp = followUps(job, warnings);
   const pages = source.ocr?.pages ?? textPages(source.text);
   const onlyIds = shownTextBlockIds(pages, blockFilter(rt.getState(), pages));
-  if (!onlyIds.size) throw new Error("Nothing to translate: every text block is left out by the block filters of the OCR text tab.");
+  if (!onlyIds.size) throw new Error("Nothing to translate: every text block is left out by the block filters of the Text tab.");
 
   const bboxes = followUp("bbox_annotate", describeBboxes(ctx, source.ocr));
   void bboxes.catch(() => undefined); // awaited below; a failing translation must not leave it unhandled
@@ -316,7 +316,8 @@ export async function ensureOriginalStructure(rt: Runtime, force = false): Promi
   if (!t || !hasStructure(t) || state.job || hasOriginal(t) || state.settings.structureOriginal === "never") return;
   // Not by itself while an error is shown (an automatic job would also clear it), nor twice for one translation.
   if (!force && (rt.session.originalRequested.has(t.id) || state.error)) return;
-  await withJob(rt, { kind: "original", stages: ["structure_original"], needsChat: true, forTranslation: t }, async (job) => {
+  const again = () => ensureOriginalStructure(rt, true);
+  await withJob(rt, { kind: "original", stages: ["structure_original"], needsChat: true, forTranslation: t, again }, async (job) => {
     rt.session.originalRequested.add(t.id);
     const { structureOriginal } = await pipeline();
     const ocr = ocrOf(state, t);
@@ -347,7 +348,7 @@ export async function retryFailed(rt: Runtime, what: "bboxes" | "blocks"): Promi
       : new Set([...shownTextBlockIds(pages!, blockFilter(state, pages!))].filter((id) => !t.blockTranslations[id]?.trim()));
   if (!ids.size) return;
   const stages: StageId[] = [what === "bboxes" ? "bbox_annotate" : "block_translate"];
-  await withJob(rt, { kind: "retry", stages, needsChat: true, forTranslation: t }, async (job) => {
+  await withJob(rt, { kind: "retry", stages, needsChat: true, forTranslation: t, again: () => retryFailed(rt, what) }, async (job) => {
     const { blockTranslations, describeBboxes } = await pipeline();
     if (what === "bboxes") {
       const out = await describeBboxes(job.ctx, ocr, ids);

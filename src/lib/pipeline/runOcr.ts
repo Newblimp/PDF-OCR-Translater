@@ -83,12 +83,8 @@ export async function runOcr(client: OcrClient, input: OcrInput, options: RunOcr
 
   const text = buildOcrText(response);
   const withImages = text.bboxes.filter((b) => b.dataUrl).length;
-  emit(
-    onProgress,
-    "ocr",
-    "done",
-    `OCR finished: ${text.pagesProcessed} page(s), ${text.chars.toLocaleString()} characters, ${text.bboxes.length} bounding box(es)`,
-    { detail: text.bboxes.length && withImages < text.bboxes.length ? `${withImages} of them came with an image` : undefined },
-  );
+  emit(onProgress, "ocr", "done", `OCR finished: ${text.pagesProcessed} page(s), ${text.chars.toLocaleString()} characters, ${text.bboxes.length} figure(s)`, {
+    detail: text.bboxes.length && withImages < text.bboxes.length ? `${withImages} of them came with an image` : undefined,
+  });
   return { response, text };
 }

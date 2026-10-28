@@ -18,6 +18,8 @@ export interface Session {
   readonly deletedIds: Set<string>;
   /** Translations whose original-language structure was already requested or settled (it is not requested again automatically). */
   readonly originalRequested: Set<string>;
+  /** Runs the job that failed last again, as it was (the error's "Retry"); null when there is none to retry. */
+  retry: (() => Promise<void>) | null;
 }
 
 /** The runtime of a store (`main.tsx` makes the app's; a test makes one per case), with a fresh session. */
@@ -25,6 +27,6 @@ export function createRuntime(store: Pick<Runtime, "getState" | "dispatch">): Ru
   return {
     getState: store.getState,
     dispatch: store.dispatch,
-    session: { verifications: new Map(), openRequest: 0, deletedIds: new Set(), originalRequested: new Set() },
+    session: { verifications: new Map(), openRequest: 0, deletedIds: new Set(), originalRequested: new Set(), retry: null },
   };
 }

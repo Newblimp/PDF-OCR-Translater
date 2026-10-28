@@ -6,6 +6,8 @@ import { DraftText } from "./DraftText";
 interface Props {
   targetLanguage: TargetLanguage;
   glossary: string;
+  /** There is a translation: the glossary folds to a line with its term count (it opens again with a click). */
+  compact: boolean;
   onChange: (patch: Partial<Settings>) => void;
 }
 
@@ -14,7 +16,7 @@ interface Props {
  * language (English or German in one click; the others are in Settings) and
  * the glossary.
  */
-export const QuickOptions = memo(function QuickOptions({ targetLanguage, glossary, onChange }: Props) {
+export const QuickOptions = memo(function QuickOptions({ targetLanguage, glossary, compact, onChange }: Props) {
   const terms = parseGlossary(glossary).length;
   const quick = QUICK_TARGET_LANGUAGES.includes(targetLanguage);
   return (
@@ -42,8 +44,11 @@ export const QuickOptions = memo(function QuickOptions({ targetLanguage, glossar
           )}
         </div>
       </div>
-      <label class="field">
-        <span>Glossary (optional)</span>
+      <details class="field glossary-field" open={!compact}>
+        <summary>
+          <span>Glossary (optional)</span>
+          <span class="muted small">{terms ? `${terms} term(s)` : "none"}</span>
+        </summary>
         <DraftText
           rows={3}
           class="code-area"
@@ -56,7 +61,7 @@ export const QuickOptions = memo(function QuickOptions({ targetLanguage, glossar
         <span class="muted small">
           {terms ? `${terms} term(s) the translation must use.` : "Required translations of specific terms, sent with every translation call."}
         </span>
-      </label>
+      </details>
     </section>
   );
 });

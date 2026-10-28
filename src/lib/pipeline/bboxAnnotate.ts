@@ -69,11 +69,11 @@ export async function annotateBboxes(provider: ChatProvider, ocr: OcrText, optio
       onProgress,
       "bbox_annotate",
       "skipped",
-      candidates.length ? `${candidates.length} bounding box(es) skipped: the limit in Settings is 0` : "No bounding-box images to describe",
+      candidates.length ? `${candidates.length} figure(s) skipped: the limit in Settings is 0` : "No figures to describe",
     );
     return { annotations: [], usage, skipped };
   }
-  emit(onProgress, "bbox_annotate", "start", `Describing ${targets.length} bounding box(es) with ${options.model}`, {
+  emit(onProgress, "bbox_annotate", "start", `Describing ${targets.length} figure(s) with ${options.model}`, {
     detail: skipped ? `${skipped} more box(es) skipped (limit in Settings)` : undefined,
   });
 
@@ -111,7 +111,7 @@ export async function annotateBboxes(provider: ChatProvider, ocr: OcrText, optio
         if (isSystemic(err) || rateLimited >= RATE_LIMIT_FAILURES_BEFORE_STOP) systemic = slot.error;
       }
       done++;
-      emit(onProgress, "bbox_annotate", "progress", `Described ${done} of ${targets.length} bounding box(es)`);
+      emit(onProgress, "bbox_annotate", "progress", `Described ${done} of ${targets.length} figure(s)`);
     },
     () => systemic !== null,
   );
@@ -120,9 +120,9 @@ export async function annotateBboxes(provider: ChatProvider, ocr: OcrText, optio
     for (const a of annotations) if (!a.data && !a.error) a.error = `Skipped after a systematic error: ${systemic}`;
   }
   const failed = annotations.filter((a) => a.error).length;
-  emit(onProgress, "bbox_annotate", failed ? "warning" : "done", `${annotations.length - failed} of ${annotations.length} bounding box(es) described`, {
+  emit(onProgress, "bbox_annotate", failed ? "warning" : "done", `${annotations.length - failed} of ${annotations.length} figure(s) described`, {
     detail: failed ? `${failed} failed: ${annotations.find((a) => a.error)?.error ?? ""}` : undefined,
   });
-  if (failed) emit(onProgress, "bbox_annotate", "done", "Bounding-box descriptions finished");
+  if (failed) emit(onProgress, "bbox_annotate", "done", "Figure descriptions finished");
   return { annotations, usage, skipped };
 }

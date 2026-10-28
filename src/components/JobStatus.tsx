@@ -26,7 +26,7 @@ export function JobStatus({ job }: Props) {
   const elapsed = Math.max(0, Math.round((now - job.startedAt) / 1000));
 
   return (
-    <div class="card job-status" aria-live="polite">
+    <div class="card job-status" aria-live="polite" id="work-status">
       <div class="card-head">
         <h2>Working…</h2>
         <span class="muted">{elapsed}s</span>

@@ -132,11 +132,11 @@ export async function resolveSchema(ctx: PipelineContext, documentText: string):
 export async function describeBboxes(ctx: PipelineContext, ocr: OcrText | undefined, onlyIds?: ReadonlySet<string>): Promise<BboxAnnotateOutcome | null> {
   const { settings } = ctx;
   if (!ocr) {
-    emit(ctx.onProgress, "bbox_annotate", "skipped", "No bounding boxes (text input)");
+    emit(ctx.onProgress, "bbox_annotate", "skipped", "No figures (text input)");
     return null;
   }
   if (!settings.bboxAnnotations && !onlyIds) {
-    emit(ctx.onProgress, "bbox_annotate", "skipped", "Bounding-box descriptions disabled in Settings");
+    emit(ctx.onProgress, "bbox_annotate", "skipped", "Figure descriptions disabled in Settings");
     return null;
   }
   return annotateBboxes(ctx.chat, ocr, {

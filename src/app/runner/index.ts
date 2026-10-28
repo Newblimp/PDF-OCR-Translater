@@ -8,7 +8,7 @@ export { forgetApiKeys, submitApiKeys, verifyAndSaveApiKey } from "./keys";
 export { updateSettings } from "./settings";
 export { clearDocument, loadDocument, setPageSelection } from "./document";
 export { clearHistory, deleteSaved, openSavedTranslation, refreshHistory } from "./savedTranslations";
-export { cancelJob, toAppError } from "./jobs";
+export { cancelJob, retryLastJob, toAppError } from "./jobs";
 export { ensureOriginalStructure, retryFailed, runJob } from "./translation";
 export { editBoxes, resetBoxEdits, undoBoxEdit } from "./boxEdits";
 export { createRuntime, type Runtime } from "./runtime";

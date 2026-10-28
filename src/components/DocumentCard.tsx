@@ -1,5 +1,5 @@
 import { memo } from "preact/compat";
-import { useRef } from "preact/hooks";
+import { useRef, useState } from "preact/hooks";
 import { ACCEPT_ATTRIBUTE } from "@/lib/files/fileKind";
 import { formatBytes } from "@/lib/util/text";
 import { parsePageSelection } from "@/lib/util/pageSelection";
@@ -8,6 +8,8 @@ import type { DocState, OcrState } from "@/app/store";
 interface Props {
   doc: DocState;
   ocr: OcrState | null;
+  /** There is a result: the pages to OCR and the preview fold away (one click brings them back). */
+  compact: boolean;
   busy: boolean;
   onPageSelection: (text: string) => void;
   onReplace: (file: File) => void;
@@ -16,9 +18,11 @@ interface Props {
 
 const KIND_LABEL = { pdf: "PDF", image: "Image", text: "Text" } as const;
 
-export const DocumentCard = memo(function DocumentCard({ doc, ocr, busy, onPageSelection, onReplace, onRemove }: Props) {
+export const DocumentCard = memo(function DocumentCard({ doc, ocr, compact, busy, onPageSelection, onReplace, onRemove }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const selection = parsePageSelection(doc.pageSelection, doc.pageCount);
+  const [unfolded, setUnfolded] = useState(false);
+  const folded = compact && !unfolded;
   return (
     <div class="card document-card">
       <div class="card-head">
@@ -58,12 +62,18 @@ export const DocumentCard = memo(function DocumentCard({ doc, ocr, busy, onPageS
         {ocr && (
           <span class="badge badge-ok">
             {ocr.source === "cache" ? "OCR result from this browser's cache (reused, no new OCR charge)" : "OCR done"} · {ocr.text.pagesProcessed} page(s)
-            {ocr.text.bboxes.length ? ` · ${ocr.text.bboxes.length} bounding box(es)` : ""}
+            {ocr.text.bboxes.length ? ` · ${ocr.text.bboxes.length} figure(s)` : ""}
           </span>
         )}
       </div>
 
-      {doc.kind === "pdf" && (
+      {compact && (
+        <button type="button" class="btn btn-link small document-unfold" aria-expanded={!folded} onClick={() => setUnfolded(!unfolded)}>
+          {folded ? (doc.kind === "pdf" ? `Pages to OCR${selection.pages ? `: ${selection.text}` : ": all"} ▸` : "Preview ▸") : "Fold ▴"}
+        </button>
+      )}
+
+      {!folded && doc.kind === "pdf" && (
         <label class="field pages-field">
           <span>Pages to OCR</span>
           <input
@@ -84,7 +94,7 @@ export const DocumentCard = memo(function DocumentCard({ doc, ocr, busy, onPageS
         </label>
       )}
 
-      {doc.kind === "text" ? (
+      {folded ? null : doc.kind === "text" ? (
         <pre class="text-preview">
           {(doc.textContent ?? "").slice(0, 1500)}
           {(doc.textContent?.length ?? 0) > 1500 ? "\n…" : ""}

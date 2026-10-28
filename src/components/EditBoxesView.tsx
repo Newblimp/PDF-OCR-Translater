@@ -35,7 +35,7 @@ interface Props {
 }
 
 /**
- * "Edit bounding boxes": the OCR's blocks over the page. Drag a rectangle
+ * "Fix OCR": the OCR's blocks over the page. Drag a rectangle
  * (like a rectangular marquee) or click a block to select it, then cut the
  * area out of the blocks, make a block of it, delete blocks, or change a
  * block's type or text. The edits apply to every view and to the
@@ -135,7 +135,7 @@ export const EditBoxesView = memo(function EditBoxesView({ doc, ocr, busy, onEdi
   const editedPages = Object.keys(ocr.edits?.pages ?? {}).length;
 
   return (
-    <div class="tab-panel edit-boxes" tabIndex={0} onKeyDown={onKeyDown} aria-label="Edit bounding boxes">
+    <div class="tab-panel edit-boxes" tabIndex={0} onKeyDown={onKeyDown} aria-label="Fix OCR">
       <div class="toolbar">
         <div class="btn-row">
           <PageNav position={position} count={pages.length} onMove={setPosition}>

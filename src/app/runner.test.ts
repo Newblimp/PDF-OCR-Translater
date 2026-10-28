@@ -13,7 +13,7 @@ import { DEFAULT_SETTINGS, type Settings } from "@/lib/storage/settings";
 import type { ProgressEvent } from "@/lib/pipeline/events";
 import { createStore, type Store } from "@/lib/util/createStore";
 import { cancelJob, createRuntime, deleteSaved, retryFailed, runJob, type Runtime } from "./runner";
-import { withJob } from "./runner/jobs";
+import { retryLastJob, withJob } from "./runner/jobs";
 import { initialState, reducer, type Action, type AppState, type DocState, type TranslationState } from "./store";
 
 /** What the fake chat provider answers; a test replaces it to fail or hold a step. */
@@ -145,7 +145,7 @@ beforeEach(() => {
   localStorage.clear();
 });
 
-describe("OCR + Translate without the JSON output", () => {
+describe("Translate a PDF without the JSON output", () => {
   it("OCRs the document, translates the blocks the OCR text tab keeps, describes the boxes and saves the result", async () => {
     const store = loadedStore();
     const events = recordEvents(store);
@@ -299,5 +299,26 @@ describe("withJob", () => {
     await withJob(store, { ...spec, stages }, work);
     expect(ran).toBe(1);
     expect(store.getState()).toMatchObject({ job: null, keyDialogOpen: true });
+  });
+
+  it("offers to run a failed job again, as it was, and only that job", async () => {
+    const store = loadedStore();
+    let runs = 0;
+    const job = async () =>
+      withJob(store, { ...spec, stages, again: job }, async () => {
+        if (++runs === 1) throw new Error("not yet");
+      });
+    await job();
+    expect(store.getState().error).toMatchObject({ message: "not yet", retryable: true });
+    await retryLastJob(store);
+    expect(runs).toBe(2);
+    expect(store.getState().error).toBeNull();
+    await retryLastJob(store); // nothing left to retry
+    expect(runs).toBe(2);
+    // A job that cannot be repeated offers no retry.
+    await withJob(store, { ...spec, stages }, async () => {
+      throw new Error("once");
+    });
+    expect(store.getState().error).not.toHaveProperty("retryable");
   });
 });

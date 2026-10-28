@@ -17,7 +17,7 @@ export const PasteBox = memo(function PasteBox({ text, onChange, onClose }: Prop
       <textarea
         class="paste-area"
         rows={12}
-        placeholder="Paste the source text (Markdown is fine) and press “Translate only”."
+        placeholder="Paste the source text (Markdown is fine) and press “Translate”."
         value={text}
         onInput={(e) => onChange(e.currentTarget.value)}
       />

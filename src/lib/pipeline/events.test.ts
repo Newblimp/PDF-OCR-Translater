@@ -5,7 +5,7 @@ const settings: TranslationPlan["settings"] = { structured: false, bboxAnnotatio
 
 describe("translationStages", () => {
   it("lists the stages a translation runs, in the status card's order", () => {
-    // OCR + Translate, block by block (the default).
+    // Translate a PDF, block by block (the default).
     expect(translationStages({ settings, withOcr: true, withBoxes: true })).toEqual(["prepare", "ocr", "bbox_annotate", "block_translate"]);
     // Pasted text: nothing to OCR, no boxes; the blocks are its paragraphs.
     expect(translationStages({ settings, withOcr: false, withBoxes: false })).toEqual(["block_translate"]);

@@ -1,5 +1,5 @@
 /**
- * "Edit bounding boxes": deleting and changing blocks at once; cutting
+ * "Fix OCR": deleting and changing blocks at once; cutting
  * through text, making a block of a selection and reading a block again
  * send those areas to Mistral OCR (job "edit"). The edits are kept with the
  * OCR result (and in the OCR cache) and can be undone.
@@ -94,7 +94,7 @@ export async function editBoxes(rt: Runtime, edit: BoxEdit): Promise<void> {
     PAGE_RENDER_WIDTH,
   );
   const pageWidth = page.width;
-  await withJob(rt, { kind: "edit", stages: ["region_ocr"], needsChat: false }, async ({ ctx, controller }) => {
+  await withJob(rt, { kind: "edit", stages: ["region_ocr"], needsChat: false, again: () => editBoxes(rt, edit) }, async ({ ctx, controller }) => {
     const model = rt.getState().settings.ocrModel;
     const texts = new Map<string, string>();
     emit(

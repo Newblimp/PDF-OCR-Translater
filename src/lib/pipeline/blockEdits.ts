@@ -1,5 +1,5 @@
 /**
- * Edits of the OCR's blocks ("Edit bounding boxes"): the user deletes
+ * Edits of the OCR's blocks ("Fix OCR"): the user deletes
  * blocks, cuts a rectangle out of them (margin line numbers, stamps over
  * text), makes a block of a rectangle, or changes a block's type or text.
  *
@@ -41,7 +41,7 @@ export interface BlockEdits {
   next: number;
 }
 
-/** An edit of the blocks of one page ("Edit bounding boxes"; `runner.editBoxes()`); rectangles are in the OCR's page pixels. */
+/** An edit of the blocks of one page ("Fix OCR"; `runner.editBoxes()`); rectangles are in the OCR's page pixels. */
 export type BoxEdit =
   | { kind: "delete"; pageIndex: number; ids: string[] }
   | { kind: "change"; pageIndex: number; id: string; type: string; content: string }

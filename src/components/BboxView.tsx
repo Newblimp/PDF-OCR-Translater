@@ -5,10 +5,11 @@ import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
 import { pageBlockId, type OcrBbox, type OcrText } from "@/lib/pipeline/ocrText";
 import type { DocState } from "@/app/store";
 import { rectOf } from "@/lib/pipeline/blockEdits";
-import { blockColor, boxStyle, IMAGE_COLOR } from "./blockColors";
+import { blockColor, blockTypeLabel, boxStyle, IMAGE_COLOR } from "./blockColors";
 import { MarkdownText } from "./MarkdownText";
 import { usePageFirst, usePageRenderer, useRenderedPages } from "./pageImages";
 import { PageNav } from "./PageNav";
+import { InfoPop } from "./InfoPop";
 import { Check } from "./Check";
 
 interface Props {
@@ -65,20 +66,24 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
       <div class="toolbar">
         <div class="btn-row">
           <PageNav position={position} count={pages.length} onMove={setPosition}>
-            Page {pageIndex + 1} · {position + 1} of {pages.length} OCR'd page(s) · {pageBoxes.length} bounding box(es) · {pageBlocks.length} block(s)
+            Page {pageIndex + 1} · {position + 1} of {pages.length}
           </PageNav>
-          {doc?.kind === "pdf" && (
-            <span class="muted small" data-rendered-pages={renderedCount}>
-              {renderedCount}/{doc.pageCount ?? pages.length} page(s) rendered
-            </span>
-          )}
+          <InfoPop label="About this page">
+            {pageBoxes.length} figure(s) and {pageBlocks.length} block(s) on this page.
+            {doc?.kind === "pdf" && (
+              <span data-rendered-pages={renderedCount}>
+                {" "}
+                {renderedCount} of {doc.pageCount ?? pages.length} page(s) rendered so far.
+              </span>
+            )}
+          </InfoPop>
         </div>
         <div class="btn-row">
           <Check checked={showImages} onChange={setShowImages} small>
-            Image boxes (sent to the vision model)
+            Figures
           </Check>
           <Check checked={showBlocks} onChange={setShowBlocks} small>
-            Paragraph blocks
+            Text blocks
           </Check>
         </div>
       </div>
@@ -88,7 +93,7 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
           {blockTypes.map((t) => (
             <span key={t}>
               <span class="swatch" style={`--box-color:${blockColor(t)}`} />
-              {t}
+              {blockTypeLabel(t)}
             </span>
           ))}
         </div>
@@ -117,7 +122,7 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
                       class={`bbox-box${selected?.kind === "block" && selected.id === id ? " bbox-box-selected" : ""}`}
                       style={boxStyle(rectOf(block), width, height, blockColor(block.type))}
                       title={`${block.type}: ${block.content.slice(0, 80)}`}
-                      aria-label={`${block.type} block ${i + 1}${block.content ? `: ${block.content.slice(0, 60)}` : ""}`}
+                      aria-label={`${blockTypeLabel(block.type)} block ${i + 1}${block.content ? `: ${block.content.slice(0, 60)}` : ""}`}
                       onClick={() => setSelected({ kind: "block", block, id })}
                     />
                   );
@@ -151,7 +156,7 @@ export const BboxView = memo(function BboxView({ doc, ocr, annotations, blockTra
           )}
           {pageBoxes.length > 0 && (
             <div>
-              <h3 class="small muted">Image boxes on this page</h3>
+              <h3 class="small muted">Figures on this page</h3>
               <ul class="bbox-list">
                 {pageBoxes.map((bbox) => {
                   const a = annotationById.get(bbox.id);
@@ -186,9 +191,7 @@ function BlockDetails({ block, translation, hasTranslations }: { block: OcrBlock
           <MarkdownText text={translation} markdown={true} />
         </div>
       ) : (
-        <p class="muted small">
-          {hasTranslations ? "No translation was returned for this block." : "Not translated yet: run OCR + Translate (or Translate only)."}
-        </p>
+        <p class="muted small">{hasTranslations ? "No translation was returned for this block." : "Not translated yet: press Translate."}</p>
       )}
       <h4>Original</h4>
       <pre class="text-preview">{block.content || "(no text)"}</pre>
@@ -224,7 +227,7 @@ function BboxDetails({ bbox, annotation }: { bbox: OcrBbox; annotation: BboxAnno
       ) : annotation?.error ? (
         <p class="error-text small">Description failed: {annotation.error}</p>
       ) : (
-        <p class="muted small">Not described by the vision model (run OCR + Translate, or enable bounding-box annotation in Settings).</p>
+        <p class="muted small">Not described by the vision model (press Translate, or turn on figure descriptions in Settings → Advanced).</p>
       )}
     </div>
   );

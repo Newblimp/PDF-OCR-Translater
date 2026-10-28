@@ -98,13 +98,17 @@ src/
       jobs.ts                  what every job shares: withJob() (start, always end), cancelJob(), followUps(), Settings → PipelineSettings
       translation.ts           runJob() (OCR, translate, both; with or without the JSON output), the structure in the
                                original language, retries of failed parts
-      boxEdits.ts              "Edit bounding boxes": editBoxes(), undo, reset; edits kept with the cached OCR result
+      boxEdits.ts              "Fix OCR" (editing the boxes): editBoxes(), undo, reset; edits kept with the cached OCR result
   components/                  presentational Preact components (memoised; handlers come from App, created once)
     JsonBrowser/               browsable view of the translated JSON
-    ResultsPanel.tsx           the result tabs: which are available, and their views (loaded on first use, lazyView.tsx)
+    ResultsPanel.tsx           the main pane: the job's progress and error (with Retry) on top, then the result tabs and their
+                               views (loaded on first use, lazyView.tsx), or the document itself before there is a result
+    DocumentView.tsx           the loaded document, large, before there is a result (pages outside "Pages to OCR" dimmed)
+    JobBrief.tsx               one line under the actions for the job or error the main pane shows (narrow screens only)
     JsonViews.tsx              with JSON output: structured text, JSON format, raw JSON, the live stream view
-    OcrView.tsx                OCR text tab: blocks filtered by type and one by one, PDF beside it (block picking), page layout
+    OcrView.tsx                "Text" tab (the OCR text): blocks filtered by type and one by one, PDF beside it (block picking), page layout
     resultControls.tsx         download, clipboard, "Show translation" switch, token usage (shared by the views)
+    ActionBar.tsx              the one main action, "Translate" (what it does: `primaryAction()` in the store), and "OCR only"
     QuickOptions.tsx           above the settings: target language (English / German) and glossary
     DraftText.tsx              text input that commits on blur / Enter (settings, glossary)
     Check.tsx                  a checkbox with its label (every switch in the toolbars and settings)
@@ -113,7 +117,8 @@ src/
     useFitText.ts              "Match page layout": text sized to fill each block's box (cqw units, fitted once per content)
     blockColors.ts             colour per OCR block type; boxStyle() places a box over a page (in percent)
     BboxView.tsx               bounding boxes drawn over the rendered page
-    EditBoxesView.tsx          "Edit bounding boxes": marquee / click selection, cut, make a block, delete, change, undo
+    EditBoxesView.tsx          "Fix OCR": marquee / click selection, cut, make a block, delete, change, undo
+    InfoPop.tsx                "ⓘ": technical details (models, counts, tokens) on demand, next to a view's summary
     pageImages.ts              hooks: the document's page renderer, pages rendered so far (there on the first paint),
                                the page on screen rendered first
     useLinkedScroll.ts         scrolls two page columns together (OCR text beside the PDF)
@@ -214,8 +219,14 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `followUps()` (its stage must have `produces`) so its failure becomes a
   warning on the result rather than a failed job. Then surface results through a new field in `AppState` and a
   component.
+- **Settings** (`SettingsPanel.tsx`) come in three groups: Translation
+  (language, provider, model, document family hint), Advanced (folded by
+  default: reasoning effort, temperature, OCR model, figure descriptions,
+  the JSON output) and Privacy & storage (what this browser keeps: keys,
+  OCR results, translations). A new setting goes in the group its user
+  would look in; anything only a power user changes goes under Advanced.
 - **JSON output** (`Settings.jsonOutput`, off by default; the last option
-  in `SettingsPanel`, with every JSON-only setting under it):
+  of Settings → Advanced, with every JSON-only setting under it):
   `runner.runTranslation()` runs `translateByBlocks()` without it and
   `translateStructured()` (the annotation workflow below) with it. Without
   it there is no schema and no document annotation: the text blocks the OCR
@@ -240,8 +251,13 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `OcrText.bboxes` and `OcrCleanPage.blocks` over the page its
   `PageRenderer` renders (`usePageRenderer()`, see "Page rendering").
 - **Result tabs**: `RESULT_TABS` in `store.ts` fixes the default order —
-  Bounding boxes (shown first), OCR text, Structured text, JSON format, Raw
-  JSON. The user arranges them in split views like VS Code's editor groups:
+  Page view (`bboxes`), Fix OCR (`edit`), Text (`ocr`), Structured text
+  (`structured`), JSON format (`schema`), Raw JSON (`json`); the labels are
+  `TAB_LABELS` in `ResultsPanel.tsx` (the ids are what saved layouts keep).
+  Words on screen are the user's, not the pipeline's: block types read
+  `blockTypeLabel()` ("Paragraph", "Page header"), stages read their
+  `STAGES` label, and models, sizes and token counts go behind an
+  `InfoPop`. The user arranges them in split views like VS Code's editor groups:
   `AppState.resultLayout` is a `DockNode` tree (`util/dock.ts`: splits with
   relative `sizes`, leaves are groups with their `tabs` and `active` tab;
   every tab in exactly one group). The reducer applies `activateTab()`
@@ -277,7 +293,7 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `BboxView` shows them above the original block text, and the OCR text view
   shows each block translated when "Show translation" is on (blocks without
   a translation keep their original text, marked).
-- **Edit bounding boxes** (`EditBoxesView.tsx`, `runner.editBoxes()`,
+- **Fix OCR** (editing the boxes; `EditBoxesView.tsx`, `runner.editBoxes()`,
   `pipeline/blockEdits.ts`): `OcrState` keeps the OCR text as returned
   (`base`), the user's `edits` (`BlockEdits`: the block lists of the edited
   pages, images made of selections, an id counter) and an `undo` stack;
@@ -320,7 +336,12 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   own title bar, `SidePanelHead`, or the rail) folds the input pane
   into `SideRail` (a running job with Cancel, an error). The pane's content
   stays mounted in a hidden `.pane-body`, so drafts and open sections
-  survive folding.
+  survive folding. Once there is a result the panel is compact on its own:
+  `DocumentCard` (`compact`, keyed by the document so a new one starts
+  unfolded) folds the pages to OCR and the preview into one button, and
+  `QuickOptions` folds the glossary to a line with its term count; on wide
+  screens the card's small previews are hidden, the main pane showing the
+  document (`DocumentView`).
 - **Page rendering**: `files/pageRenderCache.ts` keeps one pdf.js document
   open per loaded file, renders on demand and pre-renders the rest in the
   background (`PREFETCH_LIMIT`); `BboxView` and the OCR text view's pages
@@ -362,7 +383,7 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   test one on a database of the previous version (fake-indexeddb).
 - **Retries of failed parts**: `runner.retryFailed()` (job kind `"retry"`)
   re-runs `describeBboxes()` / `blockTranslations()` with `onlyIds` and
-  merges the results. For blocks: the ones the OCR text tab keeps that have
+  merges the results. For blocks: the ones the Text tab keeps that have
   no translation, which includes blocks taken back after the translation.
 - **Jobs that add to a translation** (original-language structure, retries)
   pass it to `withJob()` as `JobSpec.forTranslation`: they run in its target
@@ -454,7 +475,9 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 - A job is `withJob(rt, spec, work)` (`runner/jobs.ts`): it starts the job
   in the store when keys and settings allow (else `work` never runs and the
   reason is shown) and always ends it, showing the error `work` throws
-  unless the job was cancelled. Write a new job as its `work`; never start
+  unless the job was cancelled. `spec.again` (the same call once more)
+  makes the error offer "Retry" (`retryLastJob()`, through
+  `Runtime.session.retry`), except for a rejected key. Write a new job as its `work`; never start
   or end one by hand.
 - Components that receive callbacks get them from the `on` / `results`
   objects in `App.tsx`, created once: an inline arrow function as a prop

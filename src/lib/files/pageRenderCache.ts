@@ -18,7 +18,7 @@ export interface PageRenderer {
   /**
    * A region of a page as a PNG data URL, in the coordinates of a page image
    * `pageWidth` px wide (the OCR's), with `blank` areas painted white: what
-   * "Edit bounding boxes" sends to OCR again.
+   * "Fix OCR" sends to OCR again.
    */
   region(pageIndex: number, pageWidth: number, region: PageRect, blank: PageRect[]): Promise<string>;
   /** Subscribe to "a page finished rendering"; returns an unsubscribe function. */

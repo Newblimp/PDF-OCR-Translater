@@ -12,10 +12,9 @@ import { ActionBar } from "@/components/ActionBar";
 import { ApiKeyDialog } from "@/components/ApiKeyDialog";
 import { DocumentCard } from "@/components/DocumentCard";
 import { DropZone } from "@/components/DropZone";
-import { ErrorBanner } from "@/components/ErrorBanner";
 import { Header } from "@/components/Header";
 import { HistoryPanel } from "@/components/HistoryPanel";
-import { JobStatus } from "@/components/JobStatus";
+import { JobBrief } from "@/components/JobBrief";
 import { PasteBox } from "@/components/PasteBox";
 import { ResultsPanel, type ResultActions } from "@/components/ResultsPanel";
 import { QuickOptions } from "@/components/QuickOptions";
@@ -34,6 +33,7 @@ import {
   refreshHistory,
   resetBoxEdits,
   retryFailed,
+  retryLastJob,
   runJob,
   setPageSelection,
   submitApiKeys,
@@ -42,7 +42,7 @@ import {
   verifyAndSaveApiKey,
   type Runtime,
 } from "./runner";
-import { canRunOcr, missingKeys, requiredProviders, selectSourceText, type Action, type AppState, type ResultTab } from "./store";
+import { hasOcrDocument, missingKeys, primaryAction, requiredProviders, type Action, type AppState, type ResultTab } from "./store";
 
 /** `store` holds the state the app renders; `runtime` is the runner's way to it (the same store), made once in `main.tsx`. */
 export function App({ store, runtime: rt }: { store: Store<AppState, Action>; runtime: Runtime }) {
@@ -72,7 +72,6 @@ export function App({ store, runtime: rt }: { store: Store<AppState, Action>; ru
       pasteText: (text: string) => dispatch({ type: "paste/text", text }),
       run: (kind: "ocr" | "translate" | "both") => void runJob(rt, kind),
       cancel: () => cancelJob(rt),
-      dismissError: () => dispatch({ type: "error/set", error: null }),
       openSaved: (id: string) => void openSavedTranslation(rt, id),
       deleteSaved: (id: string) => void deleteSaved(rt, id),
       clearHistory: () => void clearHistory(rt),
@@ -85,6 +84,8 @@ export function App({ store, runtime: rt }: { store: Store<AppState, Action>; ru
       moveTab: (tab: ResultTab, target: DockTarget) => dispatch({ type: "layout/move", tab, target }),
       resizeSplit: (split: string, sizes: number[]) => dispatch({ type: "layout/resize", split, sizes }),
       resetLayout: () => dispatch({ type: "layout/reset" }),
+      dismissError: () => dispatch({ type: "error/set", error: null }),
+      retryLastJob: () => void retryLastJob(rt),
       setOcrShowPdf: (ocrShowPdf: boolean) => updateSettings(rt, { ocrShowPdf }),
       setOcrLinkScroll: (ocrLinkScroll: boolean) => updateSettings(rt, { ocrLinkScroll }),
       setOcrHiddenTypes: (ocrHiddenTypes: string[]) => updateSettings(rt, { ocrHiddenTypes }),
@@ -119,8 +120,7 @@ export function App({ store, runtime: rt }: { store: Store<AppState, Action>; ru
   // The arrangement of the result tabs is kept for the next visit.
   useEffect(() => saveDockLayout(state.resultLayout), [state.resultLayout]);
 
-  const sourceText = selectSourceText(state);
-  const ocrPossible = canRunOcr(state);
+  const primary = primaryAction(state);
   const busy = !!state.job;
   const collapsed = state.settings.sidePanelCollapsed;
 
@@ -146,8 +146,10 @@ export function App({ store, runtime: rt }: { store: Store<AppState, Action>; ru
           <div class="pane-body" hidden={collapsed}>
             {state.doc && !state.pasteMode ? (
               <DocumentCard
+                key={state.doc.id}
                 doc={state.doc}
                 ocr={state.ocr}
+                compact={!!state.ocr || !!state.translation}
                 busy={busy}
                 onPageSelection={on.setPageSelection}
                 onReplace={on.loadFile}
@@ -161,18 +163,22 @@ export function App({ store, runtime: rt }: { store: Store<AppState, Action>; ru
 
             <ActionBar
               running={state.job?.kind ?? null}
-              canOcr={ocrPossible}
-              canTranslate={!busy && !!sourceText}
-              translateSource={sourceText?.origin ?? null}
-              hasDocument={!!state.doc || state.pasteMode}
+              primary={primary?.kind ?? null}
+              reusesOcr={primary?.kind === "both" && primary.reusesOcr}
+              translateSource={primary?.kind === "translate" ? primary.origin : null}
+              ocrDocument={hasOcrDocument(state)}
               onRun={on.run}
               onCancel={on.cancel}
             />
 
-            {state.job && <JobStatus job={state.job} />}
-            {state.error && <ErrorBanner error={state.error} onDismiss={on.dismissError} />}
+            <JobBrief job={state.job} error={state.error} />
 
-            <QuickOptions targetLanguage={state.settings.targetLanguage} glossary={state.settings.glossary} onChange={on.changeSettings} />
+            <QuickOptions
+              targetLanguage={state.settings.targetLanguage}
+              glossary={state.settings.glossary}
+              compact={!!state.translation}
+              onChange={on.changeSettings}
+            />
             <SettingsPanel
               settings={state.settings}
               models={state.models}

@@ -241,7 +241,7 @@ function PipelineStrip({
       <li class="step step-done">
         {ocr ? (
           <button type="button" class="btn btn-link small" onClick={() => actions.setTab("bboxes")}>
-            Mistral OCR: {ocr.text.pagesProcessed} page(s), {boxes} bounding box(es)
+            Mistral OCR: {ocr.text.pagesProcessed} page(s), {boxes} figure(s)
           </button>
         ) : (
           "Text input (no OCR)"
@@ -255,7 +255,7 @@ function PipelineStrip({
       {translation.bboxAnnotations.length > 0 ? (
         <li class={`step ${failed ? "step-warning" : "step-done"}`}>
           <button type="button" class="btn btn-link small" onClick={() => actions.setTab("bboxes")}>
-            BBox annotation: {described} of {translation.bboxAnnotations.length} box(es) described by the vision model
+            Figure descriptions: {described} of {translation.bboxAnnotations.length} figure(s) described by the vision model
           </button>
           {failed > 0 && ocr && ocrBelongsTo(ocr, translation) && (
             <button type="button" class="btn btn-ghost small" disabled={busy} onClick={() => actions.retry("bboxes")}>
@@ -264,11 +264,11 @@ function PipelineStrip({
           )}
         </li>
       ) : (
-        <li class="step step-skipped">BBox annotation skipped{boxes === 0 ? " (no boxes)" : ""}</li>
+        <li class="step step-skipped">Figure descriptions skipped{boxes === 0 ? " (no figures)" : ""}</li>
       )}
       <li class="step step-done">
         Document annotation: translated into {translation.targetLanguage} by {chat} from the text
-        {translation.imagesSent ? ` + ${translation.imagesSent} bounding-box image(s)` : " only"}
+        {translation.imagesSent ? ` + ${translation.imagesSent} figure(s)` : " only"}
       </li>
       {hasOriginal(translation) ? (
         <li class="step step-done">Structured text in the original language: filled by {chat} without translating</li>
