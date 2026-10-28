@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "preact/hooks";
-import { loadApiKey } from "@/lib/storage/apiKeys";
-import { loadDockLayout, saveDockLayout } from "@/lib/storage/layout";
-import { loadSettings, type Settings, type ThemeSetting } from "@/lib/storage/settings";
+import { useSyncExternalStore } from "preact/compat";
+import { useEffect, useMemo } from "preact/hooks";
+import { saveDockLayout } from "@/lib/storage/layout";
+import type { Settings, ThemeSetting } from "@/lib/storage/settings";
+import type { Store } from "@/lib/util/createStore";
 import type { ProviderId } from "@/lib/llm/provider";
 import type { DockTarget } from "@/lib/util/dock";
-import { perProvider, PROVIDER_IDS } from "@/lib/llm/registry";
+import { PROVIDER_IDS } from "@/lib/llm/registry";
 import type { BoxEdit } from "@/lib/pipeline/blockEdits";
 import type { OcrCleanPage } from "@/lib/pipeline/ocrText";
 import { ActionBar } from "@/components/ActionBar";
@@ -41,41 +42,13 @@ import {
   verifyAndSaveApiKey,
   type Runtime,
 } from "./runner";
-import {
-  canRunOcr,
-  initialState,
-  missingKeys,
-  reducer,
-  requiredProviders,
-  RESULT_TABS,
-  selectSourceText,
-  type Action,
-  type AppState,
-  type ResultTab,
-} from "./store";
+import { canRunOcr, missingKeys, requiredProviders, selectSourceText, type Action, type AppState, type ResultTab } from "./store";
 
-export function App() {
-  const [state, dispatchRaw] = useReducer(reducer, null, () =>
-    initialState(
-      perProvider((id) => loadApiKey(id)),
-      loadSettings(),
-      loadDockLayout(RESULT_TABS) ?? undefined,
-    ),
-  );
-
-  // A stable runtime object lets async operations read the latest state.
-  // The reducer is pure, so we mirror it synchronously: `getState()` reflects
-  // an action immediately, not only after Preact's deferred re-render.
-  const stateRef = useRef<AppState>(state);
-  stateRef.current = state;
-  const dispatch = useCallback(
-    (action: Action) => {
-      stateRef.current = reducer(stateRef.current, action);
-      dispatchRaw(action);
-    },
-    [dispatchRaw],
-  );
-  const rt = useMemo<Runtime>(() => ({ getState: () => stateRef.current, dispatch }), [dispatch]);
+/** `store` holds the state the app renders; `runtime` is the runner's way to it (the same store), made once in `main.tsx`. */
+export function App({ store, runtime: rt }: { store: Store<AppState, Action>; runtime: Runtime }) {
+  // One store, read by the view and by the runner alike: `rt.getState()` reflects an action as soon as it is dispatched.
+  const state = useSyncExternalStore(store.subscribe, store.getState);
+  const { dispatch } = rt;
 
   // Handlers are created once, so memoised components skip the re-renders of
   // a streaming translation (about ten state updates per second).
@@ -137,7 +110,7 @@ export function App() {
   // Verify cached keys in the background on first load (also fetches the model lists), and list saved translations.
   useEffect(() => {
     for (const provider of PROVIDER_IDS) {
-      const key = stateRef.current.keys[provider].value;
+      const key = rt.getState().keys[provider].value;
       if (key) void verifyAndSaveApiKey(rt, provider, key);
     }
     void refreshHistory(rt);

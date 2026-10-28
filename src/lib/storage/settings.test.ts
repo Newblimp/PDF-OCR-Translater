@@ -26,6 +26,37 @@ describe("settings persistence", () => {
   });
 });
 
+describe("damaged settings", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("repairs every setting on its own, whatever was stored, so the app always starts", () => {
+    const stored = {
+      schemaMode: null,
+      chatModels: { mistral: 5, openai: "gpt-5.6-terra", anthropic: "" },
+      temperature: "hot",
+      ocrModel: " ",
+      provider: "constructor",
+      maxBboxAnnotations: Infinity,
+      maxOutputTokens: -1,
+      targetLanguage: "German",
+      chatModel: "from-v1",
+    };
+    localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify(stored));
+    const settings = loadSettings();
+    expect(settings).toEqual({ ...DEFAULT_SETTINGS, targetLanguage: "German", chatModels: { ...DEFAULT_SETTINGS.chatModels, openai: "gpt-5.6-terra" } });
+    for (const schemaMode of [{ kind: "builtin" }, { kind: "custom", schemaText: 1 }, { kind: "other" }, "infer", []]) {
+      localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ schemaMode }));
+      expect(loadSettings().schemaMode).toEqual({ kind: "infer" });
+    }
+    localStorage.setItem("pdf-ocr-translater.settings.v2", JSON.stringify({ schemaMode: { kind: "builtin", id: "patent_communication" }, temperature: 0.7 }));
+    expect(loadSettings()).toMatchObject({ schemaMode: { kind: "builtin", id: "patent_communication" }, temperature: 0.7 });
+    for (const raw of ["null", "[1]", '"text"', "{"]) {
+      localStorage.setItem("pdf-ocr-translater.settings.v2", raw);
+      expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
+    }
+  });
+});
+
 describe("newer settings", () => {
   beforeEach(() => localStorage.clear());
 

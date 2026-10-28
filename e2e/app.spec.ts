@@ -7,6 +7,7 @@ import {
   makePdf,
   MISTRAL_KEY,
   mockApis,
+  OCR_PAGE,
   OPENAI_KEY,
   REGION_TEXT,
   systemPrompt,
@@ -1049,6 +1050,27 @@ test("without the JSON output the OCR text is translated block by block: no JSON
   await expect(page.getByRole("tab", { name: "Structured text" })).toHaveCount(0);
 });
 
+test("a page the OCR returns without blocks is translated as one block", async ({ page }) => {
+  const { recorded } = await setup(page);
+  await enterMistralKey(page);
+  // An OCR model or request without paragraph blocks: only the page Markdown.
+  await page.route("https://api.mistral.ai/v1/ocr", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ model: "mistral-ocr-latest", pages: [{ ...OCR_PAGE, blocks: [] }], usage_info: { pages_processed: 1, doc_size_bytes: 1234 } }),
+    }),
+  );
+  await loadPdf(page);
+  await page.getByRole("button", { name: "OCR + Translate" }).click();
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden({ timeout: 20_000 });
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".ocr-page")).toContainText("[EN] # 第一次审查意见通知书");
+  await expect(page.locator(".ocr-block-untranslated")).toHaveCount(0);
+  const sent = JSON.stringify(chatRequests(recorded).find((c) => step(c) === "block_translations")!.body);
+  expect(sent).toContain("0:page");
+});
+
 test("block types and single blocks are left out of the OCR text (picked on the PDF), and the page layout can be matched", async ({ page }) => {
   const { recorded } = await setup(page);
   await enterMistralKey(page);
@@ -1137,6 +1159,75 @@ test("without the JSON output pasted text is translated paragraph by paragraph a
   await history.locator("summary").click();
   await history.getByRole("button", { name: "Open" }).click();
   await expect(page.locator(".ocr-page")).toContainText("[EN] 权利要求1不具备创造性。");
+});
+
+test("translations saved before the summaries store existed are listed and reopen after the upgrade", async ({ page }) => {
+  // The database as the previous release left it (version 2: OCR cache and whole translations), seeded on a blank page of
+  // the app's origin before the app first runs.
+  await page.route("**/seed", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>seed</title>" }));
+  await page.goto("/seed");
+  const pages = [
+    {
+      index: 0,
+      markdown: "旧的段落。",
+      header: null,
+      footer: null,
+      imageCount: 0,
+      width: null,
+      height: null,
+      blocks: [{ type: "text", top_left_x: 0, top_left_y: 0, bottom_right_x: 0, bottom_right_y: 0, content: "旧的段落。" }],
+    },
+  ];
+  const translation = {
+    id: "saved-in-v2",
+    sourceName: "Pasted text",
+    sourceKind: "pasted",
+    sourceHash: "h",
+    ocrKey: null,
+    ocrFingerprint: null,
+    sourceText: "旧的段落。",
+    pages,
+    provider: "mistral",
+    model: "mistral-small-latest",
+    targetLanguage: "English",
+    completedAt: 1_700_000_000_000,
+    sourceChars: 5,
+    blockTranslations: { "0:0": "[EN] An old paragraph." },
+  };
+  await page.evaluate(
+    async (entry) => {
+      const open = indexedDB.open("pdf-ocr-translater", 2);
+      open.onupgradeneeded = () => {
+        open.result.createObjectStore("ocr", { keyPath: "key" }).createIndex("createdAt", "createdAt");
+        open.result.createObjectStore("translations", { keyPath: "id" }).createIndex("createdAt", "createdAt").objectStore.put(entry);
+      };
+      await new Promise((resolve, reject) => {
+        open.onsuccess = () => resolve(open.result.close());
+        open.onerror = () => reject(open.error);
+      });
+    },
+    {
+      id: translation.id,
+      version: 1,
+      createdAt: translation.completedAt,
+      sourceName: translation.sourceName,
+      sourceKind: translation.sourceKind,
+      sourceHash: translation.sourceHash,
+      ocrKey: null,
+      targetLanguage: "English",
+      provider: "mistral",
+      model: "mistral-small-latest",
+      translation,
+    },
+  );
+
+  await setup(page);
+  await enterMistralKey(page);
+  const history = page.locator(".history");
+  await history.locator("summary").click();
+  await expect(history).toContainText("Pasted text");
+  await history.getByRole("button", { name: "Open" }).click();
+  await expect(page.locator(".ocr-page")).toContainText("[EN] An old paragraph.");
 });
 
 test("bounding boxes are edited by selection: cut (read again), made, deleted, undone, and kept with the OCR result", async ({ page }) => {

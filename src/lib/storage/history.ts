@@ -3,8 +3,12 @@
  * reload and can be reopened from the "Recent translations" list. The OCR
  * result a translation was made from is restored from the OCR cache by key.
  * Nothing here leaves the browser.
+ *
+ * Each entry is kept twice: whole (`TRANSLATION_STORE`, read when one is
+ * opened) and as its summary (`TRANSLATION_SUMMARY_STORE`, what the list
+ * reads), written, evicted and deleted together in one transaction.
  */
-import { evictOldest, requestToPromise, TRANSLATION_STORE, withStore } from "./db";
+import { evictOldest, requestToPromise, TRANSLATION_STORE, TRANSLATION_SUMMARY_STORE, withoutBody, withStore, withStores } from "./db";
 
 /** Bump when the stored shape changes; older entries are ignored. */
 export const HISTORY_VERSION = 1;
@@ -28,20 +32,18 @@ export interface SavedTranslation<T> {
   translation: T;
 }
 
-export type SavedTranslationSummary = Omit<SavedTranslation<unknown>, "translation" | "version">;
+/** A summary as stored: the entry without its `translation`. */
+type SummaryRecord = Omit<SavedTranslation<unknown>, "translation">;
 
-function summary<T>(entry: SavedTranslation<T>): SavedTranslationSummary {
-  const { translation: _translation, version: _version, ...rest } = entry;
-  return rest;
-}
+export type SavedTranslationSummary = Omit<SummaryRecord, "version">;
 
 /** Newest first. */
 export async function listSavedTranslations(): Promise<SavedTranslationSummary[]> {
   try {
-    const all = await withStore(TRANSLATION_STORE, "readonly", (objects) => requestToPromise(objects.getAll() as IDBRequest<Array<SavedTranslation<unknown>>>));
+    const all = await withStore(TRANSLATION_SUMMARY_STORE, "readonly", (objects) => requestToPromise(objects.getAll() as IDBRequest<SummaryRecord[]>));
     return all
       .filter((e) => e.version === HISTORY_VERSION)
-      .map(summary)
+      .map(({ version: _version, ...summary }) => summary)
       .sort((a, b) => b.createdAt - a.createdAt);
   } catch {
     return [];
@@ -65,9 +67,10 @@ export async function findSavedTranslation<T>(sourceHash: string, ocrKey: string
 
 export async function putSavedTranslation<T>(entry: SavedTranslation<T>): Promise<void> {
   try {
-    await withStore(TRANSLATION_STORE, "readwrite", async (objects) => {
-      objects.put(entry);
-      await evictOldest(objects, HISTORY_MAX_ENTRIES, entry.id);
+    await withStores([TRANSLATION_STORE, TRANSLATION_SUMMARY_STORE], "readwrite", async ([entries, summaries]) => {
+      entries!.put(entry);
+      summaries!.put(withoutBody(entry));
+      await evictOldest(summaries!, HISTORY_MAX_ENTRIES, entry.id, [entries!]);
     });
   } catch {
     // Best effort: the result is still on screen.
@@ -76,7 +79,7 @@ export async function putSavedTranslation<T>(entry: SavedTranslation<T>): Promis
 
 export async function deleteSavedTranslation(id: string): Promise<void> {
   try {
-    await withStore(TRANSLATION_STORE, "readwrite", (objects) => void objects.delete(id));
+    await withStores([TRANSLATION_STORE, TRANSLATION_SUMMARY_STORE], "readwrite", (stores) => stores.forEach((objects) => objects.delete(id)));
   } catch {
     // ignore
   }
@@ -84,7 +87,7 @@ export async function deleteSavedTranslation(id: string): Promise<void> {
 
 export async function clearSavedTranslations(): Promise<void> {
   try {
-    await withStore(TRANSLATION_STORE, "readwrite", (objects) => void objects.clear());
+    await withStores([TRANSLATION_STORE, TRANSLATION_SUMMARY_STORE], "readwrite", (stores) => stores.forEach((objects) => objects.clear()));
   } catch {
     // ignore
   }

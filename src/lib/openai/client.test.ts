@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ApiError } from "../http/apiError";
 import { OpenAIClient } from "./client";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -17,6 +18,14 @@ function sseResponse(frames: string[]): Response {
 }
 
 describe("OpenAIClient", () => {
+  it("reports a body that is not JSON as a protocol error", async () => {
+    const client = new OpenAIClient({ apiKey: "k", fetchImpl: async () => new Response("<html>Bad gateway</html>", { status: 200 }) });
+    const err = await client.listModels().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ kind: "protocol", provider: "openai", status: 200 });
+    expect((err as ApiError).message).toMatch(/^Model list is not JSON: /);
+  });
+
   it("posts to /v1/chat/completions with the bearer token and no stream options when not streaming", async () => {
     let seen: { url: string; init: RequestInit } | null = null;
     const client = new OpenAIClient({

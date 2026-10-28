@@ -53,6 +53,37 @@ describe("MistralProvider reasoning effort", () => {
     ]);
   });
 
+  it("asks again when the field is named only in the body of a 422", async () => {
+    const bodies: ChatCompletionRequest[] = [];
+    const client = {
+      complete: async (body: ChatCompletionRequest) => {
+        bodies.push(body);
+        if (body.reasoning_effort) {
+          const detail = [{ type: "extra_forbidden", loc: ["body", "reasoning_effort"], msg: "Extra inputs are not permitted" }];
+          throw new ApiError("HTTP 422: Extra inputs are not permitted", "request", "mistral", 422, { detail });
+        }
+        return { content: "{}", finishReason: "stop", usage: null, model: body.model };
+      },
+    } as unknown as MistralClient;
+    await expect(new MistralProvider(client).completeJson(request("open-mistral-nemo", "high"))).resolves.toMatchObject({ content: "{}" });
+    expect(bodies.map((b) => b.reasoning_effort)).toEqual(["high", undefined]);
+  });
+
+  it("passes any other rejection on at once, still sending the effort next time", async () => {
+    const bodies: ChatCompletionRequest[] = [];
+    const client = {
+      complete: async (body: ChatCompletionRequest) => {
+        bodies.push(body);
+        throw new ApiError("HTTP 400: Image input is not supported by this model", "request", "mistral", 400, { message: "Image input is not supported" });
+      },
+    } as unknown as MistralClient;
+    const provider = new MistralProvider(client);
+    await expect(provider.completeJson(request("mistral-tiny-latest", "high"))).rejects.toMatchObject({ kind: "request", status: 400 });
+    await expect(provider.completeJson(request("mistral-tiny-latest", "high"))).rejects.toMatchObject({ kind: "request" });
+    // One request each: no second try without `reasoning_effort`, and the model is not marked as rejecting it.
+    expect(bodies.map((b) => b.reasoning_effort)).toEqual(["high", "high"]);
+  });
+
   it("does not retry other errors", async () => {
     const client = {
       complete: async () => {

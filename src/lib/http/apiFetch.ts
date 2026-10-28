@@ -9,10 +9,11 @@
  * errors are mapped onto the same `ApiError`s. Together they are the app's
  * whole network surface: grep for `apiFetch(` and `createAnthropicClient(`.
  */
-import { ApiError, extractErrorMessage, kindForStatus, toApiError, type ApiProvider } from "./apiError";
+import { ApiError, extractErrorMessage, kindForStatus, toApiError } from "./apiError";
+import type { ProviderId } from "../apiProviders";
 
 export interface ApiFetchOptions {
-  provider: ApiProvider;
+  provider: ProviderId;
   apiKey: string;
   method: "GET" | "POST";
   body?: string;
@@ -99,7 +100,7 @@ async function waitBeforeRetry(ms: number | null, options: ApiFetchOptions): Pro
   }
 }
 
-async function errorFromResponse(res: Response, provider: ApiProvider): Promise<ApiError> {
+async function errorFromResponse(res: Response, provider: ProviderId): Promise<ApiError> {
   let body: unknown = null;
   let message = `HTTP ${res.status} ${res.statusText}`.trim();
   try {

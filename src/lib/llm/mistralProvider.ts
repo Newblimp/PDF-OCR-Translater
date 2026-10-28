@@ -1,3 +1,4 @@
+import { API_PROVIDERS } from "../apiProviders";
 import { ApiError } from "../http/apiError";
 import { MistralClient } from "../mistral/client";
 import { chatModelOptions } from "../mistral/models";
@@ -13,10 +14,20 @@ function mistralEffort(effort: ReasoningEffort): "none" | "high" {
 /** Models that rejected `reasoning_effort` in this session (not every Mistral model reasons): it is no longer sent to them. */
 const NO_REASONING_EFFORT = new Set<string>();
 
+/**
+ * Whether a rejection is about `reasoning_effort`: its message names it, or
+ * its body does (a 422 points at the field in `detail[].loc`). Any other
+ * rejection (images, the schema, streaming) goes to the caller as it is,
+ * without a second request.
+ */
+function rejectsReasoningEffort(err: ApiError): boolean {
+  return /reasoning/i.test(err.message) || /reasoning/i.test(JSON.stringify(err.body ?? null));
+}
+
 /** Mistral chat provider: the default for translation (Mistral Small), with Anthropic and OpenAI as alternatives. */
 export class MistralProvider implements ChatProvider {
   readonly id = "mistral" as const;
-  readonly label = "Mistral";
+  readonly label = API_PROVIDERS.mistral.label;
 
   constructor(private readonly client: MistralClient) {}
 
@@ -37,8 +48,8 @@ export class MistralProvider implements ChatProvider {
     try {
       return await this.send(body, request);
     } catch (err) {
-      if (!body.reasoning_effort || !(err instanceof ApiError) || err.kind !== "request" || request.signal?.aborted) throw err;
-      // Rejected: if the same request without `reasoning_effort` goes through, the model does not take it.
+      if (!body.reasoning_effort || !(err instanceof ApiError) || err.kind !== "request" || request.signal?.aborted || !rejectsReasoningEffort(err)) throw err;
+      // Rejected for it: if the same request without `reasoning_effort` goes through, the model does not take it.
       const { reasoning_effort: _rejected, ...without } = body;
       const result = await this.send(without, request);
       NO_REASONING_EFFORT.add(request.model);

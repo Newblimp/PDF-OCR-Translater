@@ -303,31 +303,24 @@ const TextPage = memo(function TextPage({
   const shown = blocks.filter((b) => isShown(b, filter));
   const sheet = layout && !!page.width && !!page.height && blocks.some((b) => b.box);
   const flowing = sheet ? shown.filter((b) => !b.box) : shown;
-  const untranslatable = !!translations && blocks.length > 0 && blocks.every((b) => b.wholePage);
   return (
     <section class={`ocr-page${sheet ? " ocr-page-layout" : ""}`} id={`ocr-page-${page.index + 1}`} data-page={page.index}>
       <h3 class="ocr-page-title">Page {page.index + 1}</h3>
-      {untranslatable ? (
-        <p class="muted small">The OCR API returned no text blocks for this page, so it cannot be shown translated.</p>
-      ) : (
-        <>
-          {sheet && <LayoutSheet page={page} blocks={shown.filter((b) => b.box)} translations={translations} markdown={markdown} images={images} />}
-          {flowing.map((b) => {
-            const translated = translations && !b.wholePage ? translations[b.id]?.trim() : undefined;
-            return (
-              <div
-                key={b.id}
-                class={`ocr-block${translations && !translated && b.type !== "image" ? " ocr-block-untranslated" : ""}`}
-                data-block={b.id}
-                data-type={b.type}
-              >
-                <BlockContent block={b} text={translated || b.text} markdown={markdown} image={b.imageId ? (images.get(b.imageId) ?? null) : null} />
-              </div>
-            );
-          })}
-          {!sheet && !shown.length && <p class="muted small">{blocks.length ? "Every block of this page is left out." : "(no text)"}</p>}
-        </>
-      )}
+      {sheet && <LayoutSheet page={page} blocks={shown.filter((b) => b.box)} translations={translations} markdown={markdown} images={images} />}
+      {flowing.map((b) => {
+        const translated = translations?.[b.id]?.trim();
+        return (
+          <div
+            key={b.id}
+            class={`ocr-block${translations && !translated && b.type !== "image" ? " ocr-block-untranslated" : ""}`}
+            data-block={b.id}
+            data-type={b.type}
+          >
+            <BlockContent block={b} text={translated || b.text} markdown={markdown} image={b.imageId ? (images.get(b.imageId) ?? null) : null} />
+          </div>
+        );
+      })}
+      {!sheet && !shown.length && <p class="muted small">{blocks.length ? "Every block of this page is left out." : "(no text)"}</p>}
     </section>
   );
 });

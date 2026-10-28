@@ -5,10 +5,11 @@
  * The only host contacted is `baseUrl` (https://api.mistral.ai by default,
  * also enforced by the CSP in `public/_headers`).
  */
+import { apiBaseUrl } from "../apiProviders";
 import { ChatCompletionsClient, type ChatClientOptions } from "../http/chatClient";
 import type { ChatCompletionRequest, ContentChunk, ModelCard, OcrRequest, OcrResponse, UsageInfo } from "./types";
 
-export const DEFAULT_BASE_URL = "https://api.mistral.ai";
+export const DEFAULT_BASE_URL = apiBaseUrl("mistral");
 
 /** What the OCR steps need of the client: the pipeline takes any object with `ocr()` (the runner's imports the client on first use). */
 export type OcrClient = Pick<MistralClient, "ocr">;

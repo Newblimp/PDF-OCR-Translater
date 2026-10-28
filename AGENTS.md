@@ -27,11 +27,12 @@ AI). Keep it current when you change the architecture.
   Heavy libraries (pdf.js, marked/DOMPurify, the Anthropic SDK) and the
   app's own heavy parts are imported on first use, each its own chunk: the
   result views (`lazyView()` in `ResultsPanel.tsx`), the pipeline's stages
-  (`pipeline()` in `runner.ts`), the provider implementations
+  (`pipeline()` in `runner/translation.ts`), the provider implementations
   (`createProvider()` in `registry.ts`) and the Mistral client
-  (`ocrClient()` in `runner.ts`). Keep it that way: a static import of one of
+  (`ocrClient()` in `runner/jobs.ts`). Keep it that way: a static import of one of
   them from the shell (App, store, side panel, settings) puts it back into
-  the first download; `npx vite build` lists the chunks. Long lists use
+  the first download (`src/architecture.test.ts` fails); `npx vite build`
+  lists the chunks. Long lists use
   `content-visibility`;
   network calls are cancellable via `AbortController`; the translation
   streams so progress is visible; independent stages run concurrently;
@@ -63,23 +64,41 @@ AI). Keep it current when you change the architecture.
   `readChatStream` for their common streaming format), and their providers
   build the request with `chatCompletionsRequest()` (`llm/content.ts`). Wire
   types are derived from the official SDKs.
-- Tests: Vitest for pure modules, Playwright for end-to-end flows against
+- Tests: Vitest for pure modules and for the runner's jobs
+  (`src/app/runner.test.ts`: the real store and pipeline, fake OCR and chat
+  providers, saved translations in memory; the quick way to see a runner
+  change work), Playwright for end-to-end flows against
   mocked Mistral, Anthropic and OpenAI APIs (`e2e/helpers.ts`; `chatStep()`
   tells the pipeline steps apart for every provider). ESLint
   (`eslint.config.js`: typescript-eslint, React hooks rules, floating
   promises). Prettier formats everything (`.prettierrc.json`: print width
   160, otherwise its defaults; pinned to an exact version so formatting does
   not shift under an update). CI runs all of them (`.github/workflows/ci.yml`).
+- `src/architecture.test.ts` checks rules this guide states in prose: the
+  CSP connects to exactly the providers' hosts, `public/theme-init.js` reads
+  the settings key, every module the code imports on first use (`import()`)
+  stays out of `src/main.tsx`'s static imports, and the files and names
+  quoted in this guide exist. When it fails, fix the code or this guide,
+  not the test.
 
 ## Code map
 
 ```
 src/
-  main.tsx                     entry; mounts <App/>
+  main.tsx                     entry: the store (from what this browser saved), mounts <App/>
   app/
     App.tsx                    layout + wiring of components to the store
-    store.ts                   AppState, Action union, reducer, selectors
-    runner.ts                  side effects: load document, verify key, run jobs
+    store.ts                   AppState, Action union, reducer, selectors, translation defaults
+    runner/                    side effects that drive the store; index.ts lists what the components call
+      runtime.ts               the store as the runner sees it (`Runtime`)
+      keys.ts                  API keys: stored, verified against the model list, forgotten
+      settings.ts              a settings change and what it takes along (theme, where keys are kept, key dialog)
+      document.ts              loading a document, its cached OCR result and saved translation; releasing it
+      savedTranslations.ts     "Recent translations": saving, listing, reopening, deleting
+      jobs.ts                  what every job shares: withJob() (start, always end), cancelJob(), followUps(), Settings → PipelineSettings
+      translation.ts           runJob() (OCR, translate, both; with or without the JSON output), the structure in the
+                               original language, retries of failed parts
+      boxEdits.ts              "Edit bounding boxes": editBoxes(), undo, reset; edits kept with the cached OCR result
   components/                  presentational Preact components (memoised; handlers come from App, created once)
     JsonBrowser/               browsable view of the translated JSON
     ResultsPanel.tsx           the result tabs: which are available, and their views (loaded on first use, lazyView.tsx)
@@ -101,6 +120,7 @@ src/
     Dock.tsx                   result tabs in groups and split views (drag and drop, splitters)
     HistoryPanel.tsx           "Recent translations" (saved in IndexedDB)
   lib/
+    apiProviders.ts            each API declared once: id (ProviderId), name, label, host; isProviderId(), apiBaseUrl()
     http/
       apiFetch.ts              authenticated fetch + retries with backoff (Mistral, OpenAI)
       apiError.ts              ApiError (kind, provider, hint); error mapping; permanent / image rejection checks
@@ -144,23 +164,25 @@ src/
                                fallbacks: without images → non-streaming → json_object; keeps truncated output
       chunks.ts                long documents: split along pages/paragraphs, merge the parts' JSON
       pipeline.ts              the stages: ocrOnly, resolveSchema, describeBboxes, translateDocument,
-                               structureOriginal, blockTranslations (composed by app/runner.ts);
+                               structureOriginal, blockTranslations (composed by app/runner/translation.ts);
                                PipelineSettings.structured = JSON output
-      events.ts                progress events shared by the steps
+      events.ts                every stage declared once (STAGES: label, streaming, follow-up name, when a translation runs it);
+                               progress events shared by the steps
     export/bilingual.ts        bilingual HTML export (translation next to the original)
     markdown.ts                lazy marked + DOMPurify renderers (app view; export without remote resources)
     files/                     hashing, data-URL encoding, pdf.js preview (WebP object URLs), page render cache, file kinds
     storage/                   localStorage/sessionStorage (keys, settings, theme, result layout); IndexedDB (db.ts):
                                OCR cache (ocrCache.ts), saved translations (history.ts)
     util/                      JSON extraction, partial-JSON parser for streaming, page selection, text helpers, worker pool,
-                               dock.ts (split-view layout model), linkedScroll.ts (page-by-page scroll mapping)
+                               dock.ts (split-view layout model), linkedScroll.ts (page-by-page scroll mapping),
+                               createStore.ts (the app's store)
   styles/global.css
 e2e/                           Playwright specs + API mock
 public/_headers                Cloudflare Pages headers (CSP etc.)
 vite.config.ts                 Preact preset, pdf.js asset serving, _headers in dev/preview
 ```
 
-Data flow: `components → runner.ts → pipeline/* → llm/<provider> or
+Data flow: `components → app/runner/ → pipeline/* → llm/<provider> or
 mistral/client.ts (OCR) → http/apiFetch.ts` (Mistral, OpenAI) or the
 Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 `store.ts` and rendered by the components.
@@ -180,13 +202,17 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   Anthropic breakpoint on the last shared block). Schema inference sets no
   breakpoint: the translation adds a structured-output format (and usually
   images), so it cannot read that prefix back.
-- **New pipeline step** (e.g. a review pass): add a module in
-  `src/lib/pipeline/`, emit progress with `emit()` from `events.ts` (add a
-  `StageId` if needed), expose it from `pipeline.ts`, and compose it in
-  `runner.ts` (`translateStructured()` and/or `translateByBlocks()`; add it
-  to `translationStages()` so the job status lists it). A step after the
-  translation should go through a `followUps()` wrapper so its failure
-  becomes a warning on the result rather than a failed job. Then surface results through a new field in `AppState` and a
+- **New pipeline step** (e.g. a review pass): declare its stage once in
+  `STAGES` (`events.ts`): the key is its `StageId`, `label` its title on
+  the job status card, `streams` whether the card counts characters,
+  `produces` what a failure as a follow-up names, and `inTranslation` when
+  a translation runs it (`translationStages()` lists the stages in
+  `STAGES` order). Add a module in `src/lib/pipeline/` that emits progress
+  with `emit()`, expose it from `pipeline.ts`, and compose it in
+  `runner/translation.ts` (`translateStructured()` and/or
+  `translateByBlocks()`). A step after the translation should go through
+  `followUps()` (its stage must have `produces`) so its failure becomes a
+  warning on the result rather than a failed job. Then surface results through a new field in `AppState` and a
   component.
 - **JSON output** (`Settings.jsonOutput`, off by default; the last option
   in `SettingsPanel`, with every JSON-only setting under it):
@@ -211,8 +237,8 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `DOCUMENT_ANNOTATION_MAX_IMAGES` box images to the user message
   (`JsonChatRequest.images`, rendered as `image_url` parts by each provider).
   `ResultsPanel`'s `PipelineStrip` tells the user what ran; `BboxView` draws
-  `OcrText.bboxes` and `OcrCleanPage.blocks` over the page rendered by
-  `renderPdfPage()`.
+  `OcrText.bboxes` and `OcrCleanPage.blocks` over the page its
+  `PageRenderer` renders (`usePageRenderer()`, see "Page rendering").
 - **Result tabs**: `RESULT_TABS` in `store.ts` fixes the default order —
   Bounding boxes (shown first), OCR text, Structured text, JSON format, Raw
   JSON. The user arranges them in split views like VS Code's editor groups:
@@ -270,8 +296,9 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   and restored with it; the reducer carries the blocks left out one by one
   over to the edited pages.
 - **OCR text view** (`OcrView.tsx`): renders `blocks.pageBlocks()` (a page
-  without blocks is one stand-in block of its Markdown), so filters work on
-  both languages. Block types are switched off in `Settings.ocrHiddenTypes`;
+  without blocks is one stand-in block of its Markdown, id `${page}:page`,
+  translated like any other: `textBlocks()` derives from `pageBlocks()`),
+  so filters work on both languages. Block types are switched off in `Settings.ocrHiddenTypes`;
   single blocks in `AppState.blockSelection`, which belongs to the `pages`
   array it was picked on (`excludedBlocks(state, pages)`; other pages start
   with none, so no reset rules are needed). Copy and download use
@@ -326,27 +353,36 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   after every job that changed the translation, restores the newest one when
   the same document (and cached OCR result) is loaded, and reopens entries
   from `HistoryPanel`. Bump `HISTORY_VERSION` when `TranslationState`
-  changes shape incompatibly.
+  changes shape incompatibly. Each entry is kept whole (`TRANSLATION_STORE`,
+  read only to open one) and as its summary (`TRANSLATION_SUMMARY_STORE`,
+  all the list reads), written, evicted and deleted together in one
+  transaction (`withStores()` in `db.ts`). A new store or index is a
+  `DB_VERSION` bump with its creation (and any migration of existing data)
+  in `openDb()`'s upgrade; `src/lib/storage/history.test.ts` shows how to
+  test one on a database of the previous version (fake-indexeddb).
 - **Retries of failed parts**: `runner.retryFailed()` (job kind `"retry"`)
   re-runs `describeBboxes()` / `blockTranslations()` with `onlyIds` and
   merges the results. For blocks: the ones the OCR text tab keeps that have
   no translation, which includes blocks taken back after the translation.
 - **Jobs that add to a translation** (original-language structure, retries)
-  pass it to `beginJob(..., forTranslation)`: they run in its target
+  pass it to `withJob()` as `JobSpec.forTranslation`: they run in its target
   language (provider and model come from Settings, so a failing model can be
   swapped), ignore the schema setting, and use the OCR result on screen only when it is the one
   the translation was made from (`ocrBelongsTo()` / `ocrOf()`; the retry
   buttons are hidden otherwise). The automatic original-language request
-  fires once per translation (`originalRequested`), never while an error is
+  fires once per translation (`session.originalRequested`), never while an error is
   shown, and not after the job that produced the translation was cancelled
   or failed.
-- **Another translation provider**: (1) widen the `ApiProvider` union in
-  `src/lib/http/apiError.ts` (it is the `ProviderId` type); (2) implement
-  `ChatProvider` (`src/lib/llm/provider.ts`) on a client in `src/lib/<name>/`;
-  (3) add a `ProviderInfo` entry to `PROVIDERS` in `src/lib/llm/registry.ts`
-  (labels, key URL, default/fallback models, capability flags, and `load`,
-  a dynamic import of the implementation);
-  (4) add its host to the CSP in `public/_headers` and to the e2e mocks.
+- **Another translation provider**: (1) add its identity to `API_PROVIDERS`
+  in `src/lib/apiProviders.ts` (the key is its `ProviderId`; `name`,
+  `label`, `host`: the error hints, the key pills and the client's base URL
+  read them there); (2) implement `ChatProvider` (`src/lib/llm/provider.ts`)
+  on a client in `src/lib/<name>/` (its `label` is `API_PROVIDERS.<id>.label`,
+  its base URL `apiBaseUrl()`); (3) add its entry to `PROVIDERS` in
+  `src/lib/llm/registry.ts` with `provider()` (purpose, key URL,
+  default/fallback models, capability flags, and `load`, a dynamic import of
+  the implementation); (4) add its host to the CSP in `public/_headers`
+  (`src/architecture.test.ts` fails until it is there) and to the e2e mocks.
   Everything else (key storage, key dialog fields, header pills, settings
   model lists, `initialState`) iterates `PROVIDER_IDS` / `perProvider()`.
 - **Another API host or a proxy**: the Mistral and OpenAI clients take
@@ -392,8 +428,10 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   that support it, offered per provider (`ProviderInfo.reasoningEfforts`,
   `effortFor()`): Anthropic maps "none" to `output_config.effort: "low"`;
   Mistral takes "none" or "high" (the others map to "high"), and
-  `MistralProvider` resends a rejected request without it and stops sending
-  it to that model for the session.
+  `MistralProvider` resends a request rejected for it (the error names
+  `reasoning_effort` in its message or body) without it and stops sending
+  it to that model for the session; any other rejection goes to the
+  fallback ladder at once.
 - The Anthropic provider streams with `messages.stream()` (text deltas via
   `on("text")`, result from `finalMessage()`), reads only `text` blocks
   (adaptive thinking adds `thinking` blocks first), maps `stop_reason` onto
@@ -401,11 +439,23 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   "length", `refusal` → "content_filter", or an `ApiError` of kind "refusal"
   when nothing was produced), and always sends `max_tokens` (required by the
   API).
-- `Runtime.getState()` (see `App.tsx`) mirrors the reducer synchronously, so
-  code in `runner.ts` can read the state right after a `dispatch`. Async
+- There is one state: the store `main.tsx` creates (`util/createStore.ts`),
+  which `App.tsx` renders with `useSyncExternalStore`; the runner reaches
+  it through its `Runtime` (`createRuntime()` in `runner/runtime.ts`). The
+  reducer runs once per action, so `rt.getState()` holds an action's
+  result as soon as it is dispatched, the very objects the view renders.
+  What the runner remembers outside the store (key checks in flight, the
+  latest "Open", deleted saved translations, original-language requests)
+  lives in `Runtime.session`, never in module variables, so every runtime
+  (each test's) starts fresh: add new such state there. Async
   work that dispatches late must check it is still relevant (see
   `verifyAndSaveApiKey`, `loadDocument`, the `translation.id` checks in
   `retryFailed`).
+- A job is `withJob(rt, spec, work)` (`runner/jobs.ts`): it starts the job
+  in the store when keys and settings allow (else `work` never runs and the
+  reason is shown) and always ends it, showing the error `work` throws
+  unless the job was cancelled. Write a new job as its `work`; never start
+  or end one by hand.
 - Components that receive callbacks get them from the `on` / `results`
   objects in `App.tsx`, created once: an inline arrow function as a prop
   defeats `memo()` and re-renders the subtree on every streaming update.

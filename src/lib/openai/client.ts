@@ -4,10 +4,11 @@
  * `baseUrl` (https://api.openai.com) is ever contacted; the CSP in
  * `public/_headers` enforces this.
  */
+import { apiBaseUrl } from "../apiProviders";
 import { ChatCompletionsClient, type ChatClientOptions } from "../http/chatClient";
 import type { ChatCompletionRequest, ModelObject, Usage } from "./types";
 
-export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com";
+export const DEFAULT_OPENAI_BASE_URL = apiBaseUrl("openai");
 
 export class OpenAIClient extends ChatCompletionsClient<ChatCompletionRequest, Usage, ModelObject> {
   constructor(options: ChatClientOptions) {

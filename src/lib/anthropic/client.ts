@@ -10,9 +10,10 @@
  * leaves this browser except to the API.
  */
 import type Anthropic from "@anthropic-ai/sdk";
+import { apiBaseUrl } from "../apiProviders";
 import { ApiError, extractErrorMessage, kindForStatus, toApiError } from "../http/apiError";
 
-export const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
+export const ANTHROPIC_BASE_URL = apiBaseUrl("anthropic");
 
 /**
  * Per-request timeout. An explicit timeout also turns off the SDK's guard

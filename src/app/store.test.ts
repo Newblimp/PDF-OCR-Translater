@@ -9,8 +9,10 @@ import {
   ocrBelongsTo,
   reducer,
   requiredProviders,
+  restoredTranslation,
   selectSourceText,
   selectTextPages,
+  translationDefaults,
   usableKey,
   type AppState,
   type OcrState,
@@ -26,41 +28,23 @@ function shownTabs(state: AppState): string[] {
 
 function translationFixture(patch: Partial<TranslationState> = {}): TranslationState {
   return {
+    ...translationDefaults(),
     id: "t1",
     sourceName: "doc.pdf",
     sourceKind: "pdf",
     sourceHash: null,
     ocrKey: null,
-    ocrFingerprint: null,
     sourceText: "源文本",
-    pages: null,
     data: {},
-    rawText: "",
     schema: {},
     schemaSource: "builtin",
-    schemaWarnings: [],
-    usage: null,
-    inferUsage: null,
     provider: "openai",
     model: "m",
     mode: "json_schema",
-    violations: [],
     finishReason: "stop",
-    partial: false,
     targetLanguage: "English",
     completedAt: 0,
     sourceChars: 0,
-    imagesSent: 0,
-    bboxAnnotations: [],
-    bboxUsage: null,
-    blockTranslations: {},
-    blockUsage: null,
-    originalData: null,
-    originalRawText: null,
-    originalUsage: null,
-    originalViolations: [],
-    warnings: [],
-    restored: false,
     ...patch,
   };
 }
@@ -178,6 +162,15 @@ describe("history", () => {
     });
     expect(state.pasteMode).toBe(true);
     expect(selectSourceText(state)).toEqual({ text: "源文本", origin: "pasted" });
+  });
+
+  it("gives a translation saved by an earlier release the defaults of the fields added since", () => {
+    const { pages: _pages, ocrFingerprint: _fingerprint, warnings: _warnings, blockTranslations: _blocks, ...older } = translationFixture({ id: "old" });
+    const restored = restoredTranslation(older as TranslationState);
+    expect(restored).toEqual(translationFixture({ id: "old", restored: true }));
+    expect(restored).toMatchObject({ pages: null, ocrFingerprint: null, warnings: [], blockTranslations: {} });
+    // What was saved wins over the defaults.
+    expect(restoredTranslation(translationFixture({ warnings: ["w"], restored: false }))).toMatchObject({ warnings: ["w"], restored: true });
   });
 
   it("keeps a saved source translatable after it was translated again", () => {

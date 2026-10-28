@@ -165,6 +165,48 @@ export interface TranslationState {
   restored: boolean;
 }
 
+/**
+ * Every field of a translation that a new one starts without (its stages
+ * fill them in): the base of a new translation, and the defaults a
+ * translation saved by an earlier release gets for fields added since.
+ */
+export function translationDefaults(): Omit<
+  TranslationState,
+  "id" | "sourceName" | "sourceKind" | "sourceHash" | "ocrKey" | "sourceText" | "provider" | "model" | "targetLanguage" | "completedAt" | "sourceChars"
+> {
+  return {
+    ocrFingerprint: null,
+    pages: null,
+    data: null,
+    rawText: "",
+    schema: null,
+    schemaSource: null,
+    schemaWarnings: [],
+    usage: null,
+    inferUsage: null,
+    mode: null,
+    violations: [],
+    finishReason: null,
+    partial: false,
+    imagesSent: 0,
+    bboxAnnotations: [],
+    bboxUsage: null,
+    blockTranslations: {},
+    blockUsage: null,
+    originalData: null,
+    originalRawText: null,
+    originalUsage: null,
+    originalViolations: [],
+    warnings: [],
+    restored: false,
+  };
+}
+
+/** A saved translation back on screen, with the defaults of the fields it was saved without. */
+export function restoredTranslation(saved: TranslationState): TranslationState {
+  return { ...translationDefaults(), ...saved, restored: true };
+}
+
 export interface JobState {
   kind: JobKind;
   startedAt: number;

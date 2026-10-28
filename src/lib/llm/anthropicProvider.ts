@@ -1,3 +1,4 @@
+import { API_PROVIDERS } from "../apiProviders";
 import type Anthropic from "@anthropic-ai/sdk";
 import { createAnthropicClient, toAnthropicApiError } from "../anthropic/client";
 import { ANTHROPIC_DEFAULT_MAX_TOKENS, anthropicModelOptions } from "../anthropic/models";
@@ -92,7 +93,7 @@ function toUsage(usage: Anthropic.Usage | null | undefined): TokenUsage | null {
 
 export class AnthropicProvider implements ChatProvider {
   readonly id = "anthropic" as const;
-  readonly label = "Anthropic (Claude)";
+  readonly label = API_PROVIDERS.anthropic.label;
   private readonly client: Promise<Anthropic>;
 
   /** Takes the SDK client, or the promise `createAnthropicClient()` returns while the SDK loads. */
