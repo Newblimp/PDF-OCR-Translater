@@ -353,7 +353,13 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   after every job that changed the translation, restores the newest one when
   the same document (and cached OCR result) is loaded, and reopens entries
   from `HistoryPanel`. Bump `HISTORY_VERSION` when `TranslationState`
-  changes shape incompatibly.
+  changes shape incompatibly. Each entry is kept whole (`TRANSLATION_STORE`,
+  read only to open one) and as its summary (`TRANSLATION_SUMMARY_STORE`,
+  all the list reads), written, evicted and deleted together in one
+  transaction (`withStores()` in `db.ts`). A new store or index is a
+  `DB_VERSION` bump with its creation (and any migration of existing data)
+  in `openDb()`'s upgrade; `src/lib/storage/history.test.ts` shows how to
+  test one on a database of the previous version (fake-indexeddb).
 - **Retries of failed parts**: `runner.retryFailed()` (job kind `"retry"`)
   re-runs `describeBboxes()` / `blockTranslations()` with `onlyIds` and
   merges the results. For blocks: the ones the OCR text tab keeps that have
