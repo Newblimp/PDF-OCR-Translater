@@ -5,7 +5,7 @@
  * clients extend it (`mistral/client.ts` adds OCR). Only `baseUrl` is ever
  * contacted; the CSP in `public/_headers` enforces it.
  */
-import { ApiError, type ApiProvider } from "./apiError";
+import { ApiError, toApiError, type ApiProvider } from "./apiError";
 import { apiFetch } from "./apiFetch";
 import { readChatStream } from "./chatStream";
 
@@ -109,7 +109,14 @@ export class ChatCompletionsClient<Request extends { model: string }, Usage, Mod
   /** A JSON response that passes `valid`, else a "protocol" error naming `what`. */
   protected async getJson<T>(path: string, what: string, valid: (json: T | null) => boolean, call: Call): Promise<T> {
     const res = await this.request(path, call);
-    const json = (await res.json()) as T | null;
+    let json: T | null;
+    try {
+      json = (await res.json()) as T | null;
+    } catch (err) {
+      // A proxy's HTML error page, or a body cut off: the same "protocol" error as a JSON body of the wrong shape.
+      if (err instanceof SyntaxError) throw new ApiError(`${what} is not JSON: ${err.message}`, "protocol", this.provider, res.status);
+      throw toApiError(err, this.provider); // the connection dropped, or the request was cancelled, while the body was read
+    }
     if (!valid(json)) throw new ApiError(`${what} has an unexpected shape`, "protocol", this.provider, res.status, json);
     return json!;
   }
