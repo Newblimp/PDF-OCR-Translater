@@ -146,8 +146,10 @@ export function App({ store, runtime: rt }: { store: Store<AppState, Action>; ru
           <div class="pane-body" hidden={collapsed}>
             {state.doc && !state.pasteMode ? (
               <DocumentCard
+                key={state.doc.id}
                 doc={state.doc}
                 ocr={state.ocr}
+                compact={!!state.ocr || !!state.translation}
                 busy={busy}
                 onPageSelection={on.setPageSelection}
                 onReplace={on.loadFile}
@@ -171,7 +173,12 @@ export function App({ store, runtime: rt }: { store: Store<AppState, Action>; ru
 
             <JobBrief job={state.job} error={state.error} />
 
-            <QuickOptions targetLanguage={state.settings.targetLanguage} glossary={state.settings.glossary} onChange={on.changeSettings} />
+            <QuickOptions
+              targetLanguage={state.settings.targetLanguage}
+              glossary={state.settings.glossary}
+              compact={!!state.translation}
+              onChange={on.changeSettings}
+            />
             <SettingsPanel
               settings={state.settings}
               models={state.models}

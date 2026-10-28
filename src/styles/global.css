@@ -121,6 +121,7 @@ h4,
 .side-rail-label,
 .settings > summary > span:first-child,
 .history > summary > span:first-child,
+.glossary-field > summary > span:first-child,
 .field > span:first-child,
 .field > legend,
 .job-status h2,
@@ -2235,6 +2236,40 @@ input[aria-invalid="true"] {
 }
 @media (min-width: 961px) {
   .job-brief {
+    display: none;
+  }
+}
+
+/* The side panel once there is a result: the document card and the glossary fold to a line each. */
+.document-unfold {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.glossary-field > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.glossary-field > summary::-webkit-details-marker {
+  display: none;
+}
+.glossary-field > summary::before {
+  content: "▸";
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.glossary-field[open] > summary::before {
+  content: "▾";
+}
+.glossary-field[open] > summary {
+  margin-bottom: 4px;
+}
+/* Wide screens show the document large in the main pane: the side panel's small previews would repeat it. */
+@media (min-width: 961px) {
+  .document-card .preview-strip,
+  .document-card .text-preview {
     display: none;
   }
 }

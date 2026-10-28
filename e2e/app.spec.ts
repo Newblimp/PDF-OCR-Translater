@@ -694,6 +694,24 @@ test("a failed job shows its error in the main pane, and Retry runs it again", a
   expect(failures).toBe(4);
 });
 
+test("once there is a result the side panel folds the page field and the glossary to a line each", async ({ page }) => {
+  await setup(page);
+  await enterMistralKey(page);
+  await loadPdf(page);
+  const input = page.getByRole("region", { name: "Input" });
+  await expect(input.getByLabel("Pages to OCR")).toBeVisible();
+  await expect(input.getByLabel("Glossary")).toBeVisible();
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
+  await expect(page.locator(".ocr-page")).toContainText("[EN] 权利要求1不具备创造性。", { timeout: 20_000 });
+  await expect(input.getByLabel("Pages to OCR")).toBeHidden();
+  await expect(input.getByLabel("Glossary")).toBeHidden();
+  // One click brings each back.
+  await input.getByRole("button", { name: "Pages to OCR: all ▸" }).click();
+  await expect(input.getByLabel("Pages to OCR")).toBeVisible();
+  await input.getByText("Glossary (optional)").click();
+  await expect(input.getByLabel("Glossary")).toBeVisible();
+});
+
 test("a failing follow-up step leaves a warning on the translation instead of failing the job", async ({ page }) => {
   await setup(page, { json: true });
   await enterKeys(page);

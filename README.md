@@ -42,7 +42,9 @@ anywhere else.
 
    Below the buttons, the **target language** (English or German in one
    click; the other languages are in Settings) and the **glossary** are
-   always at hand; the settings start closed.
+   always at hand; the settings start closed. Once there is a result, the
+   pages to OCR and the glossary fold to a line each (a click opens them),
+   so the side panel stays short.
 
 3. **OCR** runs on `mistral-ocr-latest` with `extract_header` /
    `extract_footer` on, `include_image_base64` (the extracted bounding boxes

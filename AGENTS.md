@@ -330,7 +330,12 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   own title bar, `SidePanelHead`, or the rail) folds the input pane
   into `SideRail` (a running job with Cancel, an error). The pane's content
   stays mounted in a hidden `.pane-body`, so drafts and open sections
-  survive folding.
+  survive folding. Once there is a result the panel is compact on its own:
+  `DocumentCard` (`compact`, keyed by the document so a new one starts
+  unfolded) folds the pages to OCR and the preview into one button, and
+  `QuickOptions` folds the glossary to a line with its term count; on wide
+  screens the card's small previews are hidden, the main pane showing the
+  document (`DocumentView`).
 - **Page rendering**: `files/pageRenderCache.ts` keeps one pdf.js document
   open per loaded file, renders on demand and pre-renders the rest in the
   background (`PREFETCH_LIMIT`); `BboxView` and the OCR text view's pages
