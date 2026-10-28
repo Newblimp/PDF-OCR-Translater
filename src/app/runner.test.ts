@@ -12,7 +12,7 @@ import type { SavedTranslation } from "@/lib/storage/history";
 import { DEFAULT_SETTINGS, type Settings } from "@/lib/storage/settings";
 import type { ProgressEvent } from "@/lib/pipeline/events";
 import { createStore, type Store } from "@/lib/util/createStore";
-import { cancelJob, retryFailed, runJob } from "./runner";
+import { cancelJob, createRuntime, deleteSaved, retryFailed, runJob, type Runtime } from "./runner";
 import { initialState, reducer, type Action, type AppState, type DocState, type TranslationState } from "./store";
 
 /** What the fake chat provider answers; a test replaces it to fail or hold a step. */
@@ -50,6 +50,7 @@ vi.mock("@/lib/storage/history", async (importOriginal) => ({
   listSavedTranslations: async () => [...saved.values()].map(({ translation: _t, version: _v, ...summary }) => summary),
   findSavedTranslation: async () => null,
   putSavedTranslation: async (entry: SavedTranslation<TranslationState>) => void saved.set(entry.id, structuredClone(entry)),
+  deleteSavedTranslation: async (id: string) => void saved.delete(id),
 }));
 
 const block = (type: string, y: number, content: string, image_id?: string) => ({
@@ -102,7 +103,8 @@ async function translateEverything(request: JsonChatRequest): Promise<JsonChatRe
   throw new Error(`unexpected request: ${name || request.format.type}`);
 }
 
-function loadedStore(settings: Partial<Settings> = {}) {
+/** A runtime of its own (store and session) with a PDF loaded; it can also be subscribed to. */
+function loadedStore(settings: Partial<Settings> = {}): Store<AppState, Action> & Runtime {
   const store = createStore(reducer, initialState({ mistral: "mistral-key", anthropic: null, openai: null }, { ...DEFAULT_SETTINGS, ...settings }));
   const doc: DocState = {
     id: "doc-1",
@@ -120,7 +122,7 @@ function loadedStore(settings: Partial<Settings> = {}) {
     pageSelection: "",
   };
   store.dispatch({ type: "doc/set", doc });
-  return store;
+  return { ...store, ...createRuntime(store) };
 }
 
 /** Every progress event of the jobs run on `store` from now on. */
@@ -218,5 +220,30 @@ describe("OCR + Translate without the JSON output", () => {
     expect(chatRequests).toHaveLength(1);
     expect(JSON.parse(chatRequests[0]!.user.slice(chatRequests[0]!.user.indexOf("["))) as unknown[]).toHaveLength(5);
     expect(Object.keys(store.getState().translation?.blockTranslations ?? {})).toHaveLength(45);
+  });
+});
+
+describe("saved translations", () => {
+  it("does not write back a translation the user deleted, for as long as the runtime lives", async () => {
+    const store = loadedStore();
+    answer = async (request) => {
+      if (request.format.type === "json_schema" && request.format.name === "bbox_annotation") throw new Error("vision unavailable");
+      return translateEverything(request);
+    };
+    await runJob(store, "both");
+    const id = store.getState().translation!.id;
+    expect([...saved.keys()]).toEqual([id]);
+    await deleteSaved(store, id);
+    expect(saved.size).toBe(0);
+
+    // Retrying the box that failed changes the translation on screen; it stays deleted.
+    answer = translateEverything;
+    await retryFailed(store, "bboxes");
+    expect(store.getState().translation?.bboxAnnotations[0]?.data).not.toBeNull();
+    expect(saved.size).toBe(0);
+    // What a runtime remembers is its own: another one (a reload) saves it again.
+    store.dispatch({ type: "translation/patch", patch: { bboxAnnotations: [{ id: "img-0.jpeg", pageIndex: 0, data: null, error: "again" }] } });
+    await retryFailed(createRuntime(store), "bboxes");
+    expect([...saved.keys()]).toEqual([id]);
   });
 });

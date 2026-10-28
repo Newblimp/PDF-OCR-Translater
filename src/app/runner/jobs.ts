@@ -88,7 +88,7 @@ function ocrClient(apiKey: string): OcrClient {
 export function endJob(rt: Runtime, job: Job, err?: unknown): void {
   if (err !== undefined) {
     // A translation whose job was cancelled or failed after it appeared gets no automatic follow-up: the user decides.
-    if (job.producedId) originalRequested.add(job.producedId);
+    if (job.producedId) rt.session.originalRequested.add(job.producedId);
     if (!isCancellation(err, job)) {
       rt.dispatch({ type: "error/set", error: toAppError(err, JOB_TITLES[job.kind]) });
       job.controller.abort(); // stop stages still running in the background
@@ -96,9 +96,6 @@ export function endJob(rt: Runtime, job: Job, err?: unknown): void {
   }
   rt.dispatch({ type: "job/end" });
 }
-
-/** Translations whose original-language structure was already requested or settled (it is not requested again automatically). */
-export const originalRequested = new Set<string>();
 
 function isCancellation(err: unknown, job: Job): boolean {
   return job.controller.signal.aborted || (err instanceof ApiError && err.kind === "aborted");

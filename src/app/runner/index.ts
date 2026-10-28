@@ -11,4 +11,4 @@ export { clearHistory, deleteSaved, openSavedTranslation, refreshHistory } from 
 export { cancelJob, toAppError } from "./jobs";
 export { ensureOriginalStructure, retryFailed, runJob } from "./translation";
 export { editBoxes, resetBoxEdits, undoBoxEdit } from "./boxEdits";
-export type { Runtime } from "./runtime";
+export { createRuntime, type Runtime } from "./runtime";

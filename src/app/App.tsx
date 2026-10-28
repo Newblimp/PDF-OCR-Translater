@@ -44,11 +44,11 @@ import {
 } from "./runner";
 import { canRunOcr, missingKeys, requiredProviders, selectSourceText, type Action, type AppState, type ResultTab } from "./store";
 
-export function App({ store }: { store: Store<AppState, Action> }) {
+/** `store` holds the state the app renders; `runtime` is the runner's way to it (the same store), made once in `main.tsx`. */
+export function App({ store, runtime: rt }: { store: Store<AppState, Action>; runtime: Runtime }) {
   // One store, read by the view and by the runner alike: `rt.getState()` reflects an action as soon as it is dispatched.
   const state = useSyncExternalStore(store.subscribe, store.getState);
-  const rt: Runtime = store;
-  const { dispatch } = store;
+  const { dispatch } = rt;
 
   // Handlers are created once, so memoised components skip the re-renders of
   // a streaming translation (about ten state updates per second).

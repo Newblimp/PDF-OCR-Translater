@@ -6,9 +6,6 @@ import { clearApiKey, saveApiKey } from "@/lib/storage/apiKeys";
 import { missingKeys } from "../store";
 import type { Runtime } from "./runtime";
 
-/** In-flight key verifications, one per provider; a newer request cancels the older one. */
-const verifications = new Map<ProviderId, AbortController>();
-
 /**
  * Store a key and verify it against the provider's model list (which also
  * fills the model dropdown). Returns true when the key was accepted.
@@ -16,7 +13,7 @@ const verifications = new Map<ProviderId, AbortController>();
  * request completes (the user may have replaced or forgotten it meanwhile).
  */
 export async function verifyAndSaveApiKey(rt: Runtime, provider: ProviderId, key: string): Promise<boolean> {
-  verifications.get(provider)?.abort();
+  rt.session.verifications.get(provider)?.abort();
   const trimmed = key.trim();
   if (!trimmed) {
     clearApiKey(provider);
@@ -24,7 +21,7 @@ export async function verifyAndSaveApiKey(rt: Runtime, provider: ProviderId, key
     return false;
   }
   const controller = new AbortController();
-  verifications.set(provider, controller);
+  rt.session.verifications.set(provider, controller);
   rt.dispatch({ type: "key/set", provider, key: trimmed });
   rt.dispatch({ type: "key/status", provider, status: "checking" });
   const stillCurrent = () => !controller.signal.aborted && rt.getState().keys[provider].value === trimmed;
@@ -53,7 +50,7 @@ export async function verifyAndSaveApiKey(rt: Runtime, provider: ProviderId, key
     });
     return false;
   } finally {
-    if (verifications.get(provider) === controller) verifications.delete(provider);
+    if (rt.session.verifications.get(provider) === controller) rt.session.verifications.delete(provider);
   }
 }
 
@@ -74,7 +71,7 @@ export async function submitApiKeys(rt: Runtime, keys: Partial<Record<ProviderId
 
 export function forgetApiKeys(rt: Runtime): void {
   for (const provider of PROVIDER_IDS) {
-    verifications.get(provider)?.abort();
+    rt.session.verifications.get(provider)?.abort();
     clearApiKey(provider);
     rt.dispatch({ type: "key/set", provider, key: null });
     rt.dispatch({ type: "models/set", provider, models: [] });

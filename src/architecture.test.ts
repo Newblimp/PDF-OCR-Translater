@@ -4,6 +4,7 @@
  *   - the CSP lets the page talk to exactly the providers' hosts;
  *   - public/theme-init.js reads the settings where storage/settings.ts writes them;
  *   - what is imported on first use (`import()`) stays out of the first download;
+ *   - the runner keeps no state in module variables (it belongs in `Runtime.session`);
  *   - the files and names AGENTS.md refers to exist.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -134,6 +135,25 @@ describe("first download", () => {
     // A static import of one of them from the shell would put it back into the entry chunk (and make its `import()` pointless).
     const eager = [...lazy].filter(([module]) => initial.has(module)).map(([module, by]) => `${module} (imported on first use by ${by})`);
     expect(eager).toEqual([]);
+  });
+});
+
+describe("runner", () => {
+  it("keeps what it remembers in Runtime.session, not in module variables", () => {
+    // Module state outlives a runtime: tests would share it, and a second app on the page would too.
+    const found: string[] = [];
+    for (const file of files("src/app/runner").filter((f) => /\.ts$/.test(f) && !f.endsWith(".test.ts"))) {
+      const source = ts.createSourceFile(file, read(file), ts.ScriptTarget.Latest, true);
+      for (const statement of source.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        const mutable = !(statement.declarationList.flags & ts.NodeFlags.Const);
+        for (const d of statement.declarationList.declarations) {
+          const collection = d.initializer && ts.isNewExpression(d.initializer) && /^(Map|Set|WeakMap|WeakSet)$/.test(d.initializer.expression.getText(source));
+          if (mutable || collection) found.push(`${file}: ${d.name.getText(source)}`);
+        }
+      }
+    }
+    expect(found).toEqual([]);
   });
 });
 

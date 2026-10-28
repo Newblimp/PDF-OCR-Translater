@@ -1,5 +1,6 @@
 import { render } from "preact";
 import { App } from "./app/App";
+import { createRuntime } from "./app/runner";
 import { initialState, reducer, RESULT_TABS } from "./app/store";
 import { perProvider } from "./lib/llm/registry";
 import { loadApiKey } from "./lib/storage/apiKeys";
@@ -18,4 +19,4 @@ const store = createStore(reducer, initialState(perProvider(loadApiKey), setting
 
 const root = document.getElementById("app");
 if (!root) throw new Error("Missing #app root element");
-render(<App store={store} />, root);
+render(<App store={store} runtime={createRuntime(store)} />, root);

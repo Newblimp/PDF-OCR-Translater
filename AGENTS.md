@@ -358,7 +358,7 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   swapped), ignore the schema setting, and use the OCR result on screen only when it is the one
   the translation was made from (`ocrBelongsTo()` / `ocrOf()`; the retry
   buttons are hidden otherwise). The automatic original-language request
-  fires once per translation (`originalRequested`), never while an error is
+  fires once per translation (`session.originalRequested`), never while an error is
   shown, and not after the job that produced the translation was cancelled
   or failed.
 - **Another translation provider**: (1) widen the `ApiProvider` union in
@@ -423,10 +423,14 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   when nothing was produced), and always sends `max_tokens` (required by the
   API).
 - There is one state: the store `main.tsx` creates (`util/createStore.ts`),
-  which `App.tsx` renders with `useSyncExternalStore` and passes to the
-  runner as its `Runtime`. The reducer runs once per action, so
-  `rt.getState()` holds an action's result as soon as it is dispatched,
-  the very objects the view renders. Async
+  which `App.tsx` renders with `useSyncExternalStore`; the runner reaches
+  it through its `Runtime` (`createRuntime()` in `runner/runtime.ts`). The
+  reducer runs once per action, so `rt.getState()` holds an action's
+  result as soon as it is dispatched, the very objects the view renders.
+  What the runner remembers outside the store (key checks in flight, the
+  latest "Open", deleted saved translations, original-language requests)
+  lives in `Runtime.session`, never in module variables, so every runtime
+  (each test's) starts fresh: add new such state there. Async
   work that dispatches late must check it is still relevant (see
   `verifyAndSaveApiKey`, `loadDocument`, the `translation.id` checks in
   `retryFailed`).

@@ -30,7 +30,7 @@ import {
   type TranslationState,
 } from "../store";
 import { hashText } from "./document";
-import { beginJob, endJob, followUps, originalRequested, type Job } from "./jobs";
+import { beginJob, endJob, followUps, type Job } from "./jobs";
 import type { Runtime } from "./runtime";
 import { saveTranslation } from "./savedTranslations";
 
@@ -302,7 +302,7 @@ async function translateStructured(rt: Runtime, job: Job, source: Source): Promi
   });
   const patch = translationPatcher(rt, id);
   // In "always" mode the stage runs below; whatever its outcome, the view must not request it again by itself.
-  if (ctx.settings.structureOriginal === "always") originalRequested.add(id);
+  if (ctx.settings.structureOriginal === "always") rt.session.originalRequested.add(id);
 
   // Follow-ups, side by side; each result shows up as soon as it is in.
   // The original-language structure reads the document prefix the translation just cached.
@@ -341,10 +341,10 @@ export async function ensureOriginalStructure(rt: Runtime, force = false): Promi
   const t = state.translation;
   if (!t || !hasStructure(t) || state.job || hasOriginal(t) || state.settings.structureOriginal === "never") return;
   // Not by itself while an error is shown (an automatic job would also clear it), nor twice for one translation.
-  if (!force && (originalRequested.has(t.id) || state.error)) return;
+  if (!force && (rt.session.originalRequested.has(t.id) || state.error)) return;
   const job = beginJob(rt, "original", ["structure_original"], true, t);
   if (!job) return;
-  originalRequested.add(t.id);
+  rt.session.originalRequested.add(t.id);
   try {
     const { structureOriginal } = await pipeline();
     const ocr = ocrOf(state, t);

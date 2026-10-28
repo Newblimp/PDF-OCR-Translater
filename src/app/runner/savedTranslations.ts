@@ -16,16 +16,13 @@ export async function refreshHistory(rt: Runtime): Promise<void> {
   rt.dispatch({ type: "history/set", history: await listSavedTranslations() });
 }
 
-/** Latest "Open" request; an older one that finishes reading later gives way. */
-let openRequest = 0;
-
 /** Reopen a saved translation (with its OCR result when the OCR cache still has it). */
 export async function openSavedTranslation(rt: Runtime, id: string): Promise<void> {
   if (rt.getState().job) return;
-  const request = ++openRequest;
+  const request = ++rt.session.openRequest;
   const docBefore = rt.getState().doc?.id;
   // A document loaded or another entry opened while IndexedDB was read is the user's latest action: keep it.
-  const superseded = () => request !== openRequest || rt.getState().doc?.id !== docBefore || !!rt.getState().job;
+  const superseded = () => request !== rt.session.openRequest || rt.getState().doc?.id !== docBefore || !!rt.getState().job;
   const saved = await getSavedTranslation<TranslationState>(id);
   if (superseded()) return;
   if (!saved) {
@@ -41,26 +38,23 @@ export async function openSavedTranslation(rt: Runtime, id: string): Promise<voi
   rt.dispatch({ type: "history/open", ocr, translation: restoredTranslation(saved.translation), pastedText: textSource ? saved.translation.sourceText : null });
 }
 
-/** Saved translations the user deleted: a later job on the same result on screen must not write them back. */
-const deletedIds = new Set<string>();
-
 export async function deleteSaved(rt: Runtime, id: string): Promise<void> {
-  deletedIds.add(id);
+  rt.session.deletedIds.add(id);
   await deleteSavedTranslation(id);
   await refreshHistory(rt);
 }
 
 export async function clearHistory(rt: Runtime): Promise<void> {
-  for (const entry of rt.getState().history) deletedIds.add(entry.id);
+  for (const entry of rt.getState().history) rt.session.deletedIds.add(entry.id);
   const current = rt.getState().translation?.id;
-  if (current) deletedIds.add(current);
+  if (current) rt.session.deletedIds.add(current);
   await clearSavedTranslations();
   await refreshHistory(rt);
 }
 
 export async function saveTranslation(rt: Runtime): Promise<void> {
   const { translation, settings } = rt.getState();
-  if (!translation || !settings.saveTranslations || deletedIds.has(translation.id)) return;
+  if (!translation || !settings.saveTranslations || rt.session.deletedIds.has(translation.id)) return;
   await putSavedTranslation({
     id: translation.id,
     version: HISTORY_VERSION,
