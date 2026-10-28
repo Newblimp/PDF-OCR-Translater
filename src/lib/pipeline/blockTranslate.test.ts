@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatProvider, JsonChatRequest } from "../llm/provider";
 import { batchBlocks, translateBlocks } from "./blockTranslate";
+import type { ProgressEvent } from "./events";
 import { blockId } from "./ocrText";
 import type { OcrText } from "./ocrText";
 
@@ -65,6 +66,38 @@ describe("translateBlocks", () => {
     expect(out.translations).toEqual({ "0:0": "EN(你好)", "0:1": "EN(世界)" });
     expect(out.usage.total_tokens).toBe(10);
     expect(out.missing).toBe(0);
+  });
+
+  it("reports a batch whose answer cannot be read as failed, with the reason, and counts its usage", async () => {
+    const ocr = ocrWith([{ page: 0, type: "text", content: "你好" }]);
+    const answers = [
+      { content: '{"translations": [{"id": "0:0", "text": "Hel', finishReason: "length" },
+      { content: "Sorry, I cannot help with that.", finishReason: "stop" },
+      { content: '{"result": []}', finishReason: "stop" },
+    ];
+    for (const answer of answers) {
+      const events: ProgressEvent[] = [];
+      const provider: ChatProvider = {
+        id: "openai",
+        label: "Fake",
+        listModels: async () => [],
+        completeJson: async () => ({ ...answer, usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 }, model: "m" }),
+      };
+      const out = await translateBlocks(provider, ocr, {
+        model: "m",
+        targetLanguage: "English",
+        sourceLanguage: "auto",
+        domainHint: "t",
+        onProgress: (e) => events.push(e),
+      });
+      expect(out).toMatchObject({ translations: {}, missing: 1, usage: { total_tokens: 10 } });
+      const warning = events.find((e) => e.status === "warning");
+      expect(warning?.message).toBe("A batch of 1 block(s) failed");
+      expect(warning?.detail).toMatch(
+        /^The answer could not be read \((the output hit the model's output limit|No JSON object found.*|no `translations` array)\)$/,
+      );
+      expect(events.at(-1)).toMatchObject({ status: "done", detail: "1 batch(es) failed" });
+    }
   });
 
   it("translates only the given blocks", async () => {

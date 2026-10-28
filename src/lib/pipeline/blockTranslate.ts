@@ -7,7 +7,7 @@
  * structured output.
  */
 import { ApiError } from "../http/apiError";
-import { addUsage, emptyUsage, type ChatProvider, type ReasoningEffort, type TokenUsage } from "../llm/provider";
+import { addUsage, emptyUsage, type ChatProvider, type JsonChatResult, type ReasoningEffort, type TokenUsage } from "../llm/provider";
 import { runPool } from "../util/pool";
 import type { JsonSchemaObject } from "../mistral/types";
 import { parseModelJson } from "../util/json";
@@ -81,6 +81,23 @@ export function batchBlocks(ocr: OcrText, onlyIds?: ReadonlySet<string>): Array<
   return batches;
 }
 
+/** The translations of a batch's blocks in a model answer; throws (a failed batch) when the answer holds none that can be read. */
+function batchTranslations(result: JsonChatResult, batch: ReadonlyArray<{ id: string }>): Record<string, string> {
+  const parsed = parseModelJson<{ translations?: unknown }>(result.content);
+  const list = parsed.ok ? parsed.value.translations : undefined;
+  if (!Array.isArray(list)) {
+    const cutOff = result.finishReason === "length" || result.finishReason === "model_length";
+    const reason = cutOff ? "the output hit the model's output limit" : parsed.ok ? "no `translations` array" : parsed.error;
+    throw new Error(`The answer could not be read (${reason})`);
+  }
+  const wanted = new Set(batch.map((b) => b.id));
+  const received: Record<string, string> = {};
+  for (const t of list as Array<{ id?: unknown; text?: unknown } | null>) {
+    if (typeof t?.id === "string" && typeof t.text === "string" && wanted.has(t.id)) received[t.id] = t.text;
+  }
+  return received;
+}
+
 export async function translateBlocks(provider: ChatProvider, ocr: OcrText, options: BlockTranslateOptions): Promise<BlockTranslateOutcome> {
   const { onProgress } = options;
   const batches = batchBlocks(ocr, options.onlyIds);
@@ -107,17 +124,10 @@ export async function translateBlocks(provider: ChatProvider, ocr: OcrText, opti
         reasoningEffort: options.reasoningEffort,
         signal: options.signal,
       });
-      const parsed = parseModelJson<{ translations?: Array<{ id?: unknown; text?: unknown }> }>(result.content);
-      if (parsed.ok && Array.isArray(parsed.value.translations)) {
-        const wanted = new Set(batch.map((b) => b.id));
-        const received: Record<string, string> = {};
-        for (const t of parsed.value.translations) {
-          if (typeof t.id === "string" && typeof t.text === "string" && wanted.has(t.id)) received[t.id] = t.text;
-        }
-        Object.assign(translations, received);
-        if (Object.keys(received).length) options.onTranslated?.(received);
-      }
-      addUsage(usage, result.usage);
+      addUsage(usage, result.usage); // billed, whatever came back
+      const received = batchTranslations(result, batch);
+      Object.assign(translations, received);
+      if (Object.keys(received).length) options.onTranslated?.(received);
     } catch (err) {
       if (options.signal?.aborted) throw err;
       if (err instanceof ApiError && err.kind === "auth") throw err; // a bad key fails every batch
