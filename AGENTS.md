@@ -422,8 +422,10 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   that support it, offered per provider (`ProviderInfo.reasoningEfforts`,
   `effortFor()`): Anthropic maps "none" to `output_config.effort: "low"`;
   Mistral takes "none" or "high" (the others map to "high"), and
-  `MistralProvider` resends a rejected request without it and stops sending
-  it to that model for the session.
+  `MistralProvider` resends a request rejected for it (the error names
+  `reasoning_effort` in its message or body) without it and stops sending
+  it to that model for the session; any other rejection goes to the
+  fallback ladder at once.
 - The Anthropic provider streams with `messages.stream()` (text deltas via
   `on("text")`, result from `finalMessage()`), reads only `text` blocks
   (adaptive thinking adds `thinking` blocks first), maps `stop_reason` onto
