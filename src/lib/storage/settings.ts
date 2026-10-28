@@ -1,7 +1,7 @@
 /** User settings, persisted in localStorage. Bump VERSION when the shape changes. */
 import type { ProviderId, ReasoningEffort } from "../llm/provider";
 import type { StructureOriginalMode } from "../pipeline/pipeline";
-import { PROVIDERS } from "../llm/registry";
+import { perProvider, PROVIDERS } from "../llm/registry";
 import { DEFAULT_OCR_MODEL } from "../mistral/models";
 
 export type SchemaModeSetting = { kind: "infer" } | { kind: "builtin"; id: string } | { kind: "custom"; schemaText: string };
@@ -150,34 +150,71 @@ export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return migrateV1() ?? structuredClone(DEFAULT_SETTINGS);
-    return normalise(JSON.parse(raw) as Partial<Settings>);
+    return normalise(JSON.parse(raw));
   } catch {
     return structuredClone(DEFAULT_SETTINGS);
   }
 }
 
-/** Merge a stored (possibly partial or invalid) object over the defaults. */
-function normalise(parsed: Partial<Settings>): Settings {
-  const merged: Settings = {
-    ...structuredClone(DEFAULT_SETTINGS),
-    ...parsed,
-    chatModels: { ...DEFAULT_SETTINGS.chatModels, ...(parsed.chatModels ?? {}) },
-  };
-  const fallBack = <K extends keyof Settings>(key: K) => (merged[key] = structuredClone(DEFAULT_SETTINGS[key]));
-  // A switch or a text stored as something else (an older release, a hand-edited entry) falls back to its default.
+const REASONING_EFFORTS: readonly string[] = ["none", "low", "medium", "high"] satisfies ReasoningEffort[];
+const THEMES: readonly string[] = ["system", "light", "dark"] satisfies ThemeSetting[];
+
+/**
+ * What a stored value must be beyond having its default's type (checked for
+ * every setting); a value that is not falls back to the default. A setting
+ * whose default is an object or null needs an entry here or in `normalise()`.
+ */
+const VALID: { [K in keyof Settings]?: (value: unknown) => boolean } = {
+  provider: (v) => typeof v === "string" && Object.hasOwn(PROVIDERS, v),
+  targetLanguage: (v) => (TARGET_LANGUAGES as readonly unknown[]).includes(v),
+  theme: (v) => THEMES.includes(v as string),
+  reasoningEffort: (v) => REASONING_EFFORTS.includes(v as string),
+  ocrModel: (v) => typeof v === "string" && v.trim() !== "",
+  temperature: (v) => typeof v === "number" && v >= 0 && v <= 1,
+  maxBboxAnnotations: (v) => Number.isInteger(v) && (v as number) >= 0,
+  ocrHiddenTypes: (v) => Array.isArray(v) && v.every((t) => typeof t === "string"),
+  schemaMode: isSchemaModeSetting,
+};
+
+function isFiniteIfNumber(v: unknown): boolean {
+  return typeof v !== "number" || Number.isFinite(v);
+}
+
+function isSchemaModeSetting(v: unknown): v is SchemaModeSetting {
+  if (typeof v !== "object" || v === null) return false;
+  const mode = v as Record<string, unknown>;
+  return (
+    mode["kind"] === "infer" ||
+    (mode["kind"] === "builtin" && typeof mode["id"] === "string") ||
+    (mode["kind"] === "custom" && typeof mode["schemaText"] === "string")
+  );
+}
+
+/**
+ * The settings in a stored (possibly partial, outdated or hand-edited)
+ * object: each setting that is there and valid, the default for the rest.
+ * Keys that are not settings (any more) are dropped.
+ */
+function normalise(stored: unknown): Settings {
+  const parsed = (typeof stored === "object" && stored !== null ? stored : {}) as Record<string, unknown>;
+  const merged = structuredClone(DEFAULT_SETTINGS);
+  const values = merged as unknown as Record<keyof Settings, unknown>;
   for (const key of Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>) {
-    const type = typeof DEFAULT_SETTINGS[key];
-    if ((type === "boolean" || type === "string") && typeof merged[key] !== type) fallBack(key);
+    const value = parsed[key];
+    const fallback = DEFAULT_SETTINGS[key];
+    const sameType = typeof fallback === "object" && fallback !== null ? typeof value === "object" && value !== null : typeof value === typeof fallback;
+    if (sameType && (VALID[key] ?? isFiniteIfNumber)(value)) values[key] = structuredClone(value);
   }
-  if (!(TARGET_LANGUAGES as readonly string[]).includes(merged.targetLanguage)) fallBack("targetLanguage");
-  if (!(merged.provider in PROVIDERS)) fallBack("provider");
-  if (!["system", "light", "dark"].includes(merged.theme)) fallBack("theme");
-  if (!["none", "low", "medium", "high"].includes(merged.reasoningEffort)) fallBack("reasoningEffort");
-  if (typeof merged.maxOutputTokens !== "number" || !Number.isFinite(merged.maxOutputTokens) || merged.maxOutputTokens <= 0) merged.maxOutputTokens = null;
-  if (!Number.isInteger(merged.maxBboxAnnotations) || merged.maxBboxAnnotations < 0) fallBack("maxBboxAnnotations");
-  if (!Array.isArray(merged.ocrHiddenTypes) || !merged.ocrHiddenTypes.every((t) => typeof t === "string")) fallBack("ocrHiddenTypes");
-  merged.structureOriginal = structureOriginalMode(parsed.structureOriginal as unknown);
-  const revision = typeof parsed.modelDefaultsRevision === "number" ? parsed.modelDefaultsRevision : 0;
+  // One model per provider, each falling back on its own.
+  const models = (typeof parsed["chatModels"] === "object" && parsed["chatModels"] !== null ? parsed["chatModels"] : {}) as Record<string, unknown>;
+  merged.chatModels = perProvider((id) => {
+    const model = models[id];
+    return typeof model === "string" && model.trim() ? model : DEFAULT_SETTINGS.chatModels[id];
+  });
+  const max = parsed["maxOutputTokens"];
+  merged.maxOutputTokens = typeof max === "number" && Number.isFinite(max) && max > 0 ? max : null;
+  merged.structureOriginal = structureOriginalMode(parsed["structureOriginal"]);
+  const revision = typeof parsed["modelDefaultsRevision"] === "number" ? parsed["modelDefaultsRevision"] : 0;
   for (const m of DEFAULT_MIGRATIONS.slice(revision)) {
     if (m.kind === "provider") {
       if (merged.provider === m.from) merged.provider = m.to;
