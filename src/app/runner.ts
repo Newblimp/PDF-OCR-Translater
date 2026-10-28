@@ -62,7 +62,9 @@ import {
   makeOcrState,
   ocrBelongsTo,
   ocrRequestKey,
+  restoredTranslation,
   selectSourceText,
+  translationDefaults,
   usableKey,
   type Action,
   type AppError,
@@ -364,11 +366,6 @@ export async function openSavedTranslation(rt: Runtime, id: string): Promise<voi
   rt.dispatch({ type: "history/open", ocr, translation: restoredTranslation(saved.translation), pastedText: textSource ? saved.translation.sourceText : null });
 }
 
-/** A saved translation back on screen; entries saved by earlier releases have no `pages` or `ocrFingerprint`. */
-function restoredTranslation(saved: TranslationState): TranslationState {
-  return { ...saved, pages: saved.pages ?? null, ocrFingerprint: saved.ocrFingerprint ?? null, restored: true };
-}
-
 /** Saved translations the user deleted: a later job on the same result on screen must not write them back. */
 const deletedIds = new Set<string>();
 
@@ -660,6 +657,7 @@ async function describeSource(state: AppState, text: string, origin: "ocr" | "te
 function showNewTranslation(rt: Runtime, job: Job, source: Source, fields: Partial<TranslationState>): string {
   const { chat, settings } = job.ctx;
   const translation: TranslationState = {
+    ...translationDefaults(),
     id: crypto.randomUUID(),
     sourceName: source.name,
     sourceKind: source.kind,
@@ -667,34 +665,11 @@ function showNewTranslation(rt: Runtime, job: Job, source: Source, fields: Parti
     ocrKey: source.ocrKey,
     ocrFingerprint: source.ocrFingerprint,
     sourceText: source.text,
-    pages: null,
-    data: null,
-    rawText: "",
-    schema: null,
-    schemaSource: null,
-    schemaWarnings: [],
-    usage: null,
-    inferUsage: null,
     provider: chat.id,
     model: settings.chatModel,
-    mode: null,
-    violations: [],
-    finishReason: null,
-    partial: false,
     targetLanguage: settings.targetLanguage,
     completedAt: Date.now(),
     sourceChars: source.text.length,
-    imagesSent: 0,
-    bboxAnnotations: [],
-    bboxUsage: null,
-    blockTranslations: {},
-    blockUsage: null,
-    originalData: null,
-    originalRawText: null,
-    originalUsage: null,
-    originalViolations: [],
-    warnings: [],
-    restored: false,
     ...fields,
   };
   job.producedId = translation.id;
