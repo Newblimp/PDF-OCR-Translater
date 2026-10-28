@@ -122,6 +122,8 @@ h4,
 .settings > summary > span:first-child,
 .history > summary > span:first-child,
 .glossary-field > summary > span:first-child,
+.settings-group-title,
+.settings-advanced > summary > span:first-child,
 .field > span:first-child,
 .field > legend,
 .job-status h2,
@@ -2272,4 +2274,33 @@ input[aria-invalid="true"] {
   .document-card .text-preview {
     display: none;
   }
+}
+
+/* Settings in three groups: Translation, Advanced (folded), Privacy & storage. */
+.settings-group {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.settings-group-title,
+.settings-advanced > summary > span:first-child {
+  color: var(--text-muted);
+  margin: 0;
+}
+.settings-advanced > summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  align-items: baseline;
+  list-style: none;
+}
+.settings-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-advanced > summary > span:first-child::before {
+  content: "▸ ";
+}
+.settings-advanced[open] > summary > span:first-child::before {
+  content: "▾ ";
 }

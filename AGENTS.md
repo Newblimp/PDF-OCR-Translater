@@ -219,8 +219,14 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `followUps()` (its stage must have `produces`) so its failure becomes a
   warning on the result rather than a failed job. Then surface results through a new field in `AppState` and a
   component.
+- **Settings** (`SettingsPanel.tsx`) come in three groups: Translation
+  (language, provider, model, document family hint), Advanced (folded by
+  default: reasoning effort, temperature, OCR model, figure descriptions,
+  the JSON output) and Privacy & storage (what this browser keeps: keys,
+  OCR results, translations). A new setting goes in the group its user
+  would look in; anything only a power user changes goes under Advanced.
 - **JSON output** (`Settings.jsonOutput`, off by default; the last option
-  in `SettingsPanel`, with every JSON-only setting under it):
+  of Settings → Advanced, with every JSON-only setting under it):
   `runner.runTranslation()` runs `translateByBlocks()` without it and
   `translateStructured()` (the annotation workflow below) with it. Without
   it there is no schema and no document annotation: the text blocks the OCR

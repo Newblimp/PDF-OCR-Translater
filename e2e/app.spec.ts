@@ -386,6 +386,11 @@ test("Mistral is the default: one key, Mistral Small translates block by block, 
 
   // The reasoning effort offers what Mistral Small takes: "none" and "high".
   await page.locator(".settings > summary").click();
+  // Three groups: Translation, Advanced (folded), Privacy & storage.
+  await expect(page.getByLabel("Translation provider")).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /API keys, after this tab closes/ })).toBeChecked();
+  await expect(page.getByLabel("Reasoning effort")).toBeHidden();
+  await page.locator(".settings-advanced > summary").click();
   const effort = page.getByLabel("Reasoning effort");
   await expect(effort).toHaveValue("none");
   await expect(effort.locator("option")).toHaveText(["none (fastest)", "high"]);
@@ -1080,6 +1085,7 @@ test("without the JSON output the OCR text is translated block by block: no JSON
 
   // The JSON settings are there only with the JSON output on.
   await page.locator(".settings > summary").click();
+  await page.locator(".settings-advanced > summary").click();
   await expect(page.getByText("JSON format of the translation")).toHaveCount(0);
   await page.getByLabel(/Fill a JSON format with the translation/).check();
   await expect(page.getByText("JSON format of the translation")).toBeVisible();

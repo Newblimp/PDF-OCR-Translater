@@ -42,7 +42,10 @@ anywhere else.
 
    Below the buttons, the **target language** (English or German in one
    click; the other languages are in Settings) and the **glossary** are
-   always at hand; the settings start closed. Once there is a result, the
+   always at hand; the settings start closed, in three groups: Translation
+   (language, provider, model), Advanced (folded: reasoning effort, OCR
+   model, figure descriptions, JSON output) and Privacy & storage (what this
+   browser keeps). Once there is a result, the
    pages to OCR and the glossary fold to a line each (a click opens them),
    so the side panel stays short.
 
@@ -60,8 +63,8 @@ anywhere else.
    click. Pasted text and text files are split into paragraphs and go the same
    way. No JSON format, no summary, no extra calls.
 
-   With **JSON output** switched on (the last option in Settings; off by
-   default), the steps below fill a JSON format with the translation as well,
+   With **JSON output** switched on (the last option in Settings → Advanced;
+   off by default), the steps below fill a JSON format with the translation as well,
    and the Structured text, JSON format and Raw JSON tabs appear. All the JSON
    settings (format, streaming, images, original-language structure, max
    output tokens, block translations as a follow-up) sit under that switch.
