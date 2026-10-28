@@ -1,7 +1,7 @@
 /**
- * What every job shares: starting one (keys and settings checked, the
- * pipeline context built), ending it (its error shown unless it was
- * cancelled), cancelling it, and steps whose failure only leaves a warning.
+ * What every job shares: `withJob()` starts one (keys and settings checked,
+ * the pipeline context built) and always ends it (its error shown unless it
+ * was cancelled); cancelling it; steps whose failure only leaves a warning.
  */
 import { ApiError } from "@/lib/http/apiError";
 import { createProvider, effortFor, PROVIDERS } from "@/lib/llm/registry";
@@ -17,12 +17,40 @@ export function cancelJob(rt: Runtime): void {
   rt.getState().job?.controller.abort();
 }
 
+/** A job to run: its kind, the stages its status card lists, whether it needs the translation provider's key. */
+export interface JobSpec {
+  kind: JobKind;
+  stages: StageId[];
+  needsChat: boolean;
+  /** The translation the job adds to (original-language structure, retries); see `beginJob()`. */
+  forTranslation?: TranslationState | undefined;
+}
+
+/** A running job, as `withJob()` hands it to its work. */
 export interface Job {
   kind: JobKind;
   ctx: PipelineContext;
   controller: AbortController;
   /** Id of the translation this job put on screen, once it has. */
   producedId?: string;
+}
+
+/**
+ * Run `work` as a job, unless one is running or it cannot start (a key is
+ * missing, the settings are invalid: the reason is shown and `work` does not
+ * run). The job always ends, whatever `work` does: when it throws, the error
+ * is shown (titled by the job's kind) unless the job was cancelled, and the
+ * stages still running in the background are stopped.
+ */
+export async function withJob(rt: Runtime, spec: JobSpec, work: (job: Job) => Promise<void>): Promise<void> {
+  const job = beginJob(rt, spec);
+  if (!job) return;
+  try {
+    await work(job);
+    endJob(rt, job);
+  } catch (err) {
+    endJob(rt, job, err);
+  }
 }
 
 /**
@@ -33,7 +61,7 @@ export interface Job {
  * Settings (so picking another model there recovers from a failing one);
  * such jobs do not use the schema setting.
  */
-export function beginJob(rt: Runtime, kind: JobKind, stages: StageId[], needsChat: boolean, forTranslation?: TranslationState): Job | null {
+function beginJob(rt: Runtime, { kind, stages, needsChat, forTranslation }: JobSpec): Job | null {
   const state = rt.getState();
   if (state.job) return null;
   let settings = state.settings;
@@ -85,7 +113,7 @@ function ocrClient(apiKey: string): OcrClient {
 }
 
 /** Report a job's failure (`err`) unless it was cancelled; always ends the job. */
-export function endJob(rt: Runtime, job: Job, err?: unknown): void {
+function endJob(rt: Runtime, job: Job, err?: unknown): void {
   if (err !== undefined) {
     // A translation whose job was cancelled or failed after it appeared gets no automatic follow-up: the user decides.
     if (job.producedId) rt.session.originalRequested.add(job.producedId);

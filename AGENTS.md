@@ -95,7 +95,7 @@ src/
       settings.ts              a settings change and what it takes along (theme, where keys are kept, key dialog)
       document.ts              loading a document, its cached OCR result and saved translation; releasing it
       savedTranslations.ts     "Recent translations": saving, listing, reopening, deleting
-      jobs.ts                  what every job shares: beginJob() / endJob(), cancelJob(), followUps(), Settings → PipelineSettings
+      jobs.ts                  what every job shares: withJob() (start, always end), cancelJob(), followUps(), Settings → PipelineSettings
       translation.ts           runJob() (OCR, translate, both; with or without the JSON output), the structure in the
                                original language, retries of failed parts
       boxEdits.ts              "Edit bounding boxes": editBoxes(), undo, reset; edits kept with the cached OCR result
@@ -353,7 +353,7 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   merges the results. For blocks: the ones the OCR text tab keeps that have
   no translation, which includes blocks taken back after the translation.
 - **Jobs that add to a translation** (original-language structure, retries)
-  pass it to `beginJob(..., forTranslation)`: they run in its target
+  pass it to `withJob()` as `JobSpec.forTranslation`: they run in its target
   language (provider and model come from Settings, so a failing model can be
   swapped), ignore the schema setting, and use the OCR result on screen only when it is the one
   the translation was made from (`ocrBelongsTo()` / `ocrOf()`; the retry
@@ -434,6 +434,11 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   work that dispatches late must check it is still relevant (see
   `verifyAndSaveApiKey`, `loadDocument`, the `translation.id` checks in
   `retryFailed`).
+- A job is `withJob(rt, spec, work)` (`runner/jobs.ts`): it starts the job
+  in the store when keys and settings allow (else `work` never runs and the
+  reason is shown) and always ends it, showing the error `work` throws
+  unless the job was cancelled. Write a new job as its `work`; never start
+  or end one by hand.
 - Components that receive callbacks get them from the `on` / `results`
   objects in `App.tsx`, created once: an inline arrow function as a prop
   defeats `memo()` and re-renders the subtree on every streaming update.

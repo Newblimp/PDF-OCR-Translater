@@ -13,6 +13,7 @@ import { DEFAULT_SETTINGS, type Settings } from "@/lib/storage/settings";
 import type { ProgressEvent } from "@/lib/pipeline/events";
 import { createStore, type Store } from "@/lib/util/createStore";
 import { cancelJob, createRuntime, deleteSaved, retryFailed, runJob, type Runtime } from "./runner";
+import { withJob } from "./runner/jobs";
 import { initialState, reducer, type Action, type AppState, type DocState, type TranslationState } from "./store";
 
 /** What the fake chat provider answers; a test replaces it to fail or hold a step. */
@@ -245,5 +246,53 @@ describe("saved translations", () => {
     store.dispatch({ type: "translation/patch", patch: { bboxAnnotations: [{ id: "img-0.jpeg", pageIndex: 0, data: null, error: "again" }] } });
     await retryFailed(createRuntime(store), "bboxes");
     expect([...saved.keys()]).toEqual([id]);
+  });
+});
+
+describe("withJob", () => {
+  const spec = { kind: "translate", stages: ["block_translate"], needsChat: true } as const;
+  const stages = [...spec.stages];
+
+  it("ends the job whatever the work does, showing an error unless the job was cancelled", async () => {
+    const store = loadedStore();
+    let running: AppState["job"] = null;
+    await withJob(store, { ...spec, stages }, async () => {
+      running = store.getState().job;
+    });
+    expect(running).toMatchObject({ kind: "translate", stages: ["block_translate"] });
+    expect(store.getState()).toMatchObject({ job: null, error: null });
+
+    let signal: AbortSignal | undefined;
+    await withJob(store, { ...spec, stages }, async ({ controller }) => {
+      signal = controller.signal;
+      throw new Error("the model said no");
+    });
+    expect(store.getState().job).toBeNull();
+    expect(store.getState().error).toMatchObject({ title: "Translation failed", message: "the model said no" });
+    expect(signal?.aborted).toBe(true); // stages still running in the background stop
+
+    store.dispatch({ type: "error/set", error: null });
+    await withJob(store, { ...spec, stages }, async ({ controller }) => {
+      cancelJob(store);
+      controller.signal.throwIfAborted();
+    });
+    expect(store.getState()).toMatchObject({ job: null, error: null });
+  });
+
+  it("does not run the work while another job runs, or without the keys it needs", async () => {
+    const store = loadedStore();
+    let ran = 0;
+    const work = async () => void ran++;
+    await withJob(store, { ...spec, stages }, async () => {
+      await withJob(store, { ...spec, stages }, work); // one job at a time
+    });
+    expect(ran).toBe(0);
+    await withJob(store, { ...spec, stages, kind: "edit" }, work);
+    expect(ran).toBe(1);
+
+    store.dispatch({ type: "settings/update", patch: { provider: "openai" } }); // no OpenAI key
+    await withJob(store, { ...spec, stages }, work);
+    expect(ran).toBe(1);
+    expect(store.getState()).toMatchObject({ job: null, keyDialogOpen: true });
   });
 });

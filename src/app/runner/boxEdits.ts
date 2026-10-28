@@ -26,7 +26,7 @@ import { emit } from "@/lib/pipeline/events";
 import { ocrRegion } from "@/lib/pipeline/regionOcr";
 import { getCachedOcr, putCachedOcr } from "@/lib/storage/ocrCache";
 import { runPool } from "@/lib/util/pool";
-import { beginJob, endJob } from "./jobs";
+import { withJob } from "./jobs";
 import type { Runtime } from "./runtime";
 
 /**
@@ -94,10 +94,7 @@ export async function editBoxes(rt: Runtime, edit: BoxEdit): Promise<void> {
     PAGE_RENDER_WIDTH,
   );
   const pageWidth = page.width;
-  const job = beginJob(rt, "edit", ["region_ocr"], false);
-  if (!job) return;
-  const { ctx, controller } = job;
-  try {
+  await withJob(rt, { kind: "edit", stages: ["region_ocr"], needsChat: false }, async ({ ctx, controller }) => {
     const model = rt.getState().settings.ocrModel;
     const texts = new Map<string, string>();
     emit(
@@ -114,7 +111,7 @@ export async function editBoxes(rt: Runtime, edit: BoxEdit): Promise<void> {
     });
     controller.signal.throwIfAborted();
     // Another OCR result or other edits meanwhile: these would not fit them.
-    if (rt.getState().ocr !== ocr) return endJob(rt, job);
+    if (rt.getState().ocr !== ocr) return;
 
     let next: EditedBlock[];
     if (edit.kind === "reread") {
@@ -139,10 +136,7 @@ export async function editBoxes(rt: Runtime, edit: BoxEdit): Promise<void> {
     }
     emit(ctx.onProgress, "region_ocr", "done", `Page ${page.index + 1} edited`);
     commitEdits(rt, withPage(edits, page.index, next));
-    endJob(rt, job);
-  } catch (err) {
-    endJob(rt, job, err);
-  }
+  });
 }
 
 /** "Make a block": the selection as a new block (its text read by OCR, or the area as an image), where the blocks it took from were. */

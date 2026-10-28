@@ -30,7 +30,7 @@ import {
   type TranslationState,
 } from "../store";
 import { hashText } from "./document";
-import { beginJob, endJob, followUps, type Job } from "./jobs";
+import { followUps, withJob, type Job } from "./jobs";
 import type { Runtime } from "./runtime";
 import { saveTranslation } from "./savedTranslations";
 
@@ -81,10 +81,7 @@ export async function runJob(rt: Runtime, kind: "ocr" | "translate" | "both"): P
   const translateSource = kind === "translate" ? selectSourceText(state) : null;
   const withBoxes = kind === "both" || translateSource?.origin === "ocr";
   const stages = kind === "ocr" ? (["prepare", "ocr"] as StageId[]) : translationStages(state.settings, kind === "both", withBoxes);
-  const job = beginJob(rt, kind, stages, kind !== "ocr");
-  if (!job) return;
-
-  try {
+  await withJob(rt, { kind, stages, needsChat: kind !== "ocr" }, async (job) => {
     let source: Source;
     if (kind === "translate") {
       if (!translateSource) throw new Error("Nothing to translate: run OCR first, drop a text file, or paste text.");
@@ -95,16 +92,13 @@ export async function runJob(rt: Runtime, kind: "ocr" | "translate" | "both"): P
       const ocr = await runOcrStage(rt, job, doc, kind === "both");
       if (kind === "ocr") {
         rt.dispatch({ type: "tab/set", tab: "ocr" });
-        return endJob(rt, job);
+        return;
       }
       source = { text: ocr.text.text, ocr: ocr.text, name: doc.name, kind: doc.kind, hash: doc.hash, ocrKey: ocr.cacheKey, ocrFingerprint: ocr.fingerprint };
     }
     if (!source.text.trim()) throw new Error("OCR returned no text to translate.");
     await runTranslation(rt, job, source);
-    endJob(rt, job);
-  } catch (err) {
-    endJob(rt, job, err);
-  }
+  });
 }
 
 /**
@@ -342,10 +336,8 @@ export async function ensureOriginalStructure(rt: Runtime, force = false): Promi
   if (!t || !hasStructure(t) || state.job || hasOriginal(t) || state.settings.structureOriginal === "never") return;
   // Not by itself while an error is shown (an automatic job would also clear it), nor twice for one translation.
   if (!force && (rt.session.originalRequested.has(t.id) || state.error)) return;
-  const job = beginJob(rt, "original", ["structure_original"], true, t);
-  if (!job) return;
-  rt.session.originalRequested.add(t.id);
-  try {
+  await withJob(rt, { kind: "original", stages: ["structure_original"], needsChat: true, forTranslation: t }, async (job) => {
+    rt.session.originalRequested.add(t.id);
     const { structureOriginal } = await pipeline();
     const ocr = ocrOf(state, t);
     const original = await structureOriginal(job.ctx, t.sourceText, t.schema, ocr);
@@ -354,10 +346,7 @@ export async function ensureOriginalStructure(rt: Runtime, force = false): Promi
       rt.dispatch({ type: "translation/patch", patch: originalFields(original) });
       await saveTranslation(rt);
     }
-    endJob(rt, job);
-  } catch (err) {
-    endJob(rt, job, err);
-  }
+  });
 }
 
 /**
@@ -377,9 +366,8 @@ export async function retryFailed(rt: Runtime, what: "bboxes" | "blocks"): Promi
       ? new Set(t.bboxAnnotations.filter((a) => !a.data).map((a) => a.id))
       : new Set([...shownTextBlockIds(pages!, blockFilter(state, pages!))].filter((id) => !t.blockTranslations[id]?.trim()));
   if (!ids.size) return;
-  const job = beginJob(rt, "retry", [what === "bboxes" ? "bbox_annotate" : "block_translate"], true, t);
-  if (!job) return;
-  try {
+  const stages: StageId[] = [what === "bboxes" ? "bbox_annotate" : "block_translate"];
+  await withJob(rt, { kind: "retry", stages, needsChat: true, forTranslation: t }, async (job) => {
     const { blockTranslations, describeBboxes } = await pipeline();
     if (what === "bboxes") {
       const out = await describeBboxes(job.ctx, ocr, ids);
@@ -410,8 +398,5 @@ export async function retryFailed(rt: Runtime, what: "bboxes" | "blocks"): Promi
       }
     }
     await saveTranslation(rt);
-    endJob(rt, job);
-  } catch (err) {
-    endJob(rt, job, err);
-  }
+  });
 }
