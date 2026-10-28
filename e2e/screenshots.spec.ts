@@ -30,9 +30,9 @@ for (const [name, width] of [
     await page.getByRole("tab", { name: "Structured text" }).waitFor();
     await page.locator(".field-card .prose table").waitFor();
     await page.screenshot({ path: `${out}/${name}-4-translation.png`, fullPage: true });
-    await page.getByRole("tab", { name: "OCR text" }).click();
+    await page.getByRole("tab", { name: "Text", exact: true }).click();
     await page.screenshot({ path: `${out}/${name}-5-ocr.png`, fullPage: true });
-    await page.getByRole("tab", { name: "Bounding boxes" }).click();
+    await page.getByRole("tab", { name: "Page view" }).click();
     await page.locator(".bbox-stage img").waitFor();
     await page.getByRole("button", { name: "Image box img-0.jpeg" }).click();
     await page.screenshot({ path: `${out}/${name}-5b-bboxes.png`, fullPage: true });

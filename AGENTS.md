@@ -98,12 +98,12 @@ src/
       jobs.ts                  what every job shares: withJob() (start, always end), cancelJob(), followUps(), Settings → PipelineSettings
       translation.ts           runJob() (OCR, translate, both; with or without the JSON output), the structure in the
                                original language, retries of failed parts
-      boxEdits.ts              "Edit bounding boxes": editBoxes(), undo, reset; edits kept with the cached OCR result
+      boxEdits.ts              "Fix OCR" (editing the boxes): editBoxes(), undo, reset; edits kept with the cached OCR result
   components/                  presentational Preact components (memoised; handlers come from App, created once)
     JsonBrowser/               browsable view of the translated JSON
     ResultsPanel.tsx           the result tabs: which are available, and their views (loaded on first use, lazyView.tsx)
     JsonViews.tsx              with JSON output: structured text, JSON format, raw JSON, the live stream view
-    OcrView.tsx                OCR text tab: blocks filtered by type and one by one, PDF beside it (block picking), page layout
+    OcrView.tsx                "Text" tab (the OCR text): blocks filtered by type and one by one, PDF beside it (block picking), page layout
     resultControls.tsx         download, clipboard, "Show translation" switch, token usage (shared by the views)
     ActionBar.tsx              the one main action, "Translate" (what it does: `primaryAction()` in the store), and "OCR only"
     QuickOptions.tsx           above the settings: target language (English / German) and glossary
@@ -114,7 +114,8 @@ src/
     useFitText.ts              "Match page layout": text sized to fill each block's box (cqw units, fitted once per content)
     blockColors.ts             colour per OCR block type; boxStyle() places a box over a page (in percent)
     BboxView.tsx               bounding boxes drawn over the rendered page
-    EditBoxesView.tsx          "Edit bounding boxes": marquee / click selection, cut, make a block, delete, change, undo
+    EditBoxesView.tsx          "Fix OCR": marquee / click selection, cut, make a block, delete, change, undo
+    InfoPop.tsx                "ⓘ": technical details (models, counts, tokens) on demand, next to a view's summary
     pageImages.ts              hooks: the document's page renderer, pages rendered so far (there on the first paint),
                                the page on screen rendered first
     useLinkedScroll.ts         scrolls two page columns together (OCR text beside the PDF)
@@ -241,8 +242,13 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `OcrText.bboxes` and `OcrCleanPage.blocks` over the page its
   `PageRenderer` renders (`usePageRenderer()`, see "Page rendering").
 - **Result tabs**: `RESULT_TABS` in `store.ts` fixes the default order —
-  Bounding boxes (shown first), OCR text, Structured text, JSON format, Raw
-  JSON. The user arranges them in split views like VS Code's editor groups:
+  Page view (`bboxes`), Fix OCR (`edit`), Text (`ocr`), Structured text
+  (`structured`), JSON format (`schema`), Raw JSON (`json`); the labels are
+  `TAB_LABELS` in `ResultsPanel.tsx` (the ids are what saved layouts keep).
+  Words on screen are the user's, not the pipeline's: block types read
+  `blockTypeLabel()` ("Paragraph", "Page header"), stages read their
+  `STAGES` label, and models, sizes and token counts go behind an
+  `InfoPop`. The user arranges them in split views like VS Code's editor groups:
   `AppState.resultLayout` is a `DockNode` tree (`util/dock.ts`: splits with
   relative `sizes`, leaves are groups with their `tabs` and `active` tab;
   every tab in exactly one group). The reducer applies `activateTab()`
@@ -363,7 +369,7 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   test one on a database of the previous version (fake-indexeddb).
 - **Retries of failed parts**: `runner.retryFailed()` (job kind `"retry"`)
   re-runs `describeBboxes()` / `blockTranslations()` with `onlyIds` and
-  merges the results. For blocks: the ones the OCR text tab keeps that have
+  merges the results. For blocks: the ones the Text tab keeps that have
   no translation, which includes blocks taken back after the translation.
 - **Jobs that add to a translation** (original-language structure, retries)
   pass it to `withJob()` as `JobSpec.forTranslation`: they run in its target

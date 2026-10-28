@@ -24,9 +24,27 @@ export function blockColor(type: string): string {
   return BLOCK_COLORS[type] ?? "#495057";
 }
 
-/** "aside_text" → "aside text". */
+/** What the OCR's block types are called on screen. */
+const BLOCK_TYPE_LABELS: Record<string, string> = {
+  title: "Title",
+  text: "Paragraph",
+  list: "List",
+  table: "Table",
+  caption: "Caption",
+  equation: "Equation",
+  code: "Code",
+  references: "References",
+  aside_text: "Side note",
+  signature: "Signature",
+  image: "Image",
+  header: "Page header",
+  footer: "Page footer",
+};
+
+/** A block type in plain words: "text" → "Paragraph"; a type the app does not know, "new_type" → "New type". */
 export function blockTypeLabel(type: string): string {
-  return type.replace(/_/g, " ");
+  const spaced = type.replace(/_/g, " ");
+  return BLOCK_TYPE_LABELS[type] ?? spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 /** Inline style placing a box given in page pixels over a page `width` × `height` px (in percent, so it scales with the page), in `color`. */

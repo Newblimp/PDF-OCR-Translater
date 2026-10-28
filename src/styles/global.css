@@ -1853,8 +1853,7 @@ input[aria-invalid="true"] {
   border-radius: 999px;
   background: var(--surface);
   cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--text-muted);
 }
 .block-chip input {
@@ -2103,4 +2102,39 @@ input[aria-invalid="true"] {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* "ⓘ": technical details (models, counts, tokens) on demand (`InfoPop`). */
+.info-pop {
+  display: inline-block;
+  position: relative;
+}
+.info-pop > summary {
+  list-style: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  padding: 0 3px;
+  border-radius: 4px;
+}
+.info-pop > summary::-webkit-details-marker {
+  display: none;
+}
+.info-pop > summary:hover,
+.info-pop[open] > summary {
+  color: var(--accent);
+}
+.info-pop-body {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  width: max-content;
+  max-width: min(30rem, 80vw);
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-muted);
+  white-space: normal;
 }

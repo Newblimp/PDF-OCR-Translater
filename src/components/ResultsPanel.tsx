@@ -59,9 +59,9 @@ interface Props {
 }
 
 const TAB_LABELS: Record<ResultTab, string> = {
-  bboxes: "Bounding boxes",
-  edit: "Edit bounding boxes",
-  ocr: "OCR text",
+  bboxes: "Page view",
+  edit: "Fix OCR",
+  ocr: "Text",
   structured: "Structured text",
   schema: "JSON format",
   json: "Raw JSON",
@@ -111,7 +111,7 @@ export function ResultsPanel({ state, actions }: Props) {
           <li>Drop a PDF (for example a CNIPA office action).</li>
           <li>Press “Translate”.</li>
           <li>
-            Browse the bounding boxes and the OCR text, original or translated block by block; leave out block types or single blocks.
+            Read the text, original or translated block by block, or see it on the page; leave out block types or single blocks.
             {settings.jsonOutput ? " The structured text fills a JSON format with the translation." : " Turn on “JSON output” in Settings for structured text."}
           </li>
         </ol>

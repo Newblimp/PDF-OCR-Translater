@@ -148,7 +148,7 @@ test("OCR + translate: Mistral OCR, Claude Haiku 5.5 translation, browsable JSON
   await expect(page.locator(".toolbar")).toContainText("Anthropic (Claude) · claude-haiku-5-5");
 
   // OCR tab: headers/footers separated, images gone, and the shared "Show translation" switch.
-  await page.getByRole("tab", { name: "OCR text" }).click();
+  await page.getByRole("tab", { name: "Text", exact: true }).click();
   await expect(page.getByText("Page headers and footers kept out of the page text")).toBeVisible();
   const showTranslation = translationSwitch(page);
   await expect(showTranslation).toBeEnabled({ timeout: 20_000 }); // enabled once the per-block translations are in
@@ -278,7 +278,7 @@ test("German toggle changes the target language of the next translation", async 
   // Pasted text: no OCR, no bounding boxes, and the UI says so.
   await expect(page.locator(".pipeline-strip")).toContainText("Text input (no OCR)");
   await expect(page.locator(".pipeline-strip")).toContainText("BBox annotation skipped");
-  await expect(page.getByRole("tab", { name: "Bounding boxes", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Page view", exact: true })).toHaveCount(0);
 
   const translate = chatRequests(recorded).find((r) => step(r) === "translated_document")!.body!;
   expect(systemPrompt(translate)).toContain("Target language of the translation: German");
@@ -306,8 +306,8 @@ test('the structured text and the OCR text follow one "Show translation" switch'
   await expect(page.locator(".fields")).toContainText("审查员认为权利要求1不具备创造性。", { timeout: 20_000 });
   await expect(page.locator(".toolbar").first()).toContainText("original language");
 
-  // The switch is shared with the OCR text tab and the raw JSON.
-  await page.getByRole("tab", { name: "OCR text" }).click();
+  // The switch is shared with the Text tab and the raw JSON.
+  await page.getByRole("tab", { name: "Text", exact: true }).click();
   await expect(translationSwitch(page)).not.toBeChecked();
   await expect(page.locator(".ocr-page")).toContainText("权利要求1不具备创造性");
   await page.getByRole("tab", { name: "Raw JSON" }).click();
@@ -494,10 +494,10 @@ test("bounding boxes are drawn over the page with the vision model's description
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".pipeline-strip")).toBeVisible();
 
-  await page.getByRole("tab", { name: "Bounding boxes", exact: true }).click();
+  await page.getByRole("tab", { name: "Page view", exact: true }).click();
   await expect(page.locator(".bbox-stage img")).toBeVisible(); // page rendered by pdf.js
   await expect(page.locator(".bbox-box")).toHaveCount(9); // 7 blocks + 2 image boxes
-  await page.getByLabel("Paragraph blocks").uncheck();
+  await page.getByLabel("Text blocks").uncheck();
   await expect(page.locator(".bbox-box")).toHaveCount(2);
   const box = page.getByRole("button", { name: "Image box img-0.jpeg" });
   const style = (await box.getAttribute("style")) ?? "";
@@ -507,12 +507,12 @@ test("bounding boxes are drawn over the page with the vision model's description
   await expect(page.locator(".bbox-detail")).toContainText("stamp");
   await expect(page.locator(".bbox-detail")).toContainText("China National Intellectual Property Administration");
   await expect(page.locator(".bbox-detail img")).toBeVisible();
-  await page.getByLabel("Image boxes (sent to the vision model)").uncheck();
+  await page.getByLabel("Figures", { exact: true }).uncheck();
   await expect(page.locator(".bbox-box")).toHaveCount(0);
 
   // Clicking a text block shows its translation above the original.
-  await page.getByLabel("Paragraph blocks").check();
-  await page.getByRole("button", { name: "text block 3" }).click();
+  await page.getByLabel("Text blocks").check();
+  await page.getByRole("button", { name: "Paragraph block 3" }).click();
   const detail = page.locator(".bbox-detail");
   await expect(detail.locator(".block-translation")).toContainText("[EN] 申请号：CN202310000001.2");
   await expect(detail.locator(".text-preview")).toContainText("申请号：CN202310000001.2");
@@ -534,8 +534,8 @@ test("pages are pre-rendered in the background so navigating is instant", async 
     });
   await expect(page.getByText("3 pages")).toBeVisible();
   await page.getByRole("button", { name: "OCR only" }).click();
-  await expect(page.getByRole("tab", { name: "Bounding boxes", exact: true })).toBeVisible({ timeout: 20_000 });
-  await page.getByRole("tab", { name: "Bounding boxes", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Page view", exact: true })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("tab", { name: "Page view", exact: true }).click();
   await expect(page.locator(".bbox-stage img")).toBeVisible();
   // All three pages render in the background without navigating.
   await expect(page.locator("[data-rendered-pages]")).toHaveAttribute("data-rendered-pages", "3", { timeout: 20_000 });
@@ -567,7 +567,7 @@ test("only the selected pages are sent to OCR", async ({ page }) => {
   await pagesInput.fill("3, 1");
   await expect(page.getByText("2 page(s) selected: 1, 3")).toBeVisible();
   await page.getByRole("button", { name: "OCR only" }).click();
-  await expect(page.getByRole("tab", { name: "OCR text" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Text", exact: true })).toBeVisible({ timeout: 20_000 });
   const ocr = recorded.find((r) => r.url.endsWith("/v1/ocr"));
   expect(ocr!.body!["pages"]).toEqual([0, 2]);
   await expect(page.locator(".ocr-page")).toHaveCount(2);
@@ -605,7 +605,7 @@ test("the translation is shown live while it streams, even when another tab was 
   await loadPdf(page);
   // "OCR only" leaves the OCR tab active; a following translation must still show its stream.
   await page.getByRole("button", { name: "OCR only" }).click();
-  await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Text", exact: true })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
   await page.getByRole("button", { name: "Translate", exact: true }).click();
 
   // While the job is still running, partial output is visible and grows.
@@ -696,7 +696,7 @@ test("blocks that came back without a translation can be retried", async ({ page
   // A later change of the target language does not leak into the retry: it runs in the translation's own language.
   await page.locator(".settings > summary").click();
   await page.getByRole("radio", { name: "German" }).click();
-  await page.getByRole("tab", { name: "OCR text" }).click();
+  await page.getByRole("tab", { name: "Text", exact: true }).click();
   await page.getByRole("button", { name: "Translate the blocks now" }).click();
   await expect(page.locator(".ocr-page")).toContainText("[EN] 申请号：CN202310000001.2", { timeout: 20_000 });
   // The first batch was rejected (it never reached the recording mock); the retry went through.
@@ -709,7 +709,7 @@ test("OCR + Translate reuses the OCR result already loaded, and results are kept
   await enterKeys(page);
   await loadPdf(page);
   await page.getByRole("button", { name: "OCR only" }).click();
-  await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Text", exact: true })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
   await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.locator(".pipeline-strip")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden();
@@ -737,7 +737,7 @@ test("OCR + Translate reuses the OCR result already loaded, and results are kept
   await page.getByRole("button", { name: "Remove" }).click();
   await history.getByRole("button", { name: "Open" }).click();
   await expect(page.getByText("The examiner finds claim 1 lacks inventive step.")).toBeVisible();
-  await expect(page.getByRole("tab", { name: "OCR text" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Text", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Translate", exact: true })).toBeEnabled();
 });
 
@@ -805,10 +805,10 @@ test("result tabs are arranged in split views by drag and drop, and the arrangem
   await expect(page.getByRole("tablist")).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Reset the layout" })).toHaveCount(0);
 
-  // "OCR text" dropped on the right edge of the structured text: both side by side.
+  // "Text" dropped on the right edge of the structured text: both side by side.
   const structured = page.locator("#dock-panel-structured");
   const ocr = page.locator("#dock-panel-ocr");
-  await dragTab(page, "OCR text", structured, "right");
+  await dragTab(page, "Text", structured, "right");
   await expect(page.getByRole("tablist")).toHaveCount(2);
   await expect(structured.locator(".pipeline-strip")).toBeVisible();
   await expect(ocr.locator(".ocr-page")).toBeVisible();
@@ -817,9 +817,9 @@ test("result tabs are arranged in split views by drag and drop, and the arrangem
   expect(right.x).toBeGreaterThan(left.x + left.width);
   expect(Math.abs(right.y - left.y)).toBeLessThan(2);
 
-  // "Bounding boxes" below the OCR text; the OCR view keeps its state (it is not rebuilt).
+  // "Page view" below the text; the text view keeps its state (it is not rebuilt).
   await ocr.getByLabel("Render Markdown").uncheck();
-  await dragTab(page, "Bounding boxes", ocr, "bottom");
+  await dragTab(page, "Page view", ocr, "bottom");
   await expect(page.getByRole("tablist")).toHaveCount(3);
   const bboxes = page.locator("#dock-panel-bboxes");
   await expect(bboxes.locator(".bbox-stage img")).toBeVisible();
@@ -831,7 +831,7 @@ test("result tabs are arranged in split views by drag and drop, and the arrangem
 
   // Within a tab bar, a tab dropped on the left half of another goes before it.
   await page.getByRole("tab", { name: "Raw JSON" }).dragTo(page.getByRole("tab", { name: "Structured text" }), { targetPosition: { x: 4, y: 10 } });
-  await expect(page.getByRole("tablist").first().getByRole("tab")).toHaveText(["Edit bounding boxes", "Raw JSON", "Structured text", "JSON format"], {
+  await expect(page.getByRole("tablist").first().getByRole("tab")).toHaveText(["Fix OCR", "Raw JSON", "Structured text", "JSON format"], {
     ignoreCase: true,
   });
   await expect(page.getByRole("tab", { name: "Raw JSON" })).toHaveAttribute("aria-selected", "true");
@@ -863,21 +863,18 @@ test("result tabs are arranged in split views by drag and drop, and the arrangem
   expect(right.x).toBeGreaterThan(left.x + left.width);
 
   // Dropped in the centre of a view, a tab joins that group; the empty group closes.
-  await dragTab(page, "OCR text", structured, "center");
+  await dragTab(page, "Text", structured, "center");
   await expect(page.getByRole("tablist")).toHaveCount(2);
-  await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Text", exact: true })).toHaveAttribute("aria-selected", "true");
 
   // The split buttons do the same without dragging, and one click puts everything back in one group.
-  await page.getByRole("button", { name: "Move OCR text to a new group on the right" }).click();
+  await page.getByRole("button", { name: "Move Text to a new group on the right" }).click();
   await expect(page.getByRole("tablist")).toHaveCount(3);
   await page.getByRole("button", { name: "Reset the layout" }).click();
   await expect(page.getByRole("tablist")).toHaveCount(1);
-  await expect(page.getByRole("tablist").getByRole("tab")).toHaveText(
-    ["Bounding boxes", "Edit bounding boxes", "OCR text", "Structured text", "JSON format", "Raw JSON"],
-    {
-      ignoreCase: true,
-    },
-  );
+  await expect(page.getByRole("tablist").getByRole("tab")).toHaveText(["Page view", "Fix OCR", "Text", "Structured text", "JSON format", "Raw JSON"], {
+    ignoreCase: true,
+  });
 });
 
 test("the OCR text is shown beside the PDF pages, with the scrolling of both locked together", async ({ page }) => {
@@ -892,7 +889,7 @@ test("the OCR text is shown beside the PDF pages, with the scrolling of both loc
       buffer: makePdf("Page one", ["Page two", "Page three", "Page four", "Page five", "Page six"]),
     });
   await page.getByRole("button", { name: "OCR only" }).click();
-  await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Text", exact: true })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
   await expect(page.getByRole("checkbox", { name: "Lock scrolling" })).toHaveCount(0);
 
   await page.getByRole("checkbox", { name: "Show PDF" }).check();
@@ -969,7 +966,7 @@ test("the OCR text is shown beside the PDF pages, with the scrolling of both loc
   await page.getByRole("checkbox", { name: "Select blocks on the PDF" }).check();
   await pdf
     .locator('[data-page="3"]')
-    .getByRole("button", { name: /^title block 2/ })
+    .getByRole("button", { name: /^Title block 2/ })
     .click();
   await expect(text.locator('[data-page="3"] [data-type="title"]')).toHaveCount(0);
   await expect(text.locator('[data-page="2"] [data-type="title"]')).toHaveCount(1);
@@ -1019,7 +1016,7 @@ test("without the JSON output the OCR text is translated block by block: no JSON
   await enterMistralKey(page);
   await loadPdf(page);
   await page.getByRole("button", { name: "Translate", exact: true }).click();
-  await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Text", exact: true })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden({ timeout: 20_000 });
 
   const text = page.locator(".ocr-page");
@@ -1027,7 +1024,7 @@ test("without the JSON output the OCR text is translated block by block: no JSON
   await expect(text).toContainText("[EN] 权利要求1不具备创造性。");
   await expect(text.locator(".ocr-figure img")).toHaveCount(2); // the cropped images, where they are in the text
   await expect(text).not.toContainText("国家知识产权局"); // page headers are left out by default
-  await expect(page.locator(".toolbar").first()).toContainText("translated into English per text block");
+  await expect(page.locator(".toolbar").first()).toContainText("translated into English");
   for (const tab of ["Structured text", "JSON format", "Raw JSON"]) await expect(page.getByRole("tab", { name: tab })).toHaveCount(0);
 
   // Only the bounding-box descriptions and the block translations: no schema inference, no document annotation.
@@ -1076,25 +1073,25 @@ test("block types and single blocks are left out of the OCR text (picked on the 
   await enterMistralKey(page);
   await loadPdf(page);
   await page.getByRole("button", { name: "OCR only" }).click();
-  await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Text", exact: true })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
   const text = page.locator(".ocr-pages");
 
   // By block type: headers and footers are off by default.
-  const header = page.getByRole("checkbox", { name: "header blocks (1)" });
+  const header = page.getByRole("checkbox", { name: "Page header blocks (1)" });
   await expect(header).not.toBeChecked();
   await header.check();
   await expect(text).toContainText("国家知识产权局");
   await header.uncheck();
   await expect(text).not.toContainText("国家知识产权局");
-  await page.getByRole("checkbox", { name: "image blocks (2)" }).uncheck();
+  await page.getByRole("checkbox", { name: "Image blocks (2)" }).uncheck();
   await expect(text.locator(".ocr-figure")).toHaveCount(0);
 
   // One by one, on the page beside the text.
   await page.getByRole("checkbox", { name: "Show PDF" }).check();
   await page.getByRole("checkbox", { name: "Select blocks on the PDF" }).check();
   const pdf = page.locator(".ocr-pdf-pages");
-  await expect(pdf.getByRole("button", { name: /^header block 1/ })).toBeDisabled(); // left out with its type
-  const number = pdf.getByRole("button", { name: /^text block 3: 申请号/ });
+  await expect(pdf.getByRole("button", { name: /^Page header block 1/ })).toBeDisabled(); // left out with its type
+  const number = pdf.getByRole("button", { name: /^Paragraph block 3: 申请号/ });
   await expect(number).toHaveAttribute("aria-pressed", "true");
   await number.hover();
   await expect(text.locator(".ocr-block-hot")).toContainText("申请号");
@@ -1145,7 +1142,7 @@ test("without the JSON output pasted text is translated paragraph by paragraph a
   await page.getByRole("button", { name: "…or paste text to translate" }).click();
   await page.getByPlaceholder("Paste the source text").fill("申请号：CN202310000001.2\n\n权利要求1不具备创造性。");
   await page.getByRole("button", { name: "Translate", exact: true }).click();
-  await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Text", exact: true })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
   const text = page.locator(".ocr-page");
   await expect(text).toContainText("[EN] 申请号：CN202310000001.2");
   await expect(text).toContainText("[EN] 权利要求1不具备创造性。");
@@ -1235,12 +1232,12 @@ test("bounding boxes are edited by selection: cut (read again), made, deleted, u
   await enterMistralKey(page);
   await loadPdf(page);
   await page.getByRole("button", { name: "Translate", exact: true }).click();
-  await expect(page.getByRole("tab", { name: "OCR text" })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
+  await expect(page.getByRole("tab", { name: "Text", exact: true })).toHaveAttribute("aria-selected", "true", { timeout: 20_000 });
   await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden({ timeout: 20_000 });
   const text = page.locator(".ocr-pages");
   await expect(text).toContainText("[EN] 权利要求1不具备创造性。");
 
-  await page.getByRole("tab", { name: "Edit bounding boxes" }).click();
+  await page.getByRole("tab", { name: "Fix OCR" }).click();
   await expect(page.locator(".edit-stage img")).toBeVisible();
   const layer = page.locator(".edit-layer");
   const box = (await layer.boundingBox())!;
@@ -1270,7 +1267,7 @@ test("bounding boxes are edited by selection: cut (read again), made, deleted, u
   expect(await edited.getAttribute("style")).toMatch(/left: ?9\.41/); // trimmed to x = 160 of 1700
 
   // The OCR text reads the block as read again; the other blocks keep their translations, the edited one is translated on its own.
-  await page.getByRole("tab", { name: "OCR text" }).click();
+  await page.getByRole("tab", { name: "Text", exact: true }).click();
   await expect(text).toContainText("[EN] 申请号：CN202310000001.2");
   await expect(text).toContainText(REGION_TEXT);
   await expect(page.getByText("1 block(s) have no translation")).toBeVisible();
@@ -1282,9 +1279,9 @@ test("bounding boxes are edited by selection: cut (read again), made, deleted, u
   expect(JSON.stringify(last.body)).not.toContain("申请号");
 
   // A click selects a block; Delete removes it; Undo brings it back.
-  await page.getByRole("tab", { name: "Edit bounding boxes" }).click();
+  await page.getByRole("tab", { name: "Fix OCR" }).click();
   await page.mouse.click(at(850, 150).x, at(850, 150).y);
-  await expect(detail).toContainText("title block");
+  await expect(detail).toContainText("Title block");
   await page.keyboard.press("Delete");
   await expect(page.locator('.edit-box[data-type="title"]')).toHaveCount(0);
   await page.getByRole("button", { name: "Undo" }).click();
@@ -1304,14 +1301,14 @@ test("bounding boxes are edited by selection: cut (read again), made, deleted, u
   const ocrCalls = recorded.filter((r) => r.url.endsWith("/v1/ocr")).length;
   await loadPdf(page);
   await expect(page.getByText("OCR result from this browser's cache")).toBeVisible();
-  await page.getByRole("tab", { name: "Edit bounding boxes" }).click();
+  await page.getByRole("tab", { name: "Fix OCR" }).click();
   await expect(page.locator(".edit-box.is-edited")).toHaveCount(2);
-  await page.getByRole("tab", { name: "OCR text" }).click();
+  await page.getByRole("tab", { name: "Text", exact: true }).click();
   await expect(text).toContainText(REGION_TEXT);
   expect(recorded.filter((r) => r.url.endsWith("/v1/ocr"))).toHaveLength(ocrCalls);
 
   // And back to the OCR as returned.
-  await page.getByRole("tab", { name: "Edit bounding boxes" }).click();
+  await page.getByRole("tab", { name: "Fix OCR" }).click();
   await page.getByRole("button", { name: /Reset all edits/ }).click();
   await expect(page.locator(".edit-box.is-edited")).toHaveCount(0);
 });

@@ -48,8 +48,8 @@ anywhere else.
    the text become `[Image: id]` placeholders that match the box ids.
 4. **Translation, block by block** (the default): the OCR's text blocks are
    translated in batches (strict JSON-schema structured output keyed by block
-   id) and the OCR text tab fills in as each batch arrives. Only the blocks
-   the OCR text tab keeps are translated: block types switched off there
+   id) and the Text tab fills in as each batch arrives. Only the blocks
+   the Text tab keeps are translated: block types switched off there
    (page headers and footers by default) and blocks left out one by one are
    skipped, and a block taken back later is translated on its own with one
    click. Pasted text and text files are split into paragraphs and go the same
@@ -105,13 +105,15 @@ anywhere else.
    follow-up step fails (block translations, box descriptions, this one), the
    translation stays and a warning names the step; failed boxes and
    untranslated blocks can be retried with one click.
-8. **Browse the result** in two tabs, five with the JSON output, left to right:
-   - **Bounding boxes** (the default): the OCR boxes (figures and paragraph
+8. **Browse the result** in three tabs, six with the JSON output, left to right
+   (technical details, such as models, sizes and token counts, are behind the
+   ⓘ next to each view's summary):
+   - **Page view**: the OCR boxes (figures and text
      blocks) drawn over the rendered page, with the cropped image and the
      vision model's description for each box; clicking a text block shows its
      translation above the original. Pages render in the background so
      browsing is instant.
-   - **Edit bounding boxes**: fix what the OCR got wrong, on the page. Drag
+   - **Fix OCR**: fix what the OCR got wrong, on the page. Drag
      a rectangle (like a rectangular marquee) or click a block, then:
      **Cut out of the blocks** takes the area out of every block it touches
      (blocks inside it go; a text block it crosses keeps the rest, its text
@@ -126,8 +128,8 @@ anywhere else.
      result in this browser's cache. A translation made before stays: the
      blocks that were not changed keep their translations, and the changed
      ones are translated with one click ("Translate them").
-   - **OCR text**: the text block by block, page by page, as OCR'd or
-     translated, with the cropped figures where they are in the text. One
+   - **Text** (where a translation opens without the JSON output): the text
+     block by block, page by page, as OCR'd or translated, with the cropped figures where they are in the text. One
      switch per **block type** found in the document (title, text, list,
      table, caption, image, header, footer, signature, ...; headers and
      footers off by default) leaves that type out of the text, the copy, the
@@ -247,7 +249,7 @@ All defaults live in code so they can be changed in one place:
 | Translation model                                      | `mistral-small-latest` (Mistral) / `claude-haiku-5-5` (Anthropic) / `gpt-6-luna` (OpenAI); dropdown of the models from `/v1/models` | `src/lib/anthropic/models.ts`, `src/lib/openai/models.ts`, `src/lib/mistral/models.ts` |
 | Reasoning effort                                       | `none` (Mistral: `none` or `high`; Anthropic: effort `low`, its lowest)                                                             | Settings panel                                                                         |
 | JSON output                                            | off: the text blocks are translated one by one; on: JSON format + document annotation, and the JSON tabs                            | Settings panel (last option); `src/lib/storage/settings.ts` (`jsonOutput`)             |
-| Block types left out of the OCR text                   | page headers and footers                                                                                                            | OCR text tab; `src/lib/storage/settings.ts` (`ocrHiddenTypes`)                         |
+| Block types left out of the OCR text                   | page headers and footers                                                                                                            | Text tab; `src/lib/storage/settings.ts` (`ocrHiddenTypes`)                             |
 | Max output tokens (JSON output)                        | provider default (Anthropic: 64k, the API requires a value)                                                                         | Settings panel, `src/lib/anthropic/models.ts`                                          |
 | Anthropic retries / timeout                            | 2 retries with backoff (the SDK's default) / 1 hour per request                                                                     | `src/lib/anthropic/client.ts`                                                          |
 | Document annotation with images (JSON output)          | on (first 8 boxes, `DOCUMENT_ANNOTATION_MAX_IMAGES`)                                                                                | Settings panel, `src/lib/pipeline/runOcr.ts`                                           |

@@ -28,23 +28,23 @@ export interface Stage {
  * translations that run it.
  */
 export const STAGES = {
-  prepare: { label: "Preparing document", inTranslation: (p) => p.withOcr },
-  ocr: { label: "OCR (Mistral Document AI)", inTranslation: (p) => p.withOcr },
-  infer_schema: { label: "Inferring JSON format", inTranslation: (p) => p.settings.structured },
+  prepare: { label: "Preparing the document", inTranslation: (p) => p.withOcr },
+  ocr: { label: "Reading the text (Mistral OCR)", inTranslation: (p) => p.withOcr },
+  infer_schema: { label: "Designing the JSON format", inTranslation: (p) => p.settings.structured },
   bbox_annotate: {
-    label: "Describing bounding boxes (vision model)",
+    label: "Describing figures, stamps and seals",
     produces: "Bounding-box descriptions",
     inTranslation: (p) => p.withBoxes && p.settings.bboxAnnotations,
   },
-  translate: { label: "Document annotation: translating (vision model)", streams: true, inTranslation: (p) => p.settings.structured },
+  translate: { label: "Translating into the JSON format", streams: true, inTranslation: (p) => p.settings.structured },
   structure_original: {
-    label: "Structured text in the original language (vision model)",
+    label: "Structuring the original text",
     streams: true,
     produces: "Structured text in the original language",
     inTranslation: (p) => p.settings.structured && p.settings.structureOriginal === "always",
   },
   block_translate: {
-    label: "Translating text blocks",
+    label: "Translating the text",
     produces: "Block translations",
     // Without the JSON output the block translations are the translation; with it, a follow-up for the OCR views.
     inTranslation: (p) => !p.settings.structured || (p.withBoxes && p.settings.blockTranslations),

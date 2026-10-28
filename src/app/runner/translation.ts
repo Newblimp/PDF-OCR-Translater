@@ -226,7 +226,7 @@ async function translateByBlocks(rt: Runtime, job: Job, source: Source): Promise
   const followUp = followUps(job, warnings);
   const pages = source.ocr?.pages ?? textPages(source.text);
   const onlyIds = shownTextBlockIds(pages, blockFilter(rt.getState(), pages));
-  if (!onlyIds.size) throw new Error("Nothing to translate: every text block is left out by the block filters of the OCR text tab.");
+  if (!onlyIds.size) throw new Error("Nothing to translate: every text block is left out by the block filters of the Text tab.");
 
   const bboxes = followUp("bbox_annotate", describeBboxes(ctx, source.ocr));
   void bboxes.catch(() => undefined); // awaited below; a failing translation must not leave it unhandled
