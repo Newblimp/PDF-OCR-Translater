@@ -165,7 +165,8 @@ src/
       pipeline.ts              the stages: ocrOnly, resolveSchema, describeBboxes, translateDocument,
                                structureOriginal, blockTranslations (composed by app/runner/translation.ts);
                                PipelineSettings.structured = JSON output
-      events.ts                progress events shared by the steps
+      events.ts                every stage declared once (STAGES: label, streaming, follow-up name, when a translation runs it);
+                               progress events shared by the steps
     export/bilingual.ts        bilingual HTML export (translation next to the original)
     markdown.ts                lazy marked + DOMPurify renderers (app view; export without remote resources)
     files/                     hashing, data-URL encoding, pdf.js preview (WebP object URLs), page render cache, file kinds
@@ -200,13 +201,17 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   Anthropic breakpoint on the last shared block). Schema inference sets no
   breakpoint: the translation adds a structured-output format (and usually
   images), so it cannot read that prefix back.
-- **New pipeline step** (e.g. a review pass): add a module in
-  `src/lib/pipeline/`, emit progress with `emit()` from `events.ts` (add a
-  `StageId` if needed), expose it from `pipeline.ts`, and compose it in
-  `runner/translation.ts` (`translateStructured()` and/or `translateByBlocks()`; add it
-  to `translationStages()` so the job status lists it). A step after the
-  translation should go through a `followUps()` wrapper so its failure
-  becomes a warning on the result rather than a failed job. Then surface results through a new field in `AppState` and a
+- **New pipeline step** (e.g. a review pass): declare its stage once in
+  `STAGES` (`events.ts`): the key is its `StageId`, `label` its title on
+  the job status card, `streams` whether the card counts characters,
+  `produces` what a failure as a follow-up names, and `inTranslation` when
+  a translation runs it (`translationStages()` lists the stages in
+  `STAGES` order). Add a module in `src/lib/pipeline/` that emits progress
+  with `emit()`, expose it from `pipeline.ts`, and compose it in
+  `runner/translation.ts` (`translateStructured()` and/or
+  `translateByBlocks()`). A step after the translation should go through
+  `followUps()` (its stage must have `produces`) so its failure becomes a
+  warning on the result rather than a failed job. Then surface results through a new field in `AppState` and a
   component.
 - **JSON output** (`Settings.jsonOutput`, off by default; the last option
   in `SettingsPanel`, with every JSON-only setting under it):

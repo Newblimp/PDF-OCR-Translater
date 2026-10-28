@@ -6,7 +6,7 @@
 import { ApiError } from "@/lib/http/apiError";
 import { createProvider, effortFor, PROVIDERS } from "@/lib/llm/registry";
 import type { OcrClient } from "@/lib/mistral/client";
-import { emit, type StageId } from "@/lib/pipeline/events";
+import { emit, STAGES, type FollowUpStage, type StageId } from "@/lib/pipeline/events";
 import type { PipelineContext, PipelineSettings, SchemaMode } from "@/lib/pipeline/pipeline";
 import type { Settings } from "@/lib/storage/settings";
 import { isPlainObject } from "@/lib/util/json";
@@ -20,7 +20,8 @@ export function cancelJob(rt: Runtime): void {
 /** A job to run: its kind, the stages its status card lists, whether it needs the translation provider's key. */
 export interface JobSpec {
   kind: JobKind;
-  stages: StageId[];
+  /** The stages, or how to tell them from the settings the job runs with. */
+  stages: StageId[] | ((settings: PipelineSettings) => StageId[]);
   needsChat: boolean;
   /** The translation the job adds to (original-language structure, retries); see `beginJob()`. */
   forTranslation?: TranslationState | undefined;
@@ -88,7 +89,8 @@ function beginJob(rt: Runtime, { kind, stages, needsChat, forTranslation }: JobS
     return null;
   }
   const controller = new AbortController();
-  rt.dispatch({ type: "job/start", job: { kind, startedAt: Date.now(), stages, events: [], receivedChars: {}, streamText: "", controller } });
+  const jobStages = typeof stages === "function" ? stages(pipelineSettings) : stages;
+  rt.dispatch({ type: "job/start", job: { kind, startedAt: Date.now(), stages: jobStages, events: [], receivedChars: {}, streamText: "", controller } });
   return {
     kind,
     controller,
@@ -129,11 +131,15 @@ function isCancellation(err: unknown, job: Job): boolean {
   return job.controller.signal.aborted || (err instanceof ApiError && err.kind === "aborted");
 }
 
-/** Runs a step whose failure leaves a warning (collected in `warnings`) on the result instead of failing the job. */
+/**
+ * Runs a step whose failure leaves a warning (collected in `warnings`) on the
+ * result instead of failing the job, naming what the stage produces.
+ */
 export function followUps(job: Job, warnings: string[]) {
-  return <T>(stage: StageId, label: string, task: Promise<T | null>): Promise<T | null> =>
+  return <T>(stage: FollowUpStage, task: Promise<T | null>): Promise<T | null> =>
     task.catch((err: unknown) => {
       if (isCancellation(err, job)) throw err;
+      const label = STAGES[stage].produces;
       const message = err instanceof Error ? err.message : String(err);
       warnings.push(`${label} failed: ${message}`);
       emit(job.ctx.onProgress, stage, "warning", `${label} failed`, { detail: message });

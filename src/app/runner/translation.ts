@@ -7,12 +7,11 @@
 import { addUsage, emptyUsage } from "@/lib/llm/provider";
 import { fileToDataUrl } from "@/lib/files/dataUrl";
 import { ocrTextFromPages, shownTextBlockIds, textPages, type BlockFilter } from "@/lib/pipeline/blocks";
-import { emit, type StageId } from "@/lib/pipeline/events";
+import { emit, translationStages, type StageId } from "@/lib/pipeline/events";
 import type { TranslationOutcome } from "@/lib/pipeline/pipeline";
 import type { OcrCleanPage, OcrText } from "@/lib/pipeline/ocrText";
 import type { SourceKind } from "@/lib/storage/history";
 import { OCR_CACHE_VERSION, ocrCacheKey, putCachedOcr } from "@/lib/storage/ocrCache";
-import type { Settings } from "@/lib/storage/settings";
 import { parsePageSelection } from "@/lib/util/pageSelection";
 import { formatBytes } from "@/lib/util/text";
 import {
@@ -30,7 +29,7 @@ import {
   type TranslationState,
 } from "../store";
 import { hashText } from "./document";
-import { followUps, withJob, type Job } from "./jobs";
+import { followUps, withJob, type Job, type JobSpec } from "./jobs";
 import type { Runtime } from "./runtime";
 import { saveTranslation } from "./savedTranslations";
 
@@ -45,22 +44,6 @@ function ocrOf(state: AppState, t: TranslationState): OcrText | undefined {
 /** The blocks the OCR text tab keeps for these pages: the block types not hidden there, minus the blocks left out one by one. */
 function blockFilter(state: AppState, pages: readonly OcrCleanPage[]): BlockFilter {
   return { hiddenTypes: new Set(state.settings.ocrHiddenTypes), excluded: excludedBlocks(state, pages) };
-}
-
-/** The stages a translation runs, for the job status card. */
-function translationStages(settings: Settings, withOcr: boolean, withBoxes: boolean): StageId[] {
-  const stages: StageId[] = withOcr ? ["prepare", "ocr"] : [];
-  if (!settings.jsonOutput) {
-    if (withBoxes && settings.bboxAnnotations) stages.push("bbox_annotate");
-    stages.push("block_translate");
-    return stages;
-  }
-  stages.push("infer_schema");
-  if (withBoxes && settings.bboxAnnotations) stages.push("bbox_annotate");
-  stages.push("translate");
-  if (settings.structureOriginal === "always") stages.push("structure_original");
-  if (withBoxes && settings.blockTranslations) stages.push("block_translate");
-  return stages;
 }
 
 /** What is being translated, for the result and its saved copy. */
@@ -80,7 +63,7 @@ export async function runJob(rt: Runtime, kind: "ocr" | "translate" | "both"): P
   if (state.job) return;
   const translateSource = kind === "translate" ? selectSourceText(state) : null;
   const withBoxes = kind === "both" || translateSource?.origin === "ocr";
-  const stages = kind === "ocr" ? (["prepare", "ocr"] as StageId[]) : translationStages(state.settings, kind === "both", withBoxes);
+  const stages: JobSpec["stages"] = kind === "ocr" ? ["prepare", "ocr"] : (settings) => translationStages({ settings, withOcr: kind === "both", withBoxes });
   await withJob(rt, { kind, stages, needsChat: kind !== "ocr" }, async (job) => {
     let source: Source;
     if (kind === "translate") {
@@ -245,7 +228,7 @@ async function translateByBlocks(rt: Runtime, job: Job, source: Source): Promise
   const onlyIds = shownTextBlockIds(pages, blockFilter(rt.getState(), pages));
   if (!onlyIds.size) throw new Error("Nothing to translate: every text block is left out by the block filters of the OCR text tab.");
 
-  const bboxes = followUp("bbox_annotate", "Bounding-box descriptions", describeBboxes(ctx, source.ocr));
+  const bboxes = followUp("bbox_annotate", describeBboxes(ctx, source.ocr));
   void bboxes.catch(() => undefined); // awaited below; a failing translation must not leave it unhandled
 
   const id = showNewTranslation(rt, job, source, { pages });
@@ -282,7 +265,7 @@ async function translateStructured(rt: Runtime, job: Job, source: Source): Promi
 
   const schema = await resolveSchema(ctx, source.text);
   controller.signal.throwIfAborted();
-  const bboxes = followUp("bbox_annotate", "Bounding-box descriptions", describeBboxes(ctx, source.ocr));
+  const bboxes = followUp("bbox_annotate", describeBboxes(ctx, source.ocr));
   void bboxes.catch(() => undefined); // awaited below; a failing translation must not leave it unhandled
 
   const translation = await translateDocument(ctx, source.text, schema.schema, source.ocr);
@@ -304,9 +287,7 @@ async function translateStructured(rt: Runtime, job: Job, source: Source): Promi
     await Promise.all([
       bboxes.then((b) => b && patch({ bboxAnnotations: b.annotations, bboxUsage: b.usage })),
       ctx.settings.structureOriginal === "always"
-        ? followUp("structure_original", "Structured text in the original language", structureOriginal(ctx, source.text, schema.schema, source.ocr)).then(
-            (o) => o && patch(originalFields(o)),
-          )
+        ? followUp("structure_original", structureOriginal(ctx, source.text, schema.schema, source.ocr)).then((o) => o && patch(originalFields(o)))
         : null,
       !source.ocr
         ? emit(ctx.onProgress, "block_translate", "skipped", "No text blocks (text input)")
@@ -314,7 +295,6 @@ async function translateStructured(rt: Runtime, job: Job, source: Source): Promi
           ? emit(ctx.onProgress, "block_translate", "skipped", "Block translations disabled in Settings")
           : followUp(
               "block_translate",
-              "Block translations",
               blockTranslations(ctx, source.ocr, shownTextBlockIds(source.ocr.pages, blockFilter(rt.getState(), source.ocr.pages))),
             ).then((b) => b && patch({ blockTranslations: b.translations, blockUsage: b.usage })),
     ]);

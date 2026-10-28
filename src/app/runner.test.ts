@@ -260,6 +260,11 @@ describe("withJob", () => {
       running = store.getState().job;
     });
     expect(running).toMatchObject({ kind: "translate", stages: ["block_translate"] });
+    // Stages can be told from the settings the job runs with.
+    await withJob(store, { ...spec, stages: (settings) => (settings.structured ? ["translate"] : ["block_translate", "bbox_annotate"]) }, async () => {
+      running = store.getState().job;
+    });
+    expect(running).toMatchObject({ stages: ["block_translate", "bbox_annotate"] });
     expect(store.getState()).toMatchObject({ job: null, error: null });
 
     let signal: AbortSignal | undefined;

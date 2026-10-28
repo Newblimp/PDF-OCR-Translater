@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { STAGE_LABELS, type ProgressEvent, type StageId } from "@/lib/pipeline/events";
+import { stage as stageInfo, type ProgressEvent } from "@/lib/pipeline/events";
 import type { JobState } from "@/app/store";
 
 interface Props {
@@ -16,8 +16,6 @@ function stageState(own: ProgressEvent[]): StageView {
   if (last.status === "skipped") return "skipped";
   return "active";
 }
-
-const STREAMING_STAGES: ReadonlySet<StageId> = new Set(["translate", "structure_original"]);
 
 export function JobStatus({ job }: Props) {
   const [now, setNow] = useState(Date.now());
@@ -38,6 +36,7 @@ export function JobStatus({ job }: Props) {
           const own = job.events.filter((e) => e.stage === stage);
           const view = stageState(own);
           const last = own.at(-1);
+          const { label, streams } = stageInfo(stage);
           const received = job.receivedChars[stage] ?? 0;
           return (
             <li key={stage} class={`stage stage-${view}`}>
@@ -45,12 +44,12 @@ export function JobStatus({ job }: Props) {
                 {view === "done" ? "✓" : view === "active" ? "●" : view === "skipped" ? "–" : view === "warning" ? "!" : "○"}
               </span>
               <div class="stage-body">
-                <div class="stage-title">{STAGE_LABELS[stage]}</div>
+                <div class="stage-title">{label}</div>
                 {last && (
                   <div class="muted small">
                     {last.message}
                     {last.detail ? ` — ${last.detail}` : ""}
-                    {STREAMING_STAGES.has(stage) && view === "active" && received > 0 ? ` (${received.toLocaleString()} characters so far)` : ""}
+                    {streams && view === "active" && received > 0 ? ` (${received.toLocaleString()} characters so far)` : ""}
                   </div>
                 )}
               </div>
