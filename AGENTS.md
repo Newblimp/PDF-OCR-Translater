@@ -64,7 +64,10 @@ AI). Keep it current when you change the architecture.
   `readChatStream` for their common streaming format), and their providers
   build the request with `chatCompletionsRequest()` (`llm/content.ts`). Wire
   types are derived from the official SDKs.
-- Tests: Vitest for pure modules, Playwright for end-to-end flows against
+- Tests: Vitest for pure modules and for the runner's jobs
+  (`src/app/runner.test.ts`: the real store and pipeline, fake OCR and chat
+  providers, saved translations in memory; the quick way to see a runner
+  change work), Playwright for end-to-end flows against
   mocked Mistral, Anthropic and OpenAI APIs (`e2e/helpers.ts`; `chatStep()`
   tells the pipeline steps apart for every provider). ESLint
   (`eslint.config.js`: typescript-eslint, React hooks rules, floating
