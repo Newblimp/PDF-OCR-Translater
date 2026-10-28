@@ -7,17 +7,15 @@ import { DEFAULT_ANTHROPIC_MODEL, FALLBACK_ANTHROPIC_MODELS } from "../anthropic
 import { toApiError } from "../http/apiError";
 import { DEFAULT_CHAT_MODEL, FALLBACK_CHAT_MODELS, type ModelOption } from "../mistral/models";
 import { DEFAULT_OPENAI_MODEL, FALLBACK_OPENAI_MODELS } from "../openai/models";
+import { API_PROVIDERS, PROVIDER_IDS, type ApiProviderIdentity } from "../apiProviders";
 import type { ChatProvider, ProviderId, ReasoningEffort } from "./provider";
 
-export interface ProviderInfo {
+/** A provider as the app offers it: its identity (`apiProviders.ts`: name, label, host) and everything built on it. */
+export interface ProviderInfo extends ApiProviderIdentity {
   id: ProviderId;
-  label: string;
-  /** Short name for pills and compact UI. */
-  shortLabel: string;
   /** What the key is used for, shown in the key dialog. */
   purpose: string;
-  /** Host the browser talks to; must be listed in the CSP (public/_headers). */
-  host: string;
+  /** "Mistral API key", ... */
   keyLabel: string;
   keyUrl: string;
   defaultModel: string;
@@ -30,14 +28,17 @@ export interface ProviderInfo {
   load: () => Promise<(apiKey: string) => ChatProvider>;
 }
 
+/** What the registry adds to a provider's identity. */
+type Offer = Omit<ProviderInfo, "id" | keyof ApiProviderIdentity | "keyLabel">;
+
+function provider(id: ProviderId, offer: Offer): ProviderInfo {
+  const identity = API_PROVIDERS[id];
+  return { id, ...identity, keyLabel: `${identity.name} API key`, ...offer };
+}
+
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
-  mistral: {
-    id: "mistral",
-    label: "Mistral",
-    shortLabel: "Mistral",
+  mistral: provider("mistral", {
     purpose: "used for OCR (always) and for translation (Mistral Small, the default)",
-    host: "api.mistral.ai",
-    keyLabel: "Mistral API key",
     keyUrl: "https://console.mistral.ai/api-keys",
     defaultModel: DEFAULT_CHAT_MODEL,
     fallbackModels: FALLBACK_CHAT_MODELS,
@@ -46,14 +47,9 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     // Mistral Small 4 documents "none" and "high" (https://docs.mistral.ai/capabilities/reasoning).
     reasoningEfforts: ["none", "high"],
     load: () => import("./mistralProvider").then((m) => m.MistralProvider.fromKey),
-  },
-  anthropic: {
-    id: "anthropic",
-    label: "Anthropic (Claude)",
-    shortLabel: "Anthropic",
+  }),
+  anthropic: provider("anthropic", {
     purpose: "used for translation if selected (Claude Haiku 5.5)",
-    host: "api.anthropic.com",
-    keyLabel: "Anthropic API key",
     keyUrl: "https://platform.claude.com/settings/keys",
     defaultModel: DEFAULT_ANTHROPIC_MODEL,
     fallbackModels: FALLBACK_ANTHROPIC_MODELS,
@@ -61,14 +57,9 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     supportsReasoningEffort: true,
     reasoningEfforts: ["none", "low", "medium", "high"],
     load: () => import("./anthropicProvider").then((m) => m.AnthropicProvider.fromKey),
-  },
-  openai: {
-    id: "openai",
-    label: "OpenAI (GPT Luna)",
-    shortLabel: "OpenAI",
+  }),
+  openai: provider("openai", {
     purpose: "used for translation if selected (GPT Luna)",
-    host: "api.openai.com",
-    keyLabel: "OpenAI API key",
     keyUrl: "https://platform.openai.com/api-keys",
     defaultModel: DEFAULT_OPENAI_MODEL,
     fallbackModels: FALLBACK_OPENAI_MODELS,
@@ -76,11 +67,11 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     supportsReasoningEffort: true,
     reasoningEfforts: ["none", "low", "medium", "high"],
     load: () => import("./openaiProvider").then((m) => m.OpenAIProvider.fromKey),
-  },
+  }),
 };
 
 /** All providers, in the order they are offered for translation (the default first). */
-export const PROVIDER_IDS: ProviderId[] = Object.keys(PROVIDERS) as ProviderId[];
+export { PROVIDER_IDS };
 
 /** The provider whose key is always required because it performs OCR. */
 export const OCR_PROVIDER: ProviderId = "mistral";

@@ -1,3 +1,4 @@
+import { API_PROVIDERS } from "../apiProviders";
 import { OpenAIClient } from "../openai/client";
 import { chatCompletionsRequest } from "./content";
 import { openaiModelOptions } from "../openai/models";
@@ -16,7 +17,7 @@ import { ApiError } from "../http/apiError";
  */
 export class OpenAIProvider implements ChatProvider {
   readonly id = "openai" as const;
-  readonly label = "OpenAI (GPT Luna)";
+  readonly label = API_PROVIDERS.openai.label;
 
   constructor(private readonly client: OpenAIClient) {}
 

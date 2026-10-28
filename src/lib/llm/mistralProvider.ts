@@ -1,3 +1,4 @@
+import { API_PROVIDERS } from "../apiProviders";
 import { ApiError } from "../http/apiError";
 import { MistralClient } from "../mistral/client";
 import { chatModelOptions } from "../mistral/models";
@@ -16,7 +17,7 @@ const NO_REASONING_EFFORT = new Set<string>();
 /** Mistral chat provider: the default for translation (Mistral Small), with Anthropic and OpenAI as alternatives. */
 export class MistralProvider implements ChatProvider {
   readonly id = "mistral" as const;
-  readonly label = "Mistral";
+  readonly label = API_PROVIDERS.mistral.label;
 
   constructor(private readonly client: MistralClient) {}
 

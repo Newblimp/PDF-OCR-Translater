@@ -120,6 +120,7 @@ src/
     Dock.tsx                   result tabs in groups and split views (drag and drop, splitters)
     HistoryPanel.tsx           "Recent translations" (saved in IndexedDB)
   lib/
+    apiProviders.ts            each API declared once: id (ProviderId), name, label, host; isProviderId(), apiBaseUrl()
     http/
       apiFetch.ts              authenticated fetch + retries with backoff (Mistral, OpenAI)
       apiError.ts              ApiError (kind, provider, hint); error mapping; permanent / image rejection checks
@@ -366,13 +367,16 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   fires once per translation (`session.originalRequested`), never while an error is
   shown, and not after the job that produced the translation was cancelled
   or failed.
-- **Another translation provider**: (1) widen the `ApiProvider` union in
-  `src/lib/http/apiError.ts` (it is the `ProviderId` type); (2) implement
-  `ChatProvider` (`src/lib/llm/provider.ts`) on a client in `src/lib/<name>/`;
-  (3) add a `ProviderInfo` entry to `PROVIDERS` in `src/lib/llm/registry.ts`
-  (labels, key URL, default/fallback models, capability flags, and `load`,
-  a dynamic import of the implementation);
-  (4) add its host to the CSP in `public/_headers` and to the e2e mocks.
+- **Another translation provider**: (1) add its identity to `API_PROVIDERS`
+  in `src/lib/apiProviders.ts` (the key is its `ProviderId`; `name`,
+  `label`, `host`: the error hints, the key pills and the client's base URL
+  read them there); (2) implement `ChatProvider` (`src/lib/llm/provider.ts`)
+  on a client in `src/lib/<name>/` (its `label` is `API_PROVIDERS.<id>.label`,
+  its base URL `apiBaseUrl()`); (3) add its entry to `PROVIDERS` in
+  `src/lib/llm/registry.ts` with `provider()` (purpose, key URL,
+  default/fallback models, capability flags, and `load`, a dynamic import of
+  the implementation); (4) add its host to the CSP in `public/_headers`
+  (`src/architecture.test.ts` fails until it is there) and to the e2e mocks.
   Everything else (key storage, key dialog fields, header pills, settings
   model lists, `initialState`) iterates `PROVIDER_IDS` / `perProvider()`.
 - **Another API host or a proxy**: the Mistral and OpenAI clients take

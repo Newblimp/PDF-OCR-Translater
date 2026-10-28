@@ -3,6 +3,7 @@ import type { BboxAnnotation } from "@/lib/pipeline/bboxAnnotate";
 import type { BoxEdit } from "@/lib/pipeline/blockEdits";
 import type { OcrCleanPage } from "@/lib/pipeline/ocrText";
 import { sameArrangement, type DockTarget } from "@/lib/util/dock";
+import { OCR_PROVIDER, PROVIDERS } from "@/lib/llm/registry";
 import { Dock } from "./Dock";
 import { lazyView } from "./lazyView";
 
@@ -115,8 +116,8 @@ export function ResultsPanel({ state, actions }: Props) {
           </li>
         </ol>
         <p class="muted small">
-          The file is encoded in your browser and sent to api.mistral.ai for OCR; the OCR text and the cropped figure images it returns go to the translation
-          provider (configurable in Settings). Nothing is uploaded to this site's host.
+          The file is encoded in your browser and sent to {PROVIDERS[OCR_PROVIDER].host} for OCR; the OCR text and the cropped figure images it returns go to
+          the translation provider (configurable in Settings). Nothing is uploaded to this site's host.
         </p>
       </div>
     );

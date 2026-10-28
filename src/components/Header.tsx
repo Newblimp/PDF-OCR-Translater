@@ -1,6 +1,6 @@
 import { memo } from "preact/compat";
 import { maskApiKey } from "@/lib/storage/apiKeys";
-import { PROVIDERS } from "@/lib/llm/registry";
+import { OCR_PROVIDER, PROVIDERS } from "@/lib/llm/registry";
 import type { ProviderId } from "@/lib/llm/provider";
 import type { ThemeSetting } from "@/lib/storage/settings";
 import type { KeyState } from "@/app/store";
@@ -25,10 +25,11 @@ const STATUS_LABEL: Record<KeyState["status"], string> = {
 };
 
 export const Header = memo(function Header({ keys, activeProvider, theme, onChangeKeys, onForgetKeys, onTheme }: Props) {
-  const shown: ProviderId[] = activeProvider === "mistral" ? ["mistral"] : ["mistral", activeProvider];
+  const shown: ProviderId[] = activeProvider === OCR_PROVIDER ? [OCR_PROVIDER] : [OCR_PROVIDER, activeProvider];
   const anyKey = shown.some((p) => keys[p].value);
   // Shortened with an ellipsis when the bar is narrow; the tooltip keeps it whole.
-  const by = activeProvider === "mistral" ? "OCR and translation by Mistral" : `OCR by Mistral, translation by ${PROVIDERS[activeProvider].label}`;
+  const ocr = PROVIDERS[OCR_PROVIDER].name;
+  const by = activeProvider === OCR_PROVIDER ? `OCR and translation by ${ocr}` : `OCR by ${ocr}, translation by ${PROVIDERS[activeProvider].label}`;
   const tagline = `${by}. Runs in your browser; documents go only to ${shown.map((p) => PROVIDERS[p].host).join(" and ")}.`;
   return (
     <header class="header">
@@ -44,7 +45,7 @@ export const Header = memo(function Header({ keys, activeProvider, theme, onChan
       <div class="header-key">
         {shown.map((p) => (
           <span key={p} class={`pill pill-${keys[p].status}`} title={`${PROVIDERS[p].keyLabel}: ${STATUS_LABEL[keys[p].status]}`}>
-            {PROVIDERS[p].shortLabel} key {STATUS_LABEL[keys[p].status]}
+            {PROVIDERS[p].name} key {STATUS_LABEL[keys[p].status]}
             {keys[p].value ? ` · ${maskApiKey(keys[p].value)}` : ""}
           </span>
         ))}

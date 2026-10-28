@@ -3,6 +3,7 @@ import { anthropicModelOptions } from "../anthropic/models";
 import { chatModelOptions } from "../mistral/models";
 import { openaiModelOptions } from "../openai/models";
 import type { ProviderId } from "./provider";
+import { API_PROVIDERS, isProviderId } from "../apiProviders";
 import { effortFor, PROVIDER_IDS, PROVIDERS } from "./registry";
 
 /** What each provider keeps of a model list with these ids (its own `/v1/models` filter). */
@@ -22,5 +23,18 @@ describe("provider registry", () => {
 
   it.each(PROVIDER_IDS)("%s: every reasoning effort maps onto one it offers", (id) => {
     for (const effort of ["none", "low", "medium", "high"] as const) expect(PROVIDERS[id].reasoningEfforts).toContain(effortFor(id, effort));
+  });
+
+  it("builds every entry on the provider's identity, in its order", () => {
+    expect(Object.keys(PROVIDERS)).toEqual(PROVIDER_IDS);
+    expect(PROVIDER_IDS[0]).toBe("mistral"); // the default is offered first
+    for (const id of PROVIDER_IDS) {
+      expect(PROVIDERS[id]).toMatchObject({ id, ...API_PROVIDERS[id], keyLabel: `${API_PROVIDERS[id].name} API key` });
+    }
+  });
+
+  it("tells provider ids from other strings", () => {
+    expect(PROVIDER_IDS.every(isProviderId)).toBe(true);
+    for (const other of ["constructor", "toString", "__proto__", "Mistral", "", 1, null]) expect(isProviderId(other)).toBe(false);
   });
 });

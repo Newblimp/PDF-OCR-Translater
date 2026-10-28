@@ -1,7 +1,7 @@
 import { memo } from "preact/compat";
 import type { SavedTranslationSummary } from "@/lib/storage/history";
+import { isProviderId } from "@/lib/apiProviders";
 import { PROVIDERS } from "@/lib/llm/registry";
-import type { ProviderId } from "@/lib/llm/provider";
 
 interface Props {
   history: SavedTranslationSummary[];
@@ -16,7 +16,7 @@ interface Props {
 const KIND_LABEL = { pdf: "PDF", image: "Image", text: "Text file", pasted: "Pasted text" } as const;
 
 function providerLabel(id: string): string {
-  return id in PROVIDERS ? PROVIDERS[id as ProviderId].shortLabel : id;
+  return isProviderId(id) ? PROVIDERS[id].name : id;
 }
 
 /** Translations kept in this browser (IndexedDB), newest first. */

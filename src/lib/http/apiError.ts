@@ -2,6 +2,8 @@
  * Error type shared by every API client in the app. `kind` drives the
  * user-facing hint and the pipeline's retry decisions.
  */
+import { API_PROVIDERS, type ProviderId } from "../apiProviders";
+
 export type ApiErrorKind =
   | "network" // fetch itself failed: offline, DNS, CORS, blocked by CSP
   | "auth" // 401 / 403
@@ -11,10 +13,6 @@ export type ApiErrorKind =
   | "aborted" // the caller cancelled
   | "refusal" // the model declined to answer (a completed, billed response)
   | "protocol"; // unexpected response shape
-
-export type ApiProvider = "anthropic" | "mistral" | "openai";
-
-const PROVIDER_NAMES: Record<ApiProvider, string> = { anthropic: "Anthropic", mistral: "Mistral", openai: "OpenAI" };
 
 /** The kind of an HTTP error response (used by `apiFetch` and the Anthropic SDK error mapping). */
 export function kindForStatus(status: number): ApiErrorKind {
@@ -40,7 +38,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly kind: ApiErrorKind,
-    readonly provider: ApiProvider,
+    readonly provider: ProviderId,
     readonly status?: number,
     readonly body?: unknown,
   ) {
@@ -50,7 +48,7 @@ export class ApiError extends Error {
 
   /** A short, user-facing explanation with a hint on what to do. */
   get hint(): string {
-    const name = PROVIDER_NAMES[this.provider];
+    const name = API_PROVIDERS[this.provider].name;
     switch (this.kind) {
       case "network":
         return `The request never reached the ${name} API. Check your connection. If you are online, the browser may have blocked the call (CORS or Content-Security-Policy).`;
@@ -73,7 +71,7 @@ export class ApiError extends Error {
 }
 
 /** Whatever a request threw, as an `ApiError`: cancellations are "aborted", anything else that is not one already a network failure. */
-export function toApiError(err: unknown, provider: ApiProvider): ApiError {
+export function toApiError(err: unknown, provider: ProviderId): ApiError {
   if (err instanceof ApiError) return err;
   if ((err instanceof DOMException || err instanceof Error) && err.name === "AbortError") {
     return new ApiError("Request cancelled", "aborted", provider);

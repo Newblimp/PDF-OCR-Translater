@@ -5,9 +5,9 @@
  */
 import type { ModelOption } from "../mistral/models";
 import type { JsonSchemaObject } from "../mistral/types";
-import type { ApiProvider } from "../http/apiError";
+import type { ProviderId } from "../apiProviders";
 
-export type ProviderId = ApiProvider;
+export type { ProviderId };
 
 export type ReasoningEffort = "none" | "low" | "medium" | "high";
 

@@ -5,7 +5,8 @@
  * clients extend it (`mistral/client.ts` adds OCR). Only `baseUrl` is ever
  * contacted; the CSP in `public/_headers` enforces it.
  */
-import { ApiError, toApiError, type ApiProvider } from "./apiError";
+import { ApiError, toApiError } from "./apiError";
+import type { ProviderId } from "../apiProviders";
 import { apiFetch } from "./apiFetch";
 import { readChatStream } from "./chatStream";
 
@@ -47,7 +48,7 @@ export class ChatCompletionsClient<Request extends { model: string }, Usage, Mod
   readonly baseUrl: string;
 
   constructor(
-    protected readonly provider: ApiProvider,
+    protected readonly provider: ProviderId,
     defaultBaseUrl: string,
     private readonly options: ChatClientOptions,
   ) {

@@ -1,6 +1,7 @@
 /** User settings, persisted in localStorage. Bump VERSION when the shape changes. */
 import type { ProviderId, ReasoningEffort } from "../llm/provider";
 import type { StructureOriginalMode } from "../pipeline/pipeline";
+import { isProviderId } from "../apiProviders";
 import { perProvider, PROVIDERS } from "../llm/registry";
 import { DEFAULT_OCR_MODEL } from "../mistral/models";
 
@@ -165,7 +166,7 @@ const THEMES: readonly string[] = ["system", "light", "dark"] satisfies ThemeSet
  * whose default is an object or null needs an entry here or in `normalise()`.
  */
 const VALID: { [K in keyof Settings]?: (value: unknown) => boolean } = {
-  provider: (v) => typeof v === "string" && Object.hasOwn(PROVIDERS, v),
+  provider: isProviderId,
   targetLanguage: (v) => (TARGET_LANGUAGES as readonly unknown[]).includes(v),
   theme: (v) => THEMES.includes(v as string),
   reasoningEffort: (v) => REASONING_EFFORTS.includes(v as string),
