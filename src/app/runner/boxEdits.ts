@@ -1,5 +1,5 @@
 /**
- * "Edit bounding boxes": deleting and changing blocks at once; cutting
+ * "Fix OCR": deleting and changing blocks at once; cutting
  * through text, making a block of a selection and reading a block again
  * send those areas to Mistral OCR (job "edit"). The edits are kept with the
  * OCR result (and in the OCR cache) and can be undone.

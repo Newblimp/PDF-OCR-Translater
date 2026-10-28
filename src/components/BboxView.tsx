@@ -227,7 +227,7 @@ function BboxDetails({ bbox, annotation }: { bbox: OcrBbox; annotation: BboxAnno
       ) : annotation?.error ? (
         <p class="error-text small">Description failed: {annotation.error}</p>
       ) : (
-        <p class="muted small">Not described by the vision model (press Translate, or enable bounding-box descriptions in Settings).</p>
+        <p class="muted small">Not described by the vision model (press Translate, or turn on figure descriptions in Settings → Advanced).</p>
       )}
     </div>
   );

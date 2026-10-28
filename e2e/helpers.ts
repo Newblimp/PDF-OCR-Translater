@@ -81,7 +81,7 @@ export const OCR_PAGE = {
   ],
 };
 
-/** What the mocked OCR reads in an area of a page sent again ("Edit bounding boxes"). */
+/** What the mocked OCR reads in an area of a page sent again ("Fix OCR"). */
 export const REGION_TEXT = "【重新识别】权利要求1不具备创造性。";
 
 export const BBOX_ANNOTATION = {

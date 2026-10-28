@@ -22,7 +22,7 @@ export interface OcrCacheEntry {
   model: string;
   createdAt: number;
   response: OcrResponse;
-  /** The user's block edits of this result ("Edit bounding boxes"), applied on top of `response`. */
+  /** The user's block edits of this result ("Fix OCR"), applied on top of `response`. */
   edits?: BlockEdits | null;
 }
 

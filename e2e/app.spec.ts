@@ -175,9 +175,9 @@ test("OCR + translate: Mistral OCR, Claude Haiku 5.5 translation, browsable JSON
 
   // The strip explains the workflow.
   await page.getByRole("tab", { name: "Structured text" }).click();
-  await expect(page.locator(".pipeline-strip")).toContainText("Mistral OCR: 1 page(s), 2 bounding box(es)");
-  await expect(page.locator(".pipeline-strip")).toContainText("BBox annotation: 2 of 2 box(es) described by the vision model");
-  await expect(page.locator(".pipeline-strip")).toContainText("from the text + 2 bounding-box image(s)");
+  await expect(page.locator(".pipeline-strip")).toContainText("Mistral OCR: 1 page(s), 2 figure(s)");
+  await expect(page.locator(".pipeline-strip")).toContainText("Figure descriptions: 2 of 2 figure(s) described by the vision model");
+  await expect(page.locator(".pipeline-strip")).toContainText("from the text + 2 figure(s)");
   // The switch in the OCR tab does not need the original-language structure, so it was not requested.
   await expect(page.locator(".pipeline-strip")).toContainText("Structured text in the original language not produced yet");
 
@@ -279,7 +279,7 @@ test("German toggle changes the target language of the next translation", async 
   await expect(page.locator(".toolbar")).toContainText("→ German");
   // Pasted text: no OCR, no bounding boxes, and the UI says so.
   await expect(page.locator(".pipeline-strip")).toContainText("Text input (no OCR)");
-  await expect(page.locator(".pipeline-strip")).toContainText("BBox annotation skipped");
+  await expect(page.locator(".pipeline-strip")).toContainText("Figure descriptions skipped");
   await expect(page.getByRole("tab", { name: "Page view", exact: true })).toHaveCount(0);
 
   const translate = chatRequests(recorded).find((r) => step(r) === "translated_document")!.body!;

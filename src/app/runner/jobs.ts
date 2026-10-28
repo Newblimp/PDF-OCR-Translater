@@ -169,7 +169,7 @@ const JOB_TITLES: Record<JobKind, string> = {
   both: "OCR + translation failed",
   original: "Structured text in the original language failed",
   retry: "Retry failed",
-  edit: "Editing the bounding boxes failed",
+  edit: "Fixing the OCR failed",
 };
 
 function toPipelineSettings(settings: Settings): PipelineSettings | { error: AppError } {

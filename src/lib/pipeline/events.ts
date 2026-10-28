@@ -33,7 +33,7 @@ export const STAGES = {
   infer_schema: { label: "Designing the JSON format", inTranslation: (p) => p.settings.structured },
   bbox_annotate: {
     label: "Describing figures, stamps and seals",
-    produces: "Bounding-box descriptions",
+    produces: "Figure descriptions",
     inTranslation: (p) => p.withBoxes && p.settings.bboxAnnotations,
   },
   translate: { label: "Translating into the JSON format", streams: true, inTranslation: (p) => p.settings.structured },

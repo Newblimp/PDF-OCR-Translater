@@ -70,7 +70,7 @@ export interface OcrState {
   response: OcrResponse;
   /** The OCR text as the API returned it. */
   base: OcrText;
-  /** The user's block edits ("Edit bounding boxes"); null for none. Kept in the OCR cache with the result. */
+  /** The user's block edits ("Fix OCR"); null for none. Kept in the OCR cache with the result. */
   edits: BlockEdits | null;
   /** Earlier states of `edits`, for undo (this session only). */
   undo: Array<BlockEdits | null>;

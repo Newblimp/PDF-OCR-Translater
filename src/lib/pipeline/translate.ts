@@ -88,8 +88,8 @@ export async function translateStructured(provider: ChatProvider, documentText: 
     stage,
     "start",
     target === "original"
-      ? `Structuring the original text${partNote} with ${options.model} (${provider.label})${images.length ? `, with ${images.length} bounding-box image(s)` : ""}`
-      : `Translating${partNote} with ${options.model} (${provider.label}) into ${options.targetLanguage}${images.length ? `, with ${images.length} bounding-box image(s)` : ""}`,
+      ? `Structuring the original text${partNote} with ${options.model} (${provider.label})${images.length ? `, with ${images.length} figure(s)` : ""}`
+      : `Translating${partNote} with ${options.model} (${provider.label}) into ${options.targetLanguage}${images.length ? `, with ${images.length} figure(s)` : ""}`,
   );
 
   // Fallback ladder. A retry only happens on a 4xx "bad request" that a

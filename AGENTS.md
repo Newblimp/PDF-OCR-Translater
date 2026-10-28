@@ -293,7 +293,7 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `BboxView` shows them above the original block text, and the OCR text view
   shows each block translated when "Show translation" is on (blocks without
   a translation keep their original text, marked).
-- **Edit bounding boxes** (`EditBoxesView.tsx`, `runner.editBoxes()`,
+- **Fix OCR** (editing the boxes; `EditBoxesView.tsx`, `runner.editBoxes()`,
   `pipeline/blockEdits.ts`): `OcrState` keeps the OCR text as returned
   (`base`), the user's `edits` (`BlockEdits`: the block lists of the edited
   pages, images made of selections, an id counter) and an `undo` stack;

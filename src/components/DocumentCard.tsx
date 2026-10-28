@@ -62,7 +62,7 @@ export const DocumentCard = memo(function DocumentCard({ doc, ocr, compact, busy
         {ocr && (
           <span class="badge badge-ok">
             {ocr.source === "cache" ? "OCR result from this browser's cache (reused, no new OCR charge)" : "OCR done"} · {ocr.text.pagesProcessed} page(s)
-            {ocr.text.bboxes.length ? ` · ${ocr.text.bboxes.length} bounding box(es)` : ""}
+            {ocr.text.bboxes.length ? ` · ${ocr.text.bboxes.length} figure(s)` : ""}
           </span>
         )}
       </div>

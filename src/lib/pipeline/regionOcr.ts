@@ -1,5 +1,5 @@
 /**
- * "Edit bounding boxes": an area of a page read again with Mistral OCR. The
+ * "Fix OCR": an area of a page read again with Mistral OCR. The
  * area goes as a PNG rendered in the browser (the parts cut away blanked),
  * to api.mistral.ai like the document itself, and its Markdown becomes the
  * block's text.

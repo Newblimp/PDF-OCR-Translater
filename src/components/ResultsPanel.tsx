@@ -54,7 +54,7 @@ export interface ResultActions {
   toggleBlock: (pages: readonly OcrCleanPage[], id: string) => void;
   /** Take back every block left out one by one. */
   includeAllBlocks: () => void;
-  /** "Edit bounding boxes": an edit of a page's blocks, undo, and back to the OCR as returned (one page or all). */
+  /** "Fix OCR": an edit of a page's blocks, undo, and back to the OCR as returned (one page or all). */
   editBoxes: (edit: BoxEdit) => void;
   undoBoxEdit: () => void;
   resetBoxEdits: (pageIndex?: number) => void;
