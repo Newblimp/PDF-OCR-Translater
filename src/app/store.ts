@@ -227,6 +227,8 @@ export interface AppError {
   message: string;
   hint?: string;
   details?: string;
+  /** The job that failed can be run again as it was (`retryLastJob()`): the error offers "Retry". */
+  retryable?: boolean;
 }
 
 export interface AppState {

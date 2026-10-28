@@ -28,8 +28,11 @@ anywhere else.
 ## What it does
 
 1. **Drop or pick a file** — PDF, PNG/JPEG/WebP (OCR), or `.txt`/`.md`
-   (translation only). A preview of the first pages is rendered locally with
-   pdf.js.
+   (translation only). Its pages are rendered locally with pdf.js and shown
+   large in the main pane (the ones outside "Pages to OCR" dimmed). While a
+   job runs, its steps show above them; if it fails, the error shows there
+   with **Retry**, which runs the same job again (an OCR result it already
+   got is reused).
 2. **Press Translate** — one button: a PDF or an image is read by Mistral
    OCR first, then translated; a text file or pasted text is translated
    directly. An OCR result already loaded for the same file, model and pages

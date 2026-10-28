@@ -94,7 +94,7 @@ export async function editBoxes(rt: Runtime, edit: BoxEdit): Promise<void> {
     PAGE_RENDER_WIDTH,
   );
   const pageWidth = page.width;
-  await withJob(rt, { kind: "edit", stages: ["region_ocr"], needsChat: false }, async ({ ctx, controller }) => {
+  await withJob(rt, { kind: "edit", stages: ["region_ocr"], needsChat: false, again: () => editBoxes(rt, edit) }, async ({ ctx, controller }) => {
     const model = rt.getState().settings.ocrModel;
     const texts = new Map<string, string>();
     emit(

@@ -134,8 +134,10 @@ test("OCR + translate: Mistral OCR, Claude Haiku 5.5 translation, browsable JSON
 
   await loadPdf(page);
   await expect(page.getByRole("heading", { name: "office-action.pdf" })).toBeVisible();
-  await expect(page.getByText("1 page")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Input" }).getByText("1 page")).toBeVisible();
   await expect(page.locator(".preview-page img")).toHaveCount(1);
+  // Before any result, the main pane shows the document itself.
+  await expect(page.getByRole("region", { name: "Results" }).getByRole("img", { name: "Page 1" })).toBeVisible();
 
   await page.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Structured text" })).toBeVisible({ timeout: 20_000 });
@@ -670,6 +672,27 @@ async function failStep(page: Page, failing: string, status: number, times = Inf
   });
   return { failed: () => failed };
 }
+
+test("a failed job shows its error in the main pane, and Retry runs it again", async ({ page }) => {
+  await setup(page);
+  await enterMistralKey(page);
+  // The OCR is unavailable for the first request and the client's two retries; then it answers.
+  let failures = 0;
+  await page.route("https://api.mistral.ai/v1/ocr", (route) =>
+    failures++ < 3
+      ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Service unavailable" }) })
+      : route.fallback(),
+  );
+  await loadPdf(page);
+  await page.getByRole("button", { name: "Translate", exact: true }).click();
+  const error = page.getByRole("region", { name: "Results" }).getByRole("alert");
+  await expect(error).toContainText("OCR + translation failed", { timeout: 20_000 });
+  await expect(error).toContainText("Service unavailable");
+  await error.getByRole("button", { name: "Retry" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".ocr-page")).toContainText("[EN] 权利要求1不具备创造性。", { timeout: 20_000 });
+  expect(failures).toBe(4);
+});
 
 test("a failing follow-up step leaves a warning on the translation instead of failing the job", async ({ page }) => {
   await setup(page, { json: true });

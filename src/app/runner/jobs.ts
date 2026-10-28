@@ -25,6 +25,8 @@ export interface JobSpec {
   needsChat: boolean;
   /** The translation the job adds to (original-language structure, retries); see `beginJob()`. */
   forTranslation?: TranslationState | undefined;
+  /** Runs the same job again: offered as "Retry" when this one fails. */
+  again?: (() => Promise<void>) | undefined;
 }
 
 /** A running job, as `withJob()` hands it to its work. */
@@ -50,8 +52,17 @@ export async function withJob(rt: Runtime, spec: JobSpec, work: (job: Job) => Pr
     await work(job);
     endJob(rt, job);
   } catch (err) {
-    endJob(rt, job, err);
+    endJob(rt, job, err, spec.again);
   }
+}
+
+/** "Retry" on a job's error: run the job that failed again, as it was. */
+export async function retryLastJob(rt: Runtime): Promise<void> {
+  const again = rt.session.retry;
+  if (!again || rt.getState().job) return;
+  rt.session.retry = null;
+  rt.dispatch({ type: "error/set", error: null });
+  await again();
 }
 
 /**
@@ -114,13 +125,16 @@ function ocrClient(apiKey: string): OcrClient {
   };
 }
 
-/** Report a job's failure (`err`) unless it was cancelled; always ends the job. */
-function endJob(rt: Runtime, job: Job, err?: unknown): void {
+/** Report a job's failure (`err`) unless it was cancelled, offering to run it `again`; always ends the job. */
+function endJob(rt: Runtime, job: Job, err?: unknown, again?: () => Promise<void>): void {
   if (err !== undefined) {
     // A translation whose job was cancelled or failed after it appeared gets no automatic follow-up: the user decides.
     if (job.producedId) rt.session.originalRequested.add(job.producedId);
     if (!isCancellation(err, job)) {
-      rt.dispatch({ type: "error/set", error: toAppError(err, JOB_TITLES[job.kind]) });
+      // A rejected key fails the same way again: the error says to change it, not to retry.
+      const retry = err instanceof ApiError && err.kind === "auth" ? null : (again ?? null);
+      rt.session.retry = retry;
+      rt.dispatch({ type: "error/set", error: { ...toAppError(err, JOB_TITLES[job.kind]), ...(retry ? { retryable: true } : {}) } });
       job.controller.abort(); // stop stages still running in the background
     }
   }

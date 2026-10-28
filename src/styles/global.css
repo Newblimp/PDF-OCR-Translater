@@ -2138,3 +2138,103 @@ input[aria-invalid="true"] {
   color: var(--text-muted);
   white-space: normal;
 }
+
+/* ------------------------------------------------------------- the work area */
+/* The document before there is a result (DocumentView), large in the main pane. */
+.document-view {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+}
+.doc-pages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 2px 18px;
+}
+.doc-page {
+  width: min(100%, 860px);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 1200px;
+}
+.doc-page img,
+.doc-page-placeholder {
+  display: block;
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: var(--shadow);
+}
+.doc-page-placeholder {
+  aspect-ratio: 1 / 1.414;
+  display: grid;
+  place-items: center;
+  color: #6b6560;
+}
+.doc-page-skipped img,
+.doc-page-skipped .doc-page-placeholder {
+  opacity: 0.4;
+}
+.doc-image {
+  max-width: 100%;
+  align-self: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.doc-text {
+  margin: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  line-height: 1.6;
+  max-width: 80ch;
+}
+/* The job status in the main pane: its stages side by side when there is room. */
+.pane-results .job-status .stage-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 6px 16px;
+}
+/* One line under the actions for the job or error the main pane shows; on wide screens the main pane is beside it. */
+.job-brief {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.job-brief-error {
+  color: var(--bare);
+  border-color: var(--bare);
+  background: var(--bare-bg);
+}
+.job-brief-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@media (min-width: 961px) {
+  .job-brief {
+    display: none;
+  }
+}

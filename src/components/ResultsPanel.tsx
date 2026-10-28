@@ -5,6 +5,8 @@ import type { OcrCleanPage } from "@/lib/pipeline/ocrText";
 import { sameArrangement, type DockTarget } from "@/lib/util/dock";
 import { OCR_PROVIDER, PROVIDERS } from "@/lib/llm/registry";
 import { Dock } from "./Dock";
+import { ErrorBanner } from "./ErrorBanner";
+import { JobStatus } from "./JobStatus";
 import { lazyView } from "./lazyView";
 
 // The views load with the first result that needs them; the JSON views only with "JSON output" on.
@@ -15,6 +17,7 @@ const SchemaView = lazyView(() => import("./JsonViews").then((m) => m.SchemaView
 const StructuredView = lazyView(() => import("./JsonViews").then((m) => m.StructuredView));
 const RawJsonView = lazyView(() => import("./JsonViews").then((m) => m.RawJsonView));
 const StreamingView = lazyView(() => import("./JsonViews").then((m) => m.StreamingView));
+const DocumentView = lazyView(() => import("./DocumentView").then((m) => m.DocumentView));
 
 /** Stable callbacks from the app (created once, so the memoised views below skip unrelated re-renders). */
 export interface ResultActions {
@@ -24,6 +27,10 @@ export interface ResultActions {
   moveTab: (tab: ResultTab, target: DockTarget) => void;
   resizeSplit: (split: string, sizes: number[]) => void;
   resetLayout: () => void;
+  /** Close the error shown above the results. */
+  dismissError: () => void;
+  /** Run the job that failed again (the error's "Retry"). */
+  retryLastJob: () => void;
   /** "Show translation", shared by the OCR text, Structured text and Raw JSON tabs. */
   setShowTranslation: (show: boolean) => void;
   /** The structured text in the original language is on screen but missing: produce it (once per translation). */
@@ -103,23 +110,45 @@ export function ResultsPanel({ state, actions }: Props) {
   const name = baseName(state);
   const jobKind = state.job?.kind ?? null;
 
+  // The job's progress and its error show above whatever the pane holds: the result tabs, the document, or the first steps.
+  const work = (
+    <>
+      {state.job && <JobStatus job={state.job} />}
+      {state.error && <ErrorBanner error={state.error} onDismiss={actions.dismissError} onRetry={actions.retryLastJob} />}
+    </>
+  );
+
+  if (available.size === 0 && state.doc && !state.pasteMode) {
+    return (
+      <>
+        {work}
+        <DocumentView doc={state.doc} idle={!state.job && !state.error} />
+      </>
+    );
+  }
+
   if (available.size === 0) {
     return (
-      <div class="empty-state">
-        <h2>Results appear here</h2>
-        <ol>
-          <li>Drop a PDF (for example a CNIPA office action).</li>
-          <li>Press “Translate”.</li>
-          <li>
-            Read the text, original or translated block by block, or see it on the page; leave out block types or single blocks.
-            {settings.jsonOutput ? " The structured text fills a JSON format with the translation." : " Turn on “JSON output” in Settings for structured text."}
-          </li>
-        </ol>
-        <p class="muted small">
-          The file is encoded in your browser and sent to {PROVIDERS[OCR_PROVIDER].host} for OCR; the OCR text and the cropped figure images it returns go to
-          the translation provider (configurable in Settings). Nothing is uploaded to this site's host.
-        </p>
-      </div>
+      <>
+        {work}
+        <div class="empty-state">
+          <h2>Results appear here</h2>
+          <ol>
+            <li>Drop a PDF (for example a CNIPA office action).</li>
+            <li>Press “Translate”.</li>
+            <li>
+              Read the text, original or translated block by block, or see it on the page; leave out block types or single blocks.
+              {settings.jsonOutput
+                ? " The structured text fills a JSON format with the translation."
+                : " Turn on “JSON output” in Settings for structured text."}
+            </li>
+          </ol>
+          <p class="muted small">
+            The file is encoded in your browser and sent to {PROVIDERS[OCR_PROVIDER].host} for OCR; the OCR text and the cropped figure images it returns go to
+            the translation provider (configurable in Settings). Nothing is uploaded to this site's host.
+          </p>
+        </div>
+      </>
     );
   }
 
@@ -211,17 +240,20 @@ export function ResultsPanel({ state, actions }: Props) {
   };
 
   return (
-    <Dock
-      layout={state.resultLayout}
-      tabs={RESULT_TABS}
-      labels={TAB_LABELS}
-      available={available}
-      renderTab={renderTab}
-      customised={!sameArrangement(state.resultLayout, DEFAULT_LAYOUT)}
-      onActivate={actions.setTab}
-      onMove={actions.moveTab}
-      onResize={actions.resizeSplit}
-      onReset={actions.resetLayout}
-    />
+    <>
+      {work}
+      <Dock
+        layout={state.resultLayout}
+        tabs={RESULT_TABS}
+        labels={TAB_LABELS}
+        available={available}
+        renderTab={renderTab}
+        customised={!sameArrangement(state.resultLayout, DEFAULT_LAYOUT)}
+        onActivate={actions.setTab}
+        onMove={actions.moveTab}
+        onResize={actions.resizeSplit}
+        onReset={actions.resetLayout}
+      />
+    </>
   );
 }

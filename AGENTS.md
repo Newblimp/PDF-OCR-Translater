@@ -101,7 +101,10 @@ src/
       boxEdits.ts              "Fix OCR" (editing the boxes): editBoxes(), undo, reset; edits kept with the cached OCR result
   components/                  presentational Preact components (memoised; handlers come from App, created once)
     JsonBrowser/               browsable view of the translated JSON
-    ResultsPanel.tsx           the result tabs: which are available, and their views (loaded on first use, lazyView.tsx)
+    ResultsPanel.tsx           the main pane: the job's progress and error (with Retry) on top, then the result tabs and their
+                               views (loaded on first use, lazyView.tsx), or the document itself before there is a result
+    DocumentView.tsx           the loaded document, large, before there is a result (pages outside "Pages to OCR" dimmed)
+    JobBrief.tsx               one line under the actions for the job or error the main pane shows (narrow screens only)
     JsonViews.tsx              with JSON output: structured text, JSON format, raw JSON, the live stream view
     OcrView.tsx                "Text" tab (the OCR text): blocks filtered by type and one by one, PDF beside it (block picking), page layout
     resultControls.tsx         download, clipboard, "Show translation" switch, token usage (shared by the views)
@@ -461,7 +464,9 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 - A job is `withJob(rt, spec, work)` (`runner/jobs.ts`): it starts the job
   in the store when keys and settings allow (else `work` never runs and the
   reason is shown) and always ends it, showing the error `work` throws
-  unless the job was cancelled. Write a new job as its `work`; never start
+  unless the job was cancelled. `spec.again` (the same call once more)
+  makes the error offer "Retry" (`retryLastJob()`, through
+  `Runtime.session.retry`), except for a rejected key. Write a new job as its `work`; never start
   or end one by hand.
 - Components that receive callbacks get them from the `on` / `results`
   objects in `App.tsx`, created once: an inline arrow function as a prop

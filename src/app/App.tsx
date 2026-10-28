@@ -12,10 +12,9 @@ import { ActionBar } from "@/components/ActionBar";
 import { ApiKeyDialog } from "@/components/ApiKeyDialog";
 import { DocumentCard } from "@/components/DocumentCard";
 import { DropZone } from "@/components/DropZone";
-import { ErrorBanner } from "@/components/ErrorBanner";
 import { Header } from "@/components/Header";
 import { HistoryPanel } from "@/components/HistoryPanel";
-import { JobStatus } from "@/components/JobStatus";
+import { JobBrief } from "@/components/JobBrief";
 import { PasteBox } from "@/components/PasteBox";
 import { ResultsPanel, type ResultActions } from "@/components/ResultsPanel";
 import { QuickOptions } from "@/components/QuickOptions";
@@ -34,6 +33,7 @@ import {
   refreshHistory,
   resetBoxEdits,
   retryFailed,
+  retryLastJob,
   runJob,
   setPageSelection,
   submitApiKeys,
@@ -72,7 +72,6 @@ export function App({ store, runtime: rt }: { store: Store<AppState, Action>; ru
       pasteText: (text: string) => dispatch({ type: "paste/text", text }),
       run: (kind: "ocr" | "translate" | "both") => void runJob(rt, kind),
       cancel: () => cancelJob(rt),
-      dismissError: () => dispatch({ type: "error/set", error: null }),
       openSaved: (id: string) => void openSavedTranslation(rt, id),
       deleteSaved: (id: string) => void deleteSaved(rt, id),
       clearHistory: () => void clearHistory(rt),
@@ -85,6 +84,8 @@ export function App({ store, runtime: rt }: { store: Store<AppState, Action>; ru
       moveTab: (tab: ResultTab, target: DockTarget) => dispatch({ type: "layout/move", tab, target }),
       resizeSplit: (split: string, sizes: number[]) => dispatch({ type: "layout/resize", split, sizes }),
       resetLayout: () => dispatch({ type: "layout/reset" }),
+      dismissError: () => dispatch({ type: "error/set", error: null }),
+      retryLastJob: () => void retryLastJob(rt),
       setOcrShowPdf: (ocrShowPdf: boolean) => updateSettings(rt, { ocrShowPdf }),
       setOcrLinkScroll: (ocrLinkScroll: boolean) => updateSettings(rt, { ocrLinkScroll }),
       setOcrHiddenTypes: (ocrHiddenTypes: string[]) => updateSettings(rt, { ocrHiddenTypes }),
@@ -168,8 +169,7 @@ export function App({ store, runtime: rt }: { store: Store<AppState, Action>; ru
               onCancel={on.cancel}
             />
 
-            {state.job && <JobStatus job={state.job} />}
-            {state.error && <ErrorBanner error={state.error} onDismiss={on.dismissError} />}
+            <JobBrief job={state.job} error={state.error} />
 
             <QuickOptions targetLanguage={state.settings.targetLanguage} glossary={state.settings.glossary} onChange={on.changeSettings} />
             <SettingsPanel
