@@ -82,10 +82,10 @@ AI). Keep it current when you change the architecture.
 
 ```
 src/
-  main.tsx                     entry; mounts <App/>
+  main.tsx                     entry: the store (from what this browser saved), mounts <App/>
   app/
     App.tsx                    layout + wiring of components to the store
-    store.ts                   AppState, Action union, reducer, selectors
+    store.ts                   AppState, Action union, reducer, selectors, translation defaults
     runner.ts                  side effects: load document, verify key, run jobs
   components/                  presentational Preact components (memoised; handlers come from App, created once)
     JsonBrowser/               browsable view of the translated JSON
@@ -160,7 +160,8 @@ src/
     storage/                   localStorage/sessionStorage (keys, settings, theme, result layout); IndexedDB (db.ts):
                                OCR cache (ocrCache.ts), saved translations (history.ts)
     util/                      JSON extraction, partial-JSON parser for streaming, page selection, text helpers, worker pool,
-                               dock.ts (split-view layout model), linkedScroll.ts (page-by-page scroll mapping)
+                               dock.ts (split-view layout model), linkedScroll.ts (page-by-page scroll mapping),
+                               createStore.ts (the app's store)
   styles/global.css
 e2e/                           Playwright specs + API mock
 public/_headers                Cloudflare Pages headers (CSP etc.)
@@ -408,8 +409,11 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   "length", `refusal` → "content_filter", or an `ApiError` of kind "refusal"
   when nothing was produced), and always sends `max_tokens` (required by the
   API).
-- `Runtime.getState()` (see `App.tsx`) mirrors the reducer synchronously, so
-  code in `runner.ts` can read the state right after a `dispatch`. Async
+- There is one state: the store `main.tsx` creates (`util/createStore.ts`),
+  which `App.tsx` renders with `useSyncExternalStore` and passes to the
+  runner as its `Runtime`. The reducer runs once per action, so
+  `rt.getState()` holds an action's result as soon as it is dispatched,
+  the very objects the view renders. Async
   work that dispatches late must check it is still relevant (see
   `verifyAndSaveApiKey`, `loadDocument`, the `translation.id` checks in
   `retryFailed`).
