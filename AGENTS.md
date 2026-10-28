@@ -27,9 +27,9 @@ AI). Keep it current when you change the architecture.
   Heavy libraries (pdf.js, marked/DOMPurify, the Anthropic SDK) and the
   app's own heavy parts are imported on first use, each its own chunk: the
   result views (`lazyView()` in `ResultsPanel.tsx`), the pipeline's stages
-  (`pipeline()` in `runner.ts`), the provider implementations
+  (`pipeline()` in `runner/translation.ts`), the provider implementations
   (`createProvider()` in `registry.ts`) and the Mistral client
-  (`ocrClient()` in `runner.ts`). Keep it that way: a static import of one of
+  (`ocrClient()` in `runner/jobs.ts`). Keep it that way: a static import of one of
   them from the shell (App, store, side panel, settings) puts it back into
   the first download (`src/architecture.test.ts` fails); `npx vite build`
   lists the chunks. Long lists use
@@ -89,7 +89,16 @@ src/
   app/
     App.tsx                    layout + wiring of components to the store
     store.ts                   AppState, Action union, reducer, selectors, translation defaults
-    runner.ts                  side effects: load document, verify key, run jobs
+    runner/                    side effects that drive the store; index.ts lists what the components call
+      runtime.ts               the store as the runner sees it (`Runtime`)
+      keys.ts                  API keys: stored, verified against the model list, forgotten
+      settings.ts              a settings change and what it takes along (theme, where keys are kept, key dialog)
+      document.ts              loading a document, its cached OCR result and saved translation; releasing it
+      savedTranslations.ts     "Recent translations": saving, listing, reopening, deleting
+      jobs.ts                  what every job shares: beginJob() / endJob(), cancelJob(), followUps(), Settings → PipelineSettings
+      translation.ts           runJob() (OCR, translate, both; with or without the JSON output), the structure in the
+                               original language, retries of failed parts
+      boxEdits.ts              "Edit bounding boxes": editBoxes(), undo, reset; edits kept with the cached OCR result
   components/                  presentational Preact components (memoised; handlers come from App, created once)
     JsonBrowser/               browsable view of the translated JSON
     ResultsPanel.tsx           the result tabs: which are available, and their views (loaded on first use, lazyView.tsx)
@@ -154,7 +163,7 @@ src/
                                fallbacks: without images → non-streaming → json_object; keeps truncated output
       chunks.ts                long documents: split along pages/paragraphs, merge the parts' JSON
       pipeline.ts              the stages: ocrOnly, resolveSchema, describeBboxes, translateDocument,
-                               structureOriginal, blockTranslations (composed by app/runner.ts);
+                               structureOriginal, blockTranslations (composed by app/runner/translation.ts);
                                PipelineSettings.structured = JSON output
       events.ts                progress events shared by the steps
     export/bilingual.ts        bilingual HTML export (translation next to the original)
@@ -171,7 +180,7 @@ public/_headers                Cloudflare Pages headers (CSP etc.)
 vite.config.ts                 Preact preset, pdf.js asset serving, _headers in dev/preview
 ```
 
-Data flow: `components → runner.ts → pipeline/* → llm/<provider> or
+Data flow: `components → app/runner/ → pipeline/* → llm/<provider> or
 mistral/client.ts (OCR) → http/apiFetch.ts` (Mistral, OpenAI) or the
 Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 `store.ts` and rendered by the components.
@@ -194,7 +203,7 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
 - **New pipeline step** (e.g. a review pass): add a module in
   `src/lib/pipeline/`, emit progress with `emit()` from `events.ts` (add a
   `StageId` if needed), expose it from `pipeline.ts`, and compose it in
-  `runner.ts` (`translateStructured()` and/or `translateByBlocks()`; add it
+  `runner/translation.ts` (`translateStructured()` and/or `translateByBlocks()`; add it
   to `translationStages()` so the job status lists it). A step after the
   translation should go through a `followUps()` wrapper so its failure
   becomes a warning on the result rather than a failed job. Then surface results through a new field in `AppState` and a
