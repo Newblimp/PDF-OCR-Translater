@@ -15,7 +15,6 @@ export const DEFAULT_OPENAI_MODEL = "gpt-6-luna";
 export const FALLBACK_OPENAI_MODELS: ReadonlyArray<ModelOption> = [
   { id: "gpt-6-luna", label: "GPT-6 Luna (gpt-6-luna)" },
   { id: "gpt-5.6-luna", label: "GPT-5.6 Luna (gpt-5.6-luna)" },
-  { id: "gpt-5.6-luna-pro", label: "GPT-5.6 Luna Pro (gpt-5.6-luna-pro)" },
   { id: "gpt-5.6-terra", label: "GPT-5.6 Terra (gpt-5.6-terra)" },
   { id: "gpt-5.6-sol", label: "GPT-5.6 Sol (gpt-5.6-sol)" },
 ];
