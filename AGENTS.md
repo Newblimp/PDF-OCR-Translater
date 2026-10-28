@@ -31,7 +31,8 @@ AI). Keep it current when you change the architecture.
   (`createProvider()` in `registry.ts`) and the Mistral client
   (`ocrClient()` in `runner.ts`). Keep it that way: a static import of one of
   them from the shell (App, store, side panel, settings) puts it back into
-  the first download; `npx vite build` lists the chunks. Long lists use
+  the first download (`src/architecture.test.ts` fails); `npx vite build`
+  lists the chunks. Long lists use
   `content-visibility`;
   network calls are cancellable via `AbortController`; the translation
   streams so progress is visible; independent stages run concurrently;
@@ -70,6 +71,12 @@ AI). Keep it current when you change the architecture.
   promises). Prettier formats everything (`.prettierrc.json`: print width
   160, otherwise its defaults; pinned to an exact version so formatting does
   not shift under an update). CI runs all of them (`.github/workflows/ci.yml`).
+- `src/architecture.test.ts` checks rules this guide states in prose: the
+  CSP connects to exactly the providers' hosts, `public/theme-init.js` reads
+  the settings key, every module the code imports on first use (`import()`)
+  stays out of `src/main.tsx`'s static imports, and the files and names
+  quoted in this guide exist. When it fails, fix the code or this guide,
+  not the test.
 
 ## Code map
 
@@ -211,8 +218,8 @@ Anthropic SDK (`anthropic/client.ts`), with results dispatched back into
   `DOCUMENT_ANNOTATION_MAX_IMAGES` box images to the user message
   (`JsonChatRequest.images`, rendered as `image_url` parts by each provider).
   `ResultsPanel`'s `PipelineStrip` tells the user what ran; `BboxView` draws
-  `OcrText.bboxes` and `OcrCleanPage.blocks` over the page rendered by
-  `renderPdfPage()`.
+  `OcrText.bboxes` and `OcrCleanPage.blocks` over the page its
+  `PageRenderer` renders (`usePageRenderer()`, see "Page rendering").
 - **Result tabs**: `RESULT_TABS` in `store.ts` fixes the default order —
   Bounding boxes (shown first), OCR text, Structured text, JSON format, Raw
   JSON. The user arranges them in split views like VS Code's editor groups:
